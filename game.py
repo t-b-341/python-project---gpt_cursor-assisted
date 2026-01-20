@@ -11,12 +11,16 @@
 #--------------------------------------------------------
 #add boost mechanic using shift, and slow down mechanic using ctrl
 #add a control mapping system, so the player can map the keys to the actions
-
+#add a pickup for boost
+#add a pickup for more firing speed
+#add a pickup for enemies spawn more often, that enemies can pick up, and that you have to shoot to destroy the pickup
 
 
 
 import math
 import random
+import json
+import os
 
 import pygame
 from datetime import datetime, timezone
@@ -36,6 +40,55 @@ from telemetry import (
 )
 
 pygame.init()
+
+# ----------------------------
+# Controls (remappable)
+# ----------------------------
+CONTROLS_PATH = "controls.json"
+DEFAULT_CONTROLS = {
+    "move_left": "a",
+    "move_right": "d",
+    "move_up": "w",
+    "move_down": "s",
+    "boost": "left shift",
+    "slow": "left ctrl",
+}
+
+
+def _key_name_to_code(name: str) -> int:
+    name = (name or "").lower().strip()
+    try:
+        return pygame.key.key_code(name)
+    except Exception:
+        return pygame.K_UNKNOWN
+
+
+def load_controls() -> dict[str, int]:
+    data = {}
+    if os.path.exists(CONTROLS_PATH):
+        try:
+            with open(CONTROLS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+        except Exception:
+            data = {}
+
+    merged = {**DEFAULT_CONTROLS, **{k: v for k, v in data.items() if isinstance(v, str)}}
+    return {action: _key_name_to_code(key_name) for action, key_name in merged.items()}
+
+
+def save_controls(controls: dict[str, int]) -> None:
+    # Persist as human-readable key names so players can edit the file too
+    out: dict[str, str] = {}
+    for action, key_code in controls.items():
+        try:
+            out[action] = pygame.key.name(key_code)
+        except Exception:
+            out[action] = "unknown"
+    with open(CONTROLS_PATH, "w", encoding="utf-8") as f:
+        json.dump(out, f, indent=2)
+
+
+controls = load_controls()
 
 # ----------------------------
 # Window / timing
@@ -67,6 +120,12 @@ pause_options = ["Continue", "Quit"]
 pause_selected = 0
 continue_blink_t = 0.0
 
+# Controls menu state
+STATE_CONTROLS = "CONTROLS"
+controls_actions = ["move_left", "move_right", "move_up", "move_down", "boost", "slow"]
+controls_selected = 0
+controls_rebinding = False
+
 # ----------------------------
 # Player
 # ----------------------------
@@ -80,9 +139,22 @@ LIVES_START = 10
 lives = LIVES_START
 
 # Track most recent movement keys so latest press wins on conflicts
-last_horizontal_key = None  # pygame.K_a / pygame.K_d
-last_vertical_key = None  # pygame.K_w / pygame.K_s
+last_horizontal_key = None  # keycode of current "latest" horizontal key
+last_vertical_key = None  # keycode of current "latest" vertical key
 last_move_velocity = pygame.Vector2(0, 0)
+
+# Boost / slow
+boost_meter_max = 100.0
+boost_meter = boost_meter_max
+boost_drain_per_s = 45.0
+boost_regen_per_s = 25.0
+boost_speed_mult = 1.7
+slow_speed_mult = 0.45
+
+# Fire-rate pickup buff
+fire_rate_buff_t = 0.0
+fire_rate_buff_duration = 10.0
+fire_rate_mult = 0.55  # reduces cooldown while active
 
 # ----------------------------
 # World blocks
@@ -230,6 +302,12 @@ wave_active = True
 base_enemies_per_wave = 4
 max_enemies_per_wave = 24
 
+# Pickups
+pickups: list[dict] = []
+pickup_spawn_timer = 0.0
+PICKUP_SPAWN_INTERVAL = 7.5
+enemy_spawn_boost_level = 0  # enemies can increase this by collecting "spawn_boost" pickups
+
 
 # ----------------------------
 # Helpers
@@ -304,6 +382,8 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
             continue
         if any(candidate.colliderect(b["rect"]) for b in blocks):
             continue
+        if any(candidate.colliderect(p["rect"]) for p in pickups):
+            continue
         return candidate
     # fallback: top-left corner inside bounds
     return pygame.Rect(max(0, WIDTH // 2 - w), max(0, HEIGHT // 2 - h), w, h)
@@ -350,7 +430,7 @@ def start_wave(wave_num: int):
     enemies = []
     hp_scale = 1.0 + 0.15 * (wave_num - 1)
     speed_scale = 1.0 + 0.05 * (wave_num - 1)
-    count = min(base_enemies_per_wave + 2 * (wave_num - 1), max_enemies_per_wave)
+    count = min(base_enemies_per_wave + enemy_spawn_boost_level + 2 * (wave_num - 1), max_enemies_per_wave)
 
     spawned: list[dict] = []
     for _ in range(count):
@@ -374,6 +454,18 @@ def start_wave(wave_num: int):
             speed_scale=speed_scale,
         )
     )
+
+
+def spawn_pickup(pickup_type: str):
+    size = (18, 18)
+    r = random_spawn_position(size)
+    if pickup_type == "boost":
+        color = (80, 200, 255)
+    elif pickup_type == "firerate":
+        color = (255, 200, 80)
+    else:  # "spawn_boost"
+        color = (255, 80, 200)
+    pickups.append({"type": pickup_type, "rect": r, "color": color})
 
 
 def draw_health_bar(x, y, w, h, hp, max_hp):
@@ -529,9 +621,18 @@ try:
                 running = False
 
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_a, pygame.K_d):
+                # Controls rebinding mode
+                if state == STATE_CONTROLS and controls_rebinding:
+                    action = controls_actions[controls_selected]
+                    controls[action] = event.key
+                    save_controls(controls)
+                    controls_rebinding = False
+                    continue
+
+                # Update last-pressed direction for conflict resolution
+                if event.key in (controls["move_left"], controls["move_right"]):
                     last_horizontal_key = event.key
-                if event.key in (pygame.K_w, pygame.K_s):
+                if event.key in (controls["move_up"], controls["move_down"]):
                     last_vertical_key = event.key
 
                 if event.key == pygame.K_ESCAPE:
@@ -542,6 +643,8 @@ try:
                         state = STATE_PLAYING
                     elif state == STATE_CONTINUE:
                         running = False
+                    elif state == STATE_CONTROLS:
+                        state = STATE_PAUSED
 
                 if event.key == pygame.K_p:
                     if state == STATE_PLAYING:
@@ -562,6 +665,19 @@ try:
                             state = STATE_PLAYING
                         elif choice == "Quit":
                             running = False
+                    elif event.key == pygame.K_c:
+                        state = STATE_CONTROLS
+                        controls_selected = 0
+                        controls_rebinding = False
+
+                # Controls menu
+                if state == STATE_CONTROLS and not controls_rebinding:
+                    if event.key == pygame.K_UP:
+                        controls_selected = (controls_selected - 1) % len(controls_actions)
+                    elif event.key == pygame.K_DOWN:
+                        controls_selected = (controls_selected + 1) % len(controls_actions)
+                    elif event.key == pygame.K_RETURN:
+                        controls_rebinding = True
 
                 # Continue screen
                 if state == STATE_CONTINUE:
@@ -571,20 +687,24 @@ try:
 
             if event.type == pygame.KEYUP:
                 keys_now = pygame.key.get_pressed()
-                if event.key in (pygame.K_a, pygame.K_d):
+                if event.key in (controls["move_left"], controls["move_right"]):
                     if last_horizontal_key == event.key:
-                        if keys_now[pygame.K_a] and not keys_now[pygame.K_d]:
-                            last_horizontal_key = pygame.K_a
-                        elif keys_now[pygame.K_d] and not keys_now[pygame.K_a]:
-                            last_horizontal_key = pygame.K_d
+                        left_k = controls["move_left"]
+                        right_k = controls["move_right"]
+                        if keys_now[left_k] and not keys_now[right_k]:
+                            last_horizontal_key = left_k
+                        elif keys_now[right_k] and not keys_now[left_k]:
+                            last_horizontal_key = right_k
                         else:
                             last_horizontal_key = None
-                if event.key in (pygame.K_w, pygame.K_s):
+                if event.key in (controls["move_up"], controls["move_down"]):
                     if last_vertical_key == event.key:
-                        if keys_now[pygame.K_w] and not keys_now[pygame.K_s]:
-                            last_vertical_key = pygame.K_w
-                        elif keys_now[pygame.K_s] and not keys_now[pygame.K_w]:
-                            last_vertical_key = pygame.K_s
+                        up_k = controls["move_up"]
+                        down_k = controls["move_down"]
+                        if keys_now[up_k] and not keys_now[down_k]:
+                            last_vertical_key = up_k
+                        elif keys_now[down_k] and not keys_now[up_k]:
+                            last_vertical_key = down_k
                         else:
                             last_vertical_key = None
 
@@ -593,7 +713,7 @@ try:
             # Movement
             if not enemies and wave_active:
                 wave_active = False
-                time_to_next_wave = wave_respawn_delay
+                time_to_next_wave = max(0.5, wave_respawn_delay - 0.25 * enemy_spawn_boost_level)
                 # Log wave end event
                 telemetry.log_wave(
                     WaveEvent(
@@ -614,29 +734,48 @@ try:
 
             keys = pygame.key.get_pressed()
             dx = dy = 0
-            left = keys[pygame.K_a]
-            right = keys[pygame.K_d]
-            up = keys[pygame.K_w]
-            down = keys[pygame.K_s]
+            left_k = controls["move_left"]
+            right_k = controls["move_right"]
+            up_k = controls["move_up"]
+            down_k = controls["move_down"]
+            boost_k = controls["boost"]
+            slow_k = controls["slow"]
+
+            left = keys[left_k]
+            right = keys[right_k]
+            up = keys[up_k]
+            down = keys[down_k]
+            wants_boost = keys[boost_k]
+            wants_slow = keys[slow_k]
 
             if left and right:
-                dx = -1 if last_horizontal_key == pygame.K_a else 1
+                dx = -1 if last_horizontal_key == left_k else 1
             elif left:
                 dx = -1
             elif right:
                 dx = 1
 
             if up and down:
-                dy = -1 if last_vertical_key == pygame.K_w else 1
+                dy = -1 if last_vertical_key == up_k else 1
             elif up:
                 dy = -1
             elif down:
                 dy = 1
 
             move_dir = pygame.Vector2(dx, dy)
+            speed_mult = 1.0
+            if wants_slow:
+                speed_mult *= slow_speed_mult
+            boosting = wants_boost and boost_meter > 0.0 and not wants_slow
+            if boosting:
+                speed_mult *= boost_speed_mult
+                boost_meter = max(0.0, boost_meter - boost_drain_per_s * dt)
+            else:
+                boost_meter = min(boost_meter_max, boost_meter + boost_regen_per_s * dt)
+
             if move_dir.length_squared() > 0:
                 move_dir = move_dir.normalize()
-                last_move_velocity = move_dir * player_speed
+                last_move_velocity = move_dir * player_speed * speed_mult
             else:
                 last_move_velocity = pygame.Vector2(0, 0)
 
@@ -644,11 +783,16 @@ try:
             move_y = int(last_move_velocity.y * dt)
 
             # Shooting
-            if pygame.mouse.get_pressed(3)[0] and player_time_since_shot >= player_shoot_cooldown:
+            effective_cooldown = player_shoot_cooldown * (fire_rate_mult if fire_rate_buff_t > 0 else 1.0)
+            if pygame.mouse.get_pressed(3)[0] and player_time_since_shot >= effective_cooldown:
                 spawn_player_bullet_and_log()
                 player_time_since_shot = 0.0
 
             move_player_with_push(player, move_x, move_y, blocks)
+
+            # Update timed buffs
+            if fire_rate_buff_t > 0:
+                fire_rate_buff_t = max(0.0, fire_rate_buff_t - dt)
 
             block_rects = [b["rect"] for b in blocks]
             for e in enemies:
@@ -713,6 +857,46 @@ try:
                     spawn_enemy_projectile(e)
                     e["time_since_shot"] = 0.0
 
+            # Pickup spawning
+            pickup_spawn_timer += dt
+            if pickup_spawn_timer >= PICKUP_SPAWN_INTERVAL:
+                pickup_spawn_timer = 0.0
+                roll = random.random()
+                if roll < 0.45:
+                    spawn_pickup("boost")
+                elif roll < 0.80:
+                    spawn_pickup("firerate")
+                else:
+                    spawn_pickup("spawn_boost")
+
+            # Pickup interactions
+            for p in pickups[:]:
+                pr = p["rect"]
+                ptype = p["type"]
+
+                # Player collects beneficial pickups
+                if ptype in ("boost", "firerate") and pr.colliderect(player):
+                    if ptype == "boost":
+                        boost_meter = min(boost_meter_max, boost_meter + 45.0)
+                    elif ptype == "firerate":
+                        fire_rate_buff_t = fire_rate_buff_duration
+                    pickups.remove(p)
+                    continue
+
+                # Enemies can collect spawn boost pickup
+                if ptype == "spawn_boost":
+                    grabbed = False
+                    for e in enemies:
+                        if pr.colliderect(e["rect"]):
+                            enemy_spawn_boost_level = min(10, enemy_spawn_boost_level + 1)
+                            # also make current wave a bit scarier by slightly reducing remaining respawn delay
+                            wave_respawn_delay = max(0.8, wave_respawn_delay - 0.15)
+                            grabbed = True
+                            break
+                    if grabbed:
+                        pickups.remove(p)
+                        continue
+
             # Player bullets update
             for b in player_bullets[:]:
                 r = b["rect"]
@@ -721,6 +905,20 @@ try:
                 r.y += int(v.y * dt)
 
                 if rect_offscreen(r):
+                    player_bullets.remove(b)
+                    continue
+
+                # bullets can destroy spawn_boost pickups
+                hit_pickup = None
+                for p in pickups:
+                    if p["type"] == "spawn_boost" and r.colliderect(p["rect"]):
+                        hit_pickup = p
+                        break
+                if hit_pickup is not None:
+                    try:
+                        pickups.remove(hit_pickup)
+                    except ValueError:
+                        pass
                     player_bullets.remove(b)
                     continue
 
@@ -842,6 +1040,9 @@ try:
         for blk in blocks:
             pygame.draw.rect(screen, blk["color"], blk["rect"])
 
+        for pu in pickups:
+            pygame.draw.rect(screen, pu["color"], pu["rect"])
+
         for e in enemies:
             pygame.draw.rect(screen, e["color"], e["rect"])
             draw_health_bar(e["rect"].x, e["rect"].y - 10, e["rect"].w, 6, e["hp"], e["max_hp"])
@@ -879,6 +1080,11 @@ try:
         screen.blit(font.render(wave_text, True, (230, 230, 230)), (10, 102))
         screen.blit(font.render(f"Damage dealt: {damage_dealt}", True, (230, 230, 230)), (10, 124))
         screen.blit(font.render(f"Damage taken: {damage_taken}", True, (230, 230, 230)), (10, 146))
+        screen.blit(font.render(f"Boost: {int(boost_meter)}/{int(boost_meter_max)}", True, (230, 230, 230)), (10, 190))
+        if fire_rate_buff_t > 0:
+            screen.blit(font.render(f"Firerate buff: {fire_rate_buff_t:.1f}s", True, (255, 220, 120)), (10, 212))
+        if enemy_spawn_boost_level > 0:
+            screen.blit(font.render(f"Enemy spawn boost: +{enemy_spawn_boost_level}", True, (255, 140, 220)), (10, 234))
         screen.blit(
             font.render(
                 f"Run: {run_time:.1f}s  Shots: {shots_fired}  Hits: {hits}  Kills: {enemies_killed}  Deaths: {deaths}",
@@ -895,12 +1101,31 @@ try:
             screen.blit(overlay, (0, 0))
 
             draw_centered_text("Paused", HEIGHT // 2 - 140, use_big=True)
+            draw_centered_text("Press C for Controls", HEIGHT // 2 - 90, color=(190, 190, 190))
 
             for i, opt in enumerate(pause_options):
                 prefix = "> " if i == pause_selected else "  "
                 draw_centered_text(prefix + opt, HEIGHT // 2 - 40 + i * 40)
 
             draw_centered_text("Up/Down + Enter.  P or Esc to resume.", HEIGHT // 2 + 120, color=(190, 190, 190))
+
+        # Controls overlay
+        elif state == STATE_CONTROLS:
+            overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 200))
+            screen.blit(overlay, (0, 0))
+
+            draw_centered_text("Controls", HEIGHT // 2 - 200, use_big=True)
+            draw_centered_text("Up/Down select  Enter rebind  Esc back", HEIGHT // 2 - 150, color=(190, 190, 190))
+
+            for i, action in enumerate(controls_actions):
+                key_name = pygame.key.name(controls.get(action, pygame.K_UNKNOWN))
+                prefix = "> " if i == controls_selected else "  "
+                label = f"{action}: {key_name}"
+                draw_centered_text(prefix + label, HEIGHT // 2 - 60 + i * 32)
+
+            if controls_rebinding:
+                draw_centered_text("Press a key...", HEIGHT // 2 + 160, color=(255, 230, 120))
 
         # Continue overlay
         elif state == STATE_CONTINUE:
