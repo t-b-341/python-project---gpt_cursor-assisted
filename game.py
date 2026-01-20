@@ -55,7 +55,13 @@
 #add space bar to jump in direction of movement?
 #--------------------------------------------------------
 #add friendly AI, about 1-2 per every 3-5 enemies that move independently, and attack the enemies, and help the player, with a health bar and various spawn classes and behavior patterns
-
+#--------------------------------------------------------
+#make the friendly AI move, and make the enemy AI focus on the player, and the friendly, and move in response to the player and the friendly's bullets, and position
+#--------------------------------------------------------
+#make weapons drop in the center of the screen, and the player has to pick them up to use them, adding one with each level completed
+#make each level 3 waves, increasing in difficulty, with the last wave being the boss
+#make 3 different levels, with the final level being a boss with 10,000 health
+#--------------------------------------------------------
 
 
 
@@ -90,6 +96,10 @@ from telemetry import (
     BulletMetadataEvent,
     PlayerActionEvent,
     ZoneVisitEvent,
+    FriendlyAISpawnEvent,
+    FriendlyAIPositionEvent,
+    FriendlyAIShotEvent,
+    FriendlyAIDeathEvent,
 )
 
 pygame.init()
@@ -169,12 +179,14 @@ STATE_PAUSED = "PAUSED"
 STATE_CONTINUE = "CONTINUE"
 STATE_ENDURANCE = "ENDURANCE"
 STATE_GAME_OVER = "GAME_OVER"
+STATE_VICTORY = "VICTORY"  # Game completed - all levels cleared
 
 state = STATE_MENU
 
-# Level system
+# Level system - 3 levels, each with 3 waves (boss on wave 3)
 current_level = 1
-max_level = 5
+max_level = 3
+wave_in_level = 1  # Track which wave within current level (1, 2, or 3)
 level_themes = {
     1: {"name": "Forest", "bg_color": (20, 60, 20), "block_color_shift": (0, 0, 0)},
     2: {"name": "Desert", "bg_color": (60, 50, 20), "block_color_shift": (20, 10, -10)},
@@ -269,6 +281,7 @@ player_stat_multipliers = {
 # "bouncing" = bouncing bullets, "giant" = giant bullets, "laser" = laser beam
 current_weapon_mode = "basic"
 previous_weapon_mode = "basic"  # Track for telemetry
+unlocked_weapons: set[str] = {"basic"}  # Weapons player has unlocked (starts with basic)
 
 # Laser beam system
 laser_beams: list[dict] = []  # List of active laser beams
@@ -542,12 +555,12 @@ pos_timer = 0.0
 
 # Waves / progression
 wave_number = 1
+wave_in_level = 1  # Wave within current level (1, 2, or 3)
 wave_respawn_delay = 2.5  # seconds between waves
 time_to_next_wave = 0.0
 wave_active = True
-base_enemies_per_wave = 4
-max_enemies_per_wave = 24
-boss_wave_interval = 10  # Boss appears every 10 waves
+base_enemies_per_wave = 6  # Increased by 1.5x (was 4)
+max_enemies_per_wave = 36  # Increased by 1.5x (was 24)
 boss_active = False
 
 # Pickups
@@ -714,13 +727,16 @@ def log_enemy_spawns(new_enemies: list[dict]):
 
 def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
     """Create a friendly AI unit from a template."""
-    hp = int(t["hp"] * hp_scale)
+    base_hp = t.get("hp", 40)  # Use template HP
+    base_max_hp = t.get("max_hp", base_hp)  # Use template max_hp
+    hp = max(1, int(base_hp * hp_scale))  # Ensure at least 1 HP
+    max_hp = max(1, int(base_max_hp * hp_scale))  # Ensure at least 1 max HP
     return {
         "type": t["type"],
         "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
         "color": t["color"],
         "hp": hp,
-        "max_hp": hp,
+        "max_hp": max_hp,  # Use calculated max_hp
         "shoot_cooldown": t["shoot_cooldown"],
         "time_since_shot": random.uniform(0.0, t["shoot_cooldown"]),
         "projectile_speed": t["projectile_speed"],
@@ -747,9 +763,61 @@ def find_nearest_enemy(friendly_pos: pygame.Vector2) -> dict | None:
     return nearest
 
 
+def find_nearest_threat(enemy_pos: pygame.Vector2) -> tuple[pygame.Vector2, str] | None:
+    """Find the nearest threat (player or friendly AI) to an enemy."""
+    threats = []
+    player_pos = pygame.Vector2(player.center)
+    player_dist = (player_pos - enemy_pos).length_squared()
+    threats.append((player_pos, player_dist, "player"))
+    
+    for f in friendly_ai:
+        if f["hp"] <= 0:
+            continue
+        friendly_pos = pygame.Vector2(f["rect"].center)
+        friendly_dist = (friendly_pos - enemy_pos).length_squared()
+        threats.append((friendly_pos, friendly_dist, "friendly"))
+    
+    if not threats:
+        return None
+    
+    # Return the closest threat
+    threats.sort(key=lambda x: x[1])
+    return (threats[0][0], threats[0][2])
+
+
+def find_threats_in_dodge_range(enemy_pos: pygame.Vector2, dodge_range: float = 200.0) -> list[pygame.Vector2]:
+    """Find bullets (player or friendly) that are close enough to dodge."""
+    threats = []
+    enemy_v2 = pygame.Vector2(enemy_pos)
+    
+    # Check player bullets
+    for b in player_bullets:
+        bullet_pos = pygame.Vector2(b["rect"].center)
+        dist = (bullet_pos - enemy_v2).length()
+        if dist < dodge_range:
+            # Predict where bullet will be
+            bullet_vel = b.get("vel", pygame.Vector2(0, 0))
+            time_to_reach = dist / bullet_vel.length() if bullet_vel.length() > 0 else 999
+            if time_to_reach < 0.5:  # Only dodge if bullet will reach soon
+                threats.append(bullet_pos)
+    
+    # Check friendly projectiles
+    for fp in friendly_projectiles:
+        bullet_pos = pygame.Vector2(fp["rect"].center)
+        dist = (bullet_pos - enemy_v2).length()
+        if dist < dodge_range:
+            bullet_vel = fp.get("vel", pygame.Vector2(0, 0))
+            time_to_reach = dist / bullet_vel.length() if bullet_vel.length() > 0 else 999
+            if time_to_reach < 0.5:
+                threats.append(bullet_pos)
+    
+    return threats
+
+
 def spawn_friendly_ai(count: int, hp_scale: float, speed_scale: float):
     """Spawn friendly AI units."""
     global friendly_ai
+    spawned_list = []
     for _ in range(count):
         tmpl = random.choice(friendly_ai_templates)
         friendly = make_friendly_from_template(tmpl, hp_scale, speed_scale)
@@ -760,6 +828,22 @@ def spawn_friendly_ai(count: int, hp_scale: float, speed_scale: float):
         spawn_y = max(50, min(spawn_y, HEIGHT - 50))
         friendly["rect"].center = (spawn_x, spawn_y)
         friendly_ai.append(friendly)
+        spawned_list.append(friendly)
+    
+    # Log friendly AI spawns
+    for f in spawned_list:
+        telemetry.log_friendly_spawn(
+            FriendlyAISpawnEvent(
+                t=run_time,
+                friendly_type=f["type"],
+                x=f["rect"].x,
+                y=f["rect"].y,
+                w=f["rect"].w,
+                h=f["rect"].h,
+                hp=f["hp"],
+                behavior=f["behavior"],
+            )
+        )
 
 
 def spawn_friendly_projectile(friendly: dict, target: dict):
@@ -780,26 +864,51 @@ def spawn_friendly_projectile(friendly: dict, target: dict):
         "color": friendly["projectile_color"],
         "shape": friendly["projectile_shape"],
         "source_type": friendly["type"],
+        "target_enemy_type": target.get("type", "unknown"),  # Store target type for telemetry
     })
+    
+    # Log friendly AI shot
+    telemetry.log_friendly_shot(
+        FriendlyAIShotEvent(
+            t=run_time,
+            friendly_type=friendly["type"],
+            origin_x=friendly["rect"].centerx,
+            origin_y=friendly["rect"].centery,
+            target_x=target["rect"].centerx,
+            target_y=target["rect"].centery,
+            target_enemy_type=target.get("type", "unknown"),
+        )
+    )
     telemetry.flush(force=True)
 
 
 def start_wave(wave_num: int):
-    """Spawn a new wave with scaling."""
-    global enemies, wave_active, boss_active
+    """Spawn a new wave with scaling. Each level has 3 waves, boss on wave 3."""
+    global enemies, wave_active, boss_active, wave_in_level, current_level
     enemies = []
     boss_active = False
     
-    # Check if this is a boss wave
-    if wave_num % boss_wave_interval == 0:
+    # Calculate level and wave within level (1-based)
+    current_level = min(max_level, (wave_num - 1) // 3 + 1)
+    wave_in_level = ((wave_num - 1) % 3) + 1
+    
+    # Boss appears on wave 3 of each level
+    if wave_in_level == 3:
         # Spawn boss
         boss = boss_template.copy()
         boss["rect"] = pygame.Rect(WIDTH // 2 - 50, HEIGHT // 2 - 50, 100, 100)
-        # Scale boss HP with wave number
         diff_mult = difficulty_multipliers[difficulty]
-        boss_hp_scale = 1.0 + (wave_num // boss_wave_interval - 1) * 0.5
-        boss["hp"] = int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"])
-        boss["max_hp"] = boss["hp"]
+        
+        # Final level (level 3) boss has 10,000 HP
+        if current_level == 3:
+            boss["hp"] = 10000
+            boss["max_hp"] = 10000
+        else:
+            # Scale boss HP for levels 1-2
+            boss_hp_scale = 1.0 + (current_level - 1) * 0.5
+            boss["hp"] = int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"])
+            boss["max_hp"] = boss["hp"]
+        
         boss["phase"] = 1
         boss["time_since_shot"] = 0.0
         enemies.append(boss)
@@ -808,16 +917,17 @@ def start_wave(wave_num: int):
         wave_active = True
         return
     
-    # Normal wave spawning
+    # Normal wave spawning (waves 1 and 2 of each level)
     # Apply difficulty multipliers
     diff_mult = difficulty_multipliers[difficulty]
-    # Level-based scaling
-    level_mult = 1.0 + (current_level - 1) * 0.2
-    hp_scale = (1.0 + 0.15 * (wave_num - 1)) * diff_mult["enemy_hp"] * level_mult
-    speed_scale = (1.0 + 0.05 * (wave_num - 1)) * diff_mult["enemy_speed"] * level_mult
+    # Level-based scaling - increase difficulty with level and wave in level
+    level_mult = 1.0 + (current_level - 1) * 0.3
+    wave_in_level_mult = 1.0 + (wave_in_level - 1) * 0.15  # Wave 2 is harder than wave 1
+    hp_scale = (1.0 + 0.15 * (wave_num - 1)) * diff_mult["enemy_hp"] * level_mult * wave_in_level_mult
+    speed_scale = (1.0 + 0.05 * (wave_num - 1)) * diff_mult["enemy_speed"] * level_mult * wave_in_level_mult
     # Apply difficulty to enemy count
     base_count = base_enemies_per_wave + enemy_spawn_boost_level + 2 * (wave_num - 1)
-    count = min(int(base_count * diff_mult["enemy_spawn"]), max_enemies_per_wave)
+    count = min(int(base_count * diff_mult["enemy_spawn"] * 1.5), max_enemies_per_wave)  # 1.5x multiplier for more enemies
 
     spawned: list[dict] = []
     for _ in range(count):
@@ -869,6 +979,34 @@ def spawn_pickup(pickup_type: str):
         "color": color,
         "timer": 15.0,  # pickup despawns after 15 seconds
         "age": 0.0,  # current age for visual effects
+    })
+
+
+def spawn_weapon_in_center(weapon_type: str):
+    """Spawn a weapon pickup in the center of the screen (level completion reward)."""
+    weapon_colors_map = {
+        "basic": (200, 200, 200),
+        "rocket": (255, 100, 0),
+        "triple": (100, 200, 255),
+        "bouncing": (100, 255, 100),
+        "giant": (255, 200, 0),
+        "laser": (255, 50, 50),
+    }
+    weapon_pickup_size = (40, 40)  # Bigger for level completion rewards
+    weapon_pickup_rect = pygame.Rect(
+        WIDTH // 2 - weapon_pickup_size[0] // 2,
+        HEIGHT // 2 - weapon_pickup_size[1] // 2,
+        weapon_pickup_size[0],
+        weapon_pickup_size[1]
+    )
+    pickups.append({
+        "type": weapon_type,
+        "rect": weapon_pickup_rect,
+        "color": weapon_colors_map.get(weapon_type, (180, 100, 255)),
+        "timer": 30.0,  # Level completion weapons last longer
+        "age": 0.0,
+        "is_weapon_drop": True,
+        "is_level_reward": True,  # Mark as level completion reward
     })
 
 
@@ -1084,7 +1222,16 @@ def spawn_player_bullet_and_log():
 
 
 def spawn_enemy_projectile(enemy: dict):
-    d = vec_toward(enemy["rect"].centerx, enemy["rect"].centery, player.centerx, player.centery)
+    """Spawn projectile from enemy targeting nearest threat (player or friendly AI)."""
+    e_pos = pygame.Vector2(enemy["rect"].center)
+    threat_result = find_nearest_threat(e_pos)
+    
+    if threat_result:
+        threat_pos, threat_type = threat_result
+        d = vec_toward(e_pos.x, e_pos.y, threat_pos.x, threat_pos.y)
+    else:
+        # Fallback to player if no threats
+        d = vec_toward(enemy["rect"].centerx, enemy["rect"].centery, player.centerx, player.centery)
     r = pygame.Rect(
         enemy["rect"].centerx - enemy_projectile_size[0] // 2,
         enemy["rect"].centery - enemy_projectile_size[1] // 2,
@@ -1152,8 +1299,21 @@ def calculate_kill_score(wave_num: int, run_time: float) -> int:
 
 def kill_enemy(enemy: dict):
     """Handle enemy death: drop weapon, update score, remove from list."""
-    global enemies_killed, score
-    spawn_weapon_drop(enemy)
+    global enemies_killed, score, current_level
+    is_boss = enemy.get("is_boss", False)
+    
+    # If boss is killed, spawn level completion weapon in center
+    if is_boss:
+        # Weapons unlock in order: basic (start), rocket (level 1), triple (level 2), laser (level 3)
+        weapon_unlock_order = {1: "rocket", 2: "triple", 3: "laser"}
+        if current_level in weapon_unlock_order:
+            weapon_to_unlock = weapon_unlock_order[current_level]
+            if weapon_to_unlock not in unlocked_weapons:
+                spawn_weapon_in_center(weapon_to_unlock)
+    else:
+        # Regular enemies drop weapons randomly
+        spawn_weapon_drop(enemy)
+    
     try:
         enemies.remove(enemy)
     except ValueError:
@@ -1190,7 +1350,9 @@ def apply_pickup_effect(pickup_type: str):
         player_stat_multipliers["bullet_penetration"] += 1
     elif pickup_type == "bullet_explosion":
         player_stat_multipliers["bullet_explosion_radius"] += 25.0
-    elif pickup_type == "giant_bullets":
+    # Weapon pickups - unlock and switch to weapon
+    elif pickup_type in ["giant_bullets", "giant"]:
+        unlocked_weapons.add("giant")
         previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "giant"
         # Log weapon switch from pickup
@@ -1203,7 +1365,8 @@ def apply_pickup_effect(pickup_type: str):
                 duration=None,
                 success=True
             ))
-    elif pickup_type == "triple_shot":
+    elif pickup_type in ["triple_shot", "triple"]:
+        unlocked_weapons.add("triple")
         previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "triple"
         if previous_weapon_mode != current_weapon_mode:
@@ -1215,7 +1378,8 @@ def apply_pickup_effect(pickup_type: str):
                 duration=None,
                 success=True
             ))
-    elif pickup_type == "bouncing_bullets":
+    elif pickup_type in ["bouncing_bullets", "bouncing"]:
+        unlocked_weapons.add("bouncing")
         previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "bouncing"
         if previous_weapon_mode != current_weapon_mode:
@@ -1227,9 +1391,36 @@ def apply_pickup_effect(pickup_type: str):
                 duration=None,
                 success=True
             ))
-    elif pickup_type == "rocket_launcher":
+    elif pickup_type in ["rocket_launcher", "rocket"]:
+        unlocked_weapons.add("rocket")
         previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "rocket"
+        if previous_weapon_mode != current_weapon_mode:
+            telemetry.log_player_action(PlayerActionEvent(
+                t=run_time,
+                action_type="weapon_switch",
+                x=player.centerx,
+                y=player.centery,
+                duration=None,
+                success=True
+            ))
+    elif pickup_type == "laser":
+        unlocked_weapons.add("laser")
+        previous_weapon_mode = current_weapon_mode
+        current_weapon_mode = "laser"
+        if previous_weapon_mode != current_weapon_mode:
+            telemetry.log_player_action(PlayerActionEvent(
+                t=run_time,
+                action_type="weapon_switch",
+                x=player.centerx,
+                y=player.centery,
+                duration=None,
+                success=True
+            ))
+    elif pickup_type == "basic":
+        unlocked_weapons.add("basic")  # Should already be unlocked, but ensure it
+        previous_weapon_mode = current_weapon_mode
+        current_weapon_mode = "basic"
         if previous_weapon_mode != current_weapon_mode:
             telemetry.log_player_action(PlayerActionEvent(
                 t=run_time,
@@ -1253,7 +1444,7 @@ def reset_after_death():
     global player_hp, player_time_since_shot, pos_timer, previous_weapon_mode, current_weapon_mode
     global previous_boost_state, previous_slow_state, player_current_zones
     global enemies, player_bullets, enemy_projectiles, wave_number, time_to_next_wave, wave_active
-    global current_weapon_mode, overshield
+    global current_weapon_mode, overshield, unlocked_weapons, wave_in_level, current_level
     global jump_cooldown_timer, jump_timer, is_jumping, jump_velocity
     global laser_beams, laser_time_since_shot
 
@@ -1262,6 +1453,10 @@ def reset_after_death():
     player_time_since_shot = 999.0
     laser_time_since_shot = 999.0
     pos_timer = 0.0
+    wave_number = 1
+    wave_in_level = 1
+    current_level = 1
+    unlocked_weapons = {"basic"}  # Reset to only basic weapon unlocked
     current_weapon_mode = "basic"  # Reset to basic weapon
     previous_weapon_mode = "basic"
     previous_boost_state = False
@@ -1327,21 +1522,24 @@ try:
                 if event.key in (controls["move_up"], controls["move_down"]):
                     last_vertical_key = event.key
 
-                # Weapon switching (keys 1-6)
+                # Weapon switching (keys 1-6) - only works if weapon is unlocked
                 if state == STATE_PLAYING:
                     if event.key in WEAPON_KEY_MAP:
-                        previous_weapon_mode = current_weapon_mode
-                        current_weapon_mode = WEAPON_KEY_MAP[event.key]
-                        # Log weapon switch
-                        if previous_weapon_mode != current_weapon_mode:
-                            telemetry.log_player_action(PlayerActionEvent(
-                                t=run_time,
-                                action_type="weapon_switch",
-                                x=player.centerx,
-                                y=player.centery,
-                                duration=None,
-                                success=True
-                            ))
+                        requested_weapon = WEAPON_KEY_MAP[event.key]
+                        # Only switch if weapon is unlocked
+                        if requested_weapon in unlocked_weapons:
+                            previous_weapon_mode = current_weapon_mode
+                            current_weapon_mode = requested_weapon
+                            # Log weapon switch
+                            if previous_weapon_mode != current_weapon_mode:
+                                telemetry.log_player_action(PlayerActionEvent(
+                                    t=run_time,
+                                    action_type="weapon_switch",
+                                    x=player.centerx,
+                                    y=player.centery,
+                                    duration=None,
+                                    success=True
+                                ))
                     # Space bar jump/dash in direction of movement
                     elif event.key == pygame.K_SPACE and jump_cooldown_timer <= 0.0 and not is_jumping:
                         jump_success = False
@@ -1398,6 +1596,8 @@ try:
                         state = STATE_PAUSED
                     elif state == STATE_MENU:
                         running = False
+                    elif state == STATE_VICTORY or state == STATE_GAME_OVER:
+                        running = False  # Quit from victory/game over screens
 
                 if event.key == pygame.K_p:
                     if state == STATE_PLAYING:
@@ -1432,6 +1632,24 @@ try:
                     elif event.key == pygame.K_RETURN:
                         controls_rebinding = True
 
+                # Victory screen
+                if state == STATE_VICTORY:
+                    if event.key == pygame.K_e:
+                        # Enter endurance mode after victory
+                        state = STATE_ENDURANCE
+                        lives = 999  # Infinite lives in endurance mode
+                        wave_number += 1  # Continue from next wave
+                        start_wave(wave_number)
+                
+                # Game Over screen
+                if state == STATE_GAME_OVER:
+                    if event.key == pygame.K_e:
+                        # Enter endurance mode
+                        state = STATE_ENDURANCE
+                        lives = 999  # Infinite lives in endurance mode
+                        wave_number += 1  # Continue from next wave
+                        start_wave(wave_number)
+                
                 # Continue screen
                 if state == STATE_CONTINUE:
                     if event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
@@ -1482,12 +1700,14 @@ try:
             if not wave_active:
                 time_to_next_wave = max(0.0, time_to_next_wave - dt)
                 if time_to_next_wave <= 0.0:
-                    wave_number += 1
-                    # Level progression: advance level every 5 waves
-                    new_level = min(max_level, (wave_number - 1) // 5 + 1)
-                    if new_level > current_level:
-                        current_level = new_level
-                    start_wave(wave_number)
+                    # Check if all levels are complete (wave 9 = level 3, wave 3)
+                    if wave_number >= max_level * 3:
+                        # All levels completed - victory!
+                        state = STATE_VICTORY
+                    else:
+                        wave_number += 1
+                        # Level progression is now handled in start_wave() (3 waves per level)
+                        start_wave(wave_number)
 
             keys = pygame.key.get_pressed()
             dx = dy = 0
@@ -1717,10 +1937,60 @@ try:
 
             block_rects = [b["rect"] for b in blocks]
             for e in enemies:
-                dir_vec = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
-                move_vec = dir_vec * e["speed"] * dt
+                e_pos = pygame.Vector2(e["rect"].center)
+                
+                # Find nearest threat (player or friendly AI)
+                threat_result = find_nearest_threat(e_pos)
+                if not threat_result:
+                    continue
+                threat_pos, threat_type = threat_result
+                
+                # Base movement toward threat
+                toward_threat = (threat_pos - e_pos)
+                if toward_threat.length_squared() > 0:
+                    toward_threat = toward_threat.normalize()
+                else:
+                    toward_threat = pygame.Vector2(0, 0)
+                
+                # Check for nearby bullets to dodge
+                dodge_vector = pygame.Vector2(0, 0)
+                nearby_bullets = find_threats_in_dodge_range(e_pos, dodge_range=250.0)
+                
+                if nearby_bullets:
+                    # Calculate dodge direction (away from nearest bullet)
+                    closest_bullet = None
+                    closest_dist = float("inf")
+                    for bullet_pos in nearby_bullets:
+                        dist = (bullet_pos - e_pos).length_squared()
+                        if dist < closest_dist:
+                            closest_dist = dist
+                            closest_bullet = bullet_pos
+                    
+                    if closest_bullet:
+                        # Move perpendicular to bullet direction
+                        away_from_bullet = (e_pos - pygame.Vector2(closest_bullet))
+                        if away_from_bullet.length_squared() > 0:
+                            away_from_bullet = away_from_bullet.normalize()
+                            # Add perpendicular component for better dodging
+                            perp = pygame.Vector2(-away_from_bullet.y, away_from_bullet.x)
+                            # Combine away + perpendicular for better dodge
+                            dodge_vector = (away_from_bullet * 0.6 + perp * 0.4).normalize()
+                
+                # Combine threat pursuit with dodging (prioritize dodging if bullets are very close)
+                if nearby_bullets and closest_dist < 15000:  # ~122 pixels squared
+                    # Heavy dodge when bullet is very close
+                    final_dir = dodge_vector * 1.5 + toward_threat * 0.3
+                else:
+                    # Normal pursuit with light dodging
+                    final_dir = toward_threat * 0.9 + dodge_vector * 0.1
+                
+                if final_dir.length_squared() > 0:
+                    final_dir = final_dir.normalize()
+                
+                move_vec = final_dir * e["speed"] * dt
                 dx_e = int(move_vec.x)
                 dy_e = int(move_vec.y)
+                
                 if dx_e or dy_e:
                     moved = False
                     if can_move_rect(e["rect"], dx_e, dy_e, block_rects):
@@ -1736,6 +2006,89 @@ try:
                             moved = True
                     if moved:
                         clamp_rect_to_screen(e["rect"])
+
+            # Friendly AI movement and behavior
+            # Reuse block_rects from enemy movement (already computed above)
+            for f in friendly_ai[:]:
+                if f["hp"] <= 0:
+                    friendly_ai.remove(f)
+                    continue
+                
+                # Find target based on behavior
+                f_pos = pygame.Vector2(f["rect"].center)
+                target_enemy = find_nearest_enemy(f_pos)
+                
+                if target_enemy:
+                    f["target"] = target_enemy
+                    target_pos = pygame.Vector2(target_enemy["rect"].center)
+                    dist_to_target = (target_pos - f_pos).length()
+                    
+                    # Behavior patterns
+                    if f["behavior"] == "aggressive":
+                        # Charge nearest enemy
+                        move_dir = (target_pos - f_pos)
+                        if move_dir.length_squared() > 0:
+                            move_dir = move_dir.normalize()
+                    elif f["behavior"] == "defensive":
+                        # Stay near player, attack nearby enemies
+                        player_pos = pygame.Vector2(player.center)
+                        dist_to_player = (player_pos - f_pos).length()
+                        if dist_to_target < 300 and dist_to_player < 200:
+                            # Close to player and enemy nearby - attack
+                            move_dir = (target_pos - f_pos)
+                            if move_dir.length_squared() > 0:
+                                move_dir = move_dir.normalize()
+                        else:
+                            # Return to player
+                            move_dir = (player_pos - f_pos)
+                            if move_dir.length_squared() > 0:
+                                move_dir = move_dir.normalize() * 0.5  # Slower return
+                    elif f["behavior"] == "ranged":
+                        # Keep distance, snipe
+                        if dist_to_target < 400:
+                            # Too close, back away
+                            move_dir = (f_pos - target_pos)
+                            if move_dir.length_squared() > 0:
+                                move_dir = move_dir.normalize()
+                        else:
+                            # Good distance, approach slowly
+                            move_dir = (target_pos - f_pos)
+                            if move_dir.length_squared() > 0:
+                                move_dir = move_dir.normalize() * 0.3
+                    elif f["behavior"] == "tank":
+                        # Slow advance toward nearest enemy
+                        move_dir = (target_pos - f_pos)
+                        if move_dir.length_squared() > 0:
+                            move_dir = move_dir.normalize() * 0.6
+                    else:
+                        # Default: follow player
+                        player_pos = pygame.Vector2(player.center)
+                        move_dir = (player_pos - f_pos)
+                        if move_dir.length_squared() > 0:
+                            move_dir = move_dir.normalize()
+                else:
+                    # No enemies, follow player
+                    f["target"] = None
+                    player_pos = pygame.Vector2(player.center)
+                    move_dir = (player_pos - f_pos)
+                    if move_dir.length_squared() > 0:
+                        move_dir = move_dir.normalize() * 0.5
+                
+                # Apply movement
+                if move_dir.length_squared() > 0:
+                    move_vec = move_dir * f["speed"] * dt
+                    dx_f = int(move_vec.x)
+                    dy_f = int(move_vec.y)
+                    if dx_f or dy_f:
+                        if can_move_rect(f["rect"], dx_f, dy_f, block_rects):
+                            f["rect"].x += dx_f
+                            f["rect"].y += dy_f
+                        else:
+                            if dx_f and can_move_rect(f["rect"], dx_f, 0, block_rects):
+                                f["rect"].x += dx_f
+                            if dy_f and can_move_rect(f["rect"], 0, dy_f, block_rects):
+                                f["rect"].y += dy_f
+                        clamp_rect_to_screen(f["rect"])
 
             # Position sampling
             pos_timer += dt
@@ -1757,7 +2110,14 @@ try:
                 
                 # Log enemy positions
                 for e in enemies:
-                    dir_vec = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
+                    e_pos = pygame.Vector2(e["rect"].center)
+                    # Calculate actual movement direction (toward nearest threat with dodging)
+                    threat_result = find_nearest_threat(e_pos)
+                    if threat_result:
+                        threat_pos, _ = threat_result
+                        dir_vec = vec_toward(e_pos.x, e_pos.y, threat_pos.x, threat_pos.y)
+                    else:
+                        dir_vec = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
                     vel_vec = dir_vec * e["speed"]
                     telemetry.log_enemy_position(
                         EnemyPositionEvent(
@@ -1768,6 +2128,27 @@ try:
                             speed=float(e["speed"]),
                             vel_x=float(vel_vec.x),
                             vel_y=float(vel_vec.y),
+                        )
+                    )
+                
+                # Log friendly AI positions
+                for f in friendly_ai:
+                    if f["target"]:
+                        target_type = f["target"].get("type")
+                        vel_vec = vec_toward(f["rect"].centerx, f["rect"].centery, f["target"]["rect"].centerx, f["target"]["rect"].centery) * f["speed"]
+                    else:
+                        target_type = None
+                        vel_vec = pygame.Vector2(0, 0)
+                    telemetry.log_friendly_position(
+                        FriendlyAIPositionEvent(
+                            t=run_time,
+                            friendly_type=f["type"],
+                            x=f["rect"].x,
+                            y=f["rect"].y,
+                            speed=float(f["speed"]),
+                            vel_x=float(vel_vec.x),
+                            vel_y=float(vel_vec.y),
+                            target_enemy_type=target_type,
                         )
                     )
 
@@ -1811,14 +2192,26 @@ try:
                             # Phase 1: Single shots
                             spawn_enemy_projectile(e)
                         elif e["phase"] == 2:
-                            # Phase 2: Triple shot spread
-                            base_dir = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
+                            # Phase 2: Triple shot spread at nearest threat
+                            e_pos = pygame.Vector2(e["rect"].center)
+                            threat_result = find_nearest_threat(e_pos)
+                            if threat_result:
+                                threat_pos, _ = threat_result
+                                base_dir = vec_toward(e_pos.x, e_pos.y, threat_pos.x, threat_pos.y)
+                            else:
+                                base_dir = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
                             for angle in [-15, 0, 15]:
                                 dir_vec = base_dir.rotate(angle)
                                 spawn_boss_projectile(e, dir_vec)
                         elif e["phase"] == 3:
-                            # Phase 3: 8-way spread
-                            base_dir = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
+                            # Phase 3: 8-way spread (still targets nearest threat for base direction)
+                            e_pos = pygame.Vector2(e["rect"].center)
+                            threat_result = find_nearest_threat(e_pos)
+                            if threat_result:
+                                threat_pos, _ = threat_result
+                                base_dir = vec_toward(e_pos.x, e_pos.y, threat_pos.x, threat_pos.y)
+                            else:
+                                base_dir = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
                             for angle in range(0, 360, 45):
                                 dir_vec = base_dir.rotate(angle)
                                 spawn_boss_projectile(e, dir_vec)
@@ -2155,6 +2548,16 @@ try:
                 if hit_friendly:
                     hit_friendly["hp"] -= enemy_projectile_damage
                     if hit_friendly["hp"] <= 0:
+                        # Log friendly AI death
+                        telemetry.log_friendly_death(
+                            FriendlyAIDeathEvent(
+                                t=run_time,
+                                friendly_type=hit_friendly["type"],
+                                x=hit_friendly["rect"].x,
+                                y=hit_friendly["rect"].y,
+                                killed_by="enemy_projectile",
+                            )
+                        )
                         friendly_ai.remove(hit_friendly)
                     enemy_projectiles.remove(p)
                     continue
@@ -2232,6 +2635,20 @@ try:
         # Apply level theme
         theme = level_themes.get(current_level, level_themes[1])
         screen.fill(theme["bg_color"])
+        
+        # Victory screen - all levels completed!
+        if state == STATE_VICTORY:
+            theme = level_themes.get(current_level, level_themes[1])
+            screen.fill(theme["bg_color"])
+            draw_centered_text("VICTORY!", 200, (100, 255, 100), use_big=True)
+            draw_centered_text("All Levels Completed!", 280, (150, 255, 150))
+            draw_centered_text(f"Final Score: {score:,}", 350, (255, 255, 100))
+            draw_centered_text(f"Levels Completed: {max_level}", 400, (200, 200, 255))
+            draw_centered_text(f"Time Survived: {int(survival_time//60)}m {int(survival_time%60)}s", 450, (200, 200, 255))
+            draw_centered_text("Press E for Endurance Mode", 550, (100, 255, 100))
+            draw_centered_text("Press ESC to Quit", 600, (200, 200, 200))
+            pygame.display.flip()
+            continue
         
         # Game Over screen
         if state == STATE_GAME_OVER:
@@ -2401,7 +2818,7 @@ try:
         # Render HUD using helper function
         y = render_hud_text(f"Lives: {lives}", lives_y)
         y = render_hud_text(f"Level: {current_level} - {level_themes[current_level]['name']}", y, (255, 200, 100))
-        y = render_hud_text(f"Wave: {wave_number}", y)
+        y = render_hud_text(f"Wave: {wave_number} (Wave {wave_in_level}/3)", y)
         if wave_active:
             wave_text = f"Enemies: {len(enemies)}"
         else:
@@ -2450,7 +2867,12 @@ try:
         }
         screen.blit(font.render(f"Weapon: {weapon_names.get(current_weapon_mode, 'UNKNOWN')}", True, weapon_colors.get(current_weapon_mode, (255, 255, 255))), (10, y_offset))
         y_offset += 22
-        screen.blit(font.render("Press 1-5 to switch weapons", True, (150, 150, 150)), (10, y_offset))
+        # Show unlocked weapons
+        unlocked_list = sorted(unlocked_weapons)
+        unlocked_str = "Unlocked: " + ", ".join([weapon_names.get(w, w) for w in unlocked_list])
+        screen.blit(font.render(unlocked_str, True, (150, 255, 150)), (10, y_offset))
+        y_offset += 22
+        screen.blit(font.render("Press 1-6 to switch weapons (if unlocked)", True, (150, 150, 150)), (10, y_offset))
         y_offset += 22
         
         screen.blit(

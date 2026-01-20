@@ -176,6 +176,50 @@ class ZoneVisitEvent:
     y: int
 
 
+@dataclass
+class FriendlyAISpawnEvent:
+    t: float
+    friendly_type: str
+    x: int
+    y: int
+    w: int
+    h: int
+    hp: int
+    behavior: str
+
+
+@dataclass
+class FriendlyAIPositionEvent:
+    t: float
+    friendly_type: str
+    x: int
+    y: int
+    speed: float
+    vel_x: float
+    vel_y: float
+    target_enemy_type: Optional[str]
+
+
+@dataclass
+class FriendlyAIShotEvent:
+    t: float
+    friendly_type: str
+    origin_x: int
+    origin_y: int
+    target_x: int
+    target_y: int
+    target_enemy_type: str
+
+
+@dataclass
+class FriendlyAIDeathEvent:
+    t: float
+    friendly_type: str
+    x: int
+    y: int
+    killed_by: str  # "enemy_projectile", "damage", etc.
+
+
 class Telemetry:
     """
     Buffered SQLite telemetry writer.
@@ -219,6 +263,14 @@ class Telemetry:
         self._overshield_buf: list[tuple] = []
         self._player_action_buf: list[tuple] = []
         self._zone_visit_buf: list[tuple] = []
+        self._friendly_spawn_buf: list[tuple] = []
+        self._friendly_position_buf: list[tuple] = []
+        self._friendly_shot_buf: list[tuple] = []
+        self._friendly_death_buf: list[tuple] = []
+        self._friendly_spawn_buf: list[tuple] = []
+        self._friendly_position_buf: list[tuple] = []
+        self._friendly_shot_buf: list[tuple] = []
+        self._friendly_death_buf: list[tuple] = []
 
     # ----------------------------
     # Schema helpers
@@ -237,11 +289,19 @@ class Telemetry:
         return {r[1] for r in rows}
 
     def _add_column_if_missing(self, table: str, col: str, ddl: str) -> None:
-        cols = self._columns(table)
-        if col in cols:
-            return
-        self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl};")
-        self.conn.commit()
+        """Add a column to a table if it doesn't exist. Silently ignores if table doesn't exist."""
+        try:
+            cols = self._columns(table)
+            if col in cols:
+                return
+            self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl};")
+            self.conn.commit()
+        except sqlite3.OperationalError as e:
+            # Table doesn't exist yet - that's ok, it will be created later
+            if "no such table" in str(e).lower():
+                pass  # Table will be created
+            else:
+                raise  # Re-raise other operational errors
 
     def _create_index_if_missing(self, table: str, index_name: str, columns: str) -> None:
         """Create an index if it doesn't exist."""
@@ -332,24 +392,7 @@ class Telemetry:
         );
         """)
 
-        # Ensure new columns exist (migration)
-        # Note: SQLite doesn't support ADD COLUMN IF NOT EXISTS, so we check via PRAGMA table_info.
-        self.conn.commit()
-        self._add_column_if_missing("runs", "damage_dealt", "damage_dealt INTEGER NOT NULL DEFAULT 0")
-        self._add_column_if_missing("runs", "deaths", "deaths INTEGER NOT NULL DEFAULT 0")
-        self._add_column_if_missing("runs", "max_wave", "max_wave INTEGER")
-        self._add_column_if_missing("runs", "final_score", "final_score INTEGER")
-        self._add_column_if_missing("runs", "max_level", "max_level INTEGER")
-        self._add_column_if_missing("runs", "difficulty", "difficulty TEXT")
-        self._add_column_if_missing("runs", "endurance_mode", "endurance_mode INTEGER NOT NULL DEFAULT 0")
-        
-        # Add bullet metadata columns to shots table
-        self._add_column_if_missing("shots", "shape", "shape TEXT")
-        self._add_column_if_missing("shots", "color_r", "color_r INTEGER")
-        self._add_column_if_missing("shots", "color_g", "color_g INTEGER")
-        self._add_column_if_missing("shots", "color_b", "color_b INTEGER")
-
-        # Existing tables (safe to CREATE IF NOT EXISTS)
+        # Create all tables first (safe to CREATE IF NOT EXISTS)
         cur.execute("""
         CREATE TABLE IF NOT EXISTS enemy_spawns (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -611,6 +654,87 @@ class Telemetry:
         );
         """)
 
+        # Friendly AI spawns table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS friendly_ai_spawns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            friendly_type TEXT NOT NULL,
+            x INTEGER NOT NULL,
+            y INTEGER NOT NULL,
+            w INTEGER NOT NULL,
+            h INTEGER NOT NULL,
+            hp INTEGER NOT NULL,
+            behavior TEXT NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        # Friendly AI positions table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS friendly_ai_positions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            friendly_type TEXT NOT NULL,
+            x INTEGER NOT NULL,
+            y INTEGER NOT NULL,
+            speed REAL NOT NULL,
+            vel_x REAL NOT NULL,
+            vel_y REAL NOT NULL,
+            target_enemy_type TEXT,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        # Friendly AI shots table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS friendly_ai_shots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            friendly_type TEXT NOT NULL,
+            origin_x INTEGER NOT NULL,
+            origin_y INTEGER NOT NULL,
+            target_x INTEGER NOT NULL,
+            target_y INTEGER NOT NULL,
+            target_enemy_type TEXT NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        # Friendly AI deaths table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS friendly_ai_deaths (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            friendly_type TEXT NOT NULL,
+            x INTEGER NOT NULL,
+            y INTEGER NOT NULL,
+            killed_by TEXT NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        # Ensure new columns exist (migration) - MUST happen after all tables are created
+        # Note: SQLite doesn't support ADD COLUMN IF NOT EXISTS, so we check via PRAGMA table_info.
+        self.conn.commit()
+        self._add_column_if_missing("runs", "damage_dealt", "damage_dealt INTEGER NOT NULL DEFAULT 0")
+        self._add_column_if_missing("runs", "deaths", "deaths INTEGER NOT NULL DEFAULT 0")
+        self._add_column_if_missing("runs", "max_wave", "max_wave INTEGER")
+        self._add_column_if_missing("runs", "final_score", "final_score INTEGER")
+        self._add_column_if_missing("runs", "max_level", "max_level INTEGER")
+        self._add_column_if_missing("runs", "difficulty", "difficulty TEXT")
+        self._add_column_if_missing("runs", "endurance_mode", "endurance_mode INTEGER NOT NULL DEFAULT 0")
+        
+        # Add bullet metadata columns to shots table (must be after shots table is created)
+        self._add_column_if_missing("shots", "shape", "shape TEXT")
+        self._add_column_if_missing("shots", "color_r", "color_r INTEGER")
+        self._add_column_if_missing("shots", "color_g", "color_g INTEGER")
+        self._add_column_if_missing("shots", "color_b", "color_b INTEGER")
+
         # Create indexes for better query performance
         self.conn.commit()
         self._create_index_if_missing("enemy_hits", "idx_enemy_hits_run_t", "run_id, t")
@@ -624,6 +748,10 @@ class Telemetry:
         self._create_index_if_missing("player_actions", "idx_actions_type", "action_type")
         self._create_index_if_missing("player_zone_visits", "idx_zone_visits_run_t", "run_id, t")
         self._create_index_if_missing("player_zone_visits", "idx_zone_visits_zone", "zone_id")
+        self._create_index_if_missing("friendly_ai_spawns", "idx_friendly_spawns_run_t", "run_id, t")
+        self._create_index_if_missing("friendly_ai_positions", "idx_friendly_pos_run_t", "run_id, t")
+        self._create_index_if_missing("friendly_ai_shots", "idx_friendly_shots_run_t", "run_id, t")
+        self._create_index_if_missing("friendly_ai_deaths", "idx_friendly_deaths_run_t", "run_id, t")
         self.conn.commit()
         
         # Create views for common queries
@@ -905,6 +1033,70 @@ class Telemetry:
             )
         )
 
+    def log_friendly_spawn(self, event: FriendlyAISpawnEvent) -> None:
+        if self.run_id is None:
+            return
+        self._friendly_spawn_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                event.friendly_type,
+                int(event.x),
+                int(event.y),
+                int(event.w),
+                int(event.h),
+                int(event.hp),
+                event.behavior,
+            )
+        )
+
+    def log_friendly_position(self, event: FriendlyAIPositionEvent) -> None:
+        if self.run_id is None:
+            return
+        self._friendly_position_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                event.friendly_type,
+                int(event.x),
+                int(event.y),
+                float(event.speed),
+                float(event.vel_x),
+                float(event.vel_y),
+                event.target_enemy_type,
+            )
+        )
+
+    def log_friendly_shot(self, event: FriendlyAIShotEvent) -> None:
+        if self.run_id is None:
+            return
+        self._friendly_shot_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                event.friendly_type,
+                int(event.origin_x),
+                int(event.origin_y),
+                int(event.target_x),
+                int(event.target_y),
+                event.target_enemy_type,
+            )
+        )
+
+    def log_friendly_death(self, event: FriendlyAIDeathEvent) -> None:
+        if self.run_id is None:
+            return
+        self._friendly_death_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                event.friendly_type,
+                int(event.x),
+                int(event.y),
+                event.killed_by,
+            )
+        )
+
     def log_zone_visit(self, event: ZoneVisitEvent) -> None:
         if self.run_id is None:
             return
@@ -1156,6 +1348,50 @@ class Telemetry:
                 self._zone_visit_buf,
             )
             self._zone_visit_buf.clear()
+            wrote_any = True
+
+        if self._friendly_spawn_buf:
+            cur.executemany(
+                """
+                INSERT INTO friendly_ai_spawns (run_id, t, friendly_type, x, y, w, h, hp, behavior)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                self._friendly_spawn_buf,
+            )
+            self._friendly_spawn_buf.clear()
+            wrote_any = True
+
+        if self._friendly_position_buf:
+            cur.executemany(
+                """
+                INSERT INTO friendly_ai_positions (run_id, t, friendly_type, x, y, speed, vel_x, vel_y, target_enemy_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                self._friendly_position_buf,
+            )
+            self._friendly_position_buf.clear()
+            wrote_any = True
+
+        if self._friendly_shot_buf:
+            cur.executemany(
+                """
+                INSERT INTO friendly_ai_shots (run_id, t, friendly_type, origin_x, origin_y, target_x, target_y, target_enemy_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                self._friendly_shot_buf,
+            )
+            self._friendly_shot_buf.clear()
+            wrote_any = True
+
+        if self._friendly_death_buf:
+            cur.executemany(
+                """
+                INSERT INTO friendly_ai_deaths (run_id, t, friendly_type, x, y, killed_by)
+                VALUES (?, ?, ?, ?, ?, ?);
+                """,
+                self._friendly_death_buf,
+            )
+            self._friendly_death_buf.clear()
             wrote_any = True
 
         if wrote_any:
