@@ -62,10 +62,19 @@
 #make each level 3 waves, increasing in difficulty, with the last wave being the boss
 #make 3 different levels, with the final level being a boss with 10,000 health
 #--------------------------------------------------------
-
+#make the rockets shot size bigger
+#--------------------------------------------------------
+#add a shield for use with left alt key that lasts 2 seconds, and takes 10-15 seconds to recharge
+#--------------------------------------------------------
+#make the player turn red while the shield is active, and a text displays in the hud SHIELD ACTIVU (spelled like that)
 
 
 import math
+import warnings
+
+# Suppress pygame's pkg_resources deprecation warning
+# This is a pygame internal issue, not our code
+warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
 import random
 import json
 import os
@@ -263,6 +272,13 @@ slow_speed_mult = 0.45
 fire_rate_buff_t = 0.0
 fire_rate_buff_duration = 10.0
 fire_rate_mult = 0.55  # reduces cooldown while active
+
+# Shield system (Left Alt key)
+shield_active = False
+shield_duration = 2.0  # Shield lasts 2 seconds
+shield_duration_remaining = 0.0
+shield_cooldown = random.uniform(10.0, 15.0)  # 10-15 seconds cooldown
+shield_cooldown_remaining = 0.0
 
 # Permanent player stat multipliers (from pickups)
 player_stat_multipliers = {
@@ -1160,6 +1176,8 @@ def spawn_player_bullet_and_log():
         size_mult = player_stat_multipliers["bullet_size"]
         if current_weapon_mode == "giant":
             size_mult *= 10.0  # 10x size multiplier
+        elif current_weapon_mode == "rocket":
+            size_mult *= 2.5  # Rockets are bigger (2.5x size)
         
         effective_size = (
             int(player_bullet_size[0] * size_mult),
@@ -1447,6 +1465,7 @@ def reset_after_death():
     global current_weapon_mode, overshield, unlocked_weapons, wave_in_level, current_level
     global jump_cooldown_timer, jump_timer, is_jumping, jump_velocity
     global laser_beams, laser_time_since_shot
+    global shield_active, shield_duration_remaining, shield_cooldown_remaining
 
     player_hp = player_max_hp
     overshield = 0  # Reset overshield
@@ -1467,6 +1486,10 @@ def reset_after_death():
     is_jumping = False
     jump_velocity = pygame.Vector2(0, 0)
     laser_beams.clear()
+    # Reset shield
+    shield_active = False
+    shield_duration_remaining = 0.0
+    shield_cooldown_remaining = 0.0
 
     player.x = (WIDTH - player.w) // 2
     player.y = (HEIGHT - player.h) // 2
@@ -1632,6 +1655,16 @@ try:
                     elif event.key == pygame.K_RETURN:
                         controls_rebinding = True
 
+                # Shield activation (Left Alt key)
+                if state == STATE_PLAYING:
+                    if event.key == pygame.K_LALT:
+                        # Activate shield if cooldown is ready
+                        if shield_cooldown_remaining <= 0.0 and not shield_active:
+                            shield_active = True
+                            shield_duration_remaining = shield_duration
+                            # Random cooldown between 10-15 seconds
+                            shield_cooldown = random.uniform(10.0, 15.0)
+                
                 # Victory screen
                 if state == STATE_VICTORY:
                     if event.key == pygame.K_e:
@@ -1775,6 +1808,17 @@ try:
                 boost_meter = max(0.0, boost_meter - boost_drain_per_s * dt)
             else:
                 boost_meter = min(boost_meter_max, boost_meter + boost_regen_per_s * dt)
+            
+            # Shield update logic
+            if shield_active:
+                shield_duration_remaining -= dt
+                if shield_duration_remaining <= 0.0:
+                    shield_active = False
+                    shield_cooldown_remaining = shield_cooldown
+            else:
+                # Shield is on cooldown
+                if shield_cooldown_remaining > 0.0:
+                    shield_cooldown_remaining = max(0.0, shield_cooldown_remaining - dt)
 
             if move_dir.length_squared() > 0:
                 move_dir = move_dir.normalize()
@@ -2563,6 +2607,12 @@ try:
                     continue
 
                 if r.colliderect(player):
+                    # Check if shield is active - shield blocks all damage
+                    if shield_active:
+                        # Shield blocks the projectile
+                        enemy_projectiles.remove(p)
+                        continue
+                    
                     # apply damage - overshield absorbs damage first
                     remaining_damage = enemy_projectile_damage
                     if overshield > 0:
@@ -2757,7 +2807,22 @@ try:
             pygame.draw.rect(screen, e["color"], e["rect"])
             draw_health_bar(e["rect"].x, e["rect"].y - 10, e["rect"].w, 6, e["hp"], e["max_hp"])
 
-        pygame.draw.rect(screen, (200, 60, 60), player)
+        # Draw player - red when shield is active, normal color otherwise
+        player_color = (255, 50, 50) if shield_active else (200, 60, 60)
+        pygame.draw.rect(screen, player_color, player)
+        
+        # Draw shield visual effect when active
+        if shield_active:
+            shield_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            # Pulsing effect based on remaining duration
+            pulse = 0.5 + 0.5 * math.sin(run_time * 10.0)
+            alpha = int(150 + 100 * pulse)
+            # Draw shield circle around player
+            radius = max(player.w, player.h) + 10
+            pygame.draw.circle(shield_surf, (150, 220, 255, alpha), player.center, radius, 3)
+            # Inner glow
+            pygame.draw.circle(shield_surf, (200, 240, 255, alpha // 2), player.center, radius - 2, 1)
+            screen.blit(shield_surf, (0, 0))
 
         if last_move_velocity.length_squared() > 0:
             path_overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -2831,6 +2896,13 @@ try:
         if state == STATE_ENDURANCE:
             y = render_hud_text("ENDURANCE MODE", y, (255, 100, 100))
         y = render_hud_text(f"Boost: {int(boost_meter)}/{int(boost_meter_max)}", y)
+        # Shield status
+        if shield_active:
+            y = render_hud_text("SHIELD ACTIVU", y, (150, 220, 255))
+        elif shield_cooldown_remaining > 0.0:
+            y = render_hud_text(f"Shield CD: {shield_cooldown_remaining:.1f}s", y, (200, 150, 150))
+        else:
+            y = render_hud_text("Shield: Ready (Left Alt)", y, (100, 255, 100))
         if fire_rate_buff_t > 0:
             y = render_hud_text(f"Firerate buff: {fire_rate_buff_t:.1f}s", y, (255, 220, 120))
         if enemy_spawn_boost_level > 0:

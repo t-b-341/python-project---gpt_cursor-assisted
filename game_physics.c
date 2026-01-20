@@ -27,7 +27,7 @@ static void normalize_vector(Vector2 *v) {
 }
 
 /* Helper: Calculate vector from point A to point B (normalized) */
-static Vector2 vec_toward_c(double ax, double ay, double bx, double by) {
+static Vector2 vec_toward_internal(double ax, double ay, double bx, double by) {
     Vector2 result;
     result.x = bx - ax;
     result.y = by - ay;
@@ -47,7 +47,7 @@ static PyObject* can_move_rect_c(PyObject* self, PyObject* args) {
     PyObject* other_rects_list;
     int screen_width, screen_height;
     
-    if (!PyArg_ParseTuple(args, "iiiiiiOO", 
+    if (!PyArg_ParseTuple(args, "iiiiiiOii", 
                           &rect_x, &rect_y, &rect_w, &rect_h,
                           &dx, &dy, &other_rects_list,
                           &screen_width, &screen_height)) {
@@ -114,7 +114,7 @@ static PyObject* vec_toward_c(PyObject* self, PyObject* args) {
         return NULL;
     }
     
-    Vector2 v = vec_toward_c(ax, ay, bx, by);
+    Vector2 v = vec_toward_internal(ax, ay, bx, by);
     
     // Return as tuple (x, y)
     return Py_BuildValue("(dd)", v.x, v.y);
@@ -311,7 +311,7 @@ static PyObject* check_bullet_collisions_c(PyObject* self, PyObject* args) {
 static PyMethodDef GamePhysicsMethods[] = {
     {"can_move_rect", can_move_rect_c, METH_VARARGS, 
      "Check if a rect can move without collision"},
-    {"vec_toward", vec_toward_c_func, METH_VARARGS,
+    {"vec_toward", vec_toward_c, METH_VARARGS,
      "Calculate normalized vector from point A to B"},
     {"update_bullets", update_bullets_c, METH_VARARGS,
      "Batch update bullet positions"},
