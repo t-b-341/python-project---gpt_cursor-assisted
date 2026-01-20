@@ -1,5 +1,5 @@
 #FEATURES TO ADD
-#--------------------------------
+#--------------------------------------------------------
 #change player bullet color
 #change enemy bullet colors
 #enemy movement
@@ -8,8 +8,11 @@
 #movement direction overwrites to most recent move direction
 #player path prediction
 #different shapes for shots (circle, squares, etc., like 2hu)
-#------
-#add boost mechanic, and slow down mechanic
+#--------------------------------------------------------
+#add boost mechanic using shift, and slow down mechanic using ctrl
+#add a control mapping system, so the player can map the keys to the actions
+
+
 
 
 import math
