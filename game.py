@@ -1,5 +1,5 @@
 #FEATURES TO ADD
-#--------
+#--------------------------------
 #change player bullet color
 #change enemy bullet colors
 #enemy movement
@@ -8,6 +8,10 @@
 #movement direction overwrites to most recent move direction
 #player path prediction
 #different shapes for shots (circle, squares, etc., like 2hu)
+#------
+
+import math
+import random
 
 import pygame
 from datetime import datetime, timezone
@@ -63,8 +67,13 @@ player_max_hp = 100
 player_hp = player_max_hp
 pygame.mouse.set_visible(True)
 
-LIVES_START = 1
+LIVES_START = 10
 lives = LIVES_START
+
+# Track most recent movement keys so latest press wins on conflicts
+last_horizontal_key = None  # pygame.K_a / pygame.K_d
+last_vertical_key = None  # pygame.K_w / pygame.K_s
+last_move_velocity = pygame.Vector2(0, 0)
 
 # ----------------------------
 # World blocks
@@ -86,6 +95,8 @@ player_bullet_damage = 20
 player_shoot_cooldown = 0.12
 player_time_since_shot = 999.0
 player_bullets_color = (10, 200, 200)
+player_bullet_shapes = ["circle", "square", "diamond"]
+player_bullet_shape_index = 0
 
 # ----------------------------
 # Enemy templates + cloning
@@ -99,6 +110,9 @@ enemy_templates: list[dict] = [
         "max_hp": 60,
         "shoot_cooldown": 0.9,
         "projectile_speed": 320,
+        "projectile_color": (180, 220, 255),
+        "projectile_shape": "square",
+        "speed": 90,
     },
     {
         "type": "heavy",
@@ -108,6 +122,9 @@ enemy_templates: list[dict] = [
         "max_hp": 80,
         "shoot_cooldown": 1.2,
         "projectile_speed": 280,
+        "projectile_color": (255, 190, 120),
+        "projectile_shape": "circle",
+        "speed": 70,
     },
     {
         "type": "stinky",
@@ -117,6 +134,9 @@ enemy_templates: list[dict] = [
         "max_hp": 60,
         "shoot_cooldown": 0.9,
         "projectile_speed": 320,
+        "projectile_color": (180, 220, 255),
+        "projectile_shape": "diamond",
+        "speed": 110,
     },
     {
         "type": "baka",
@@ -126,6 +146,9 @@ enemy_templates: list[dict] = [
         "max_hp": 400,
         "shoot_cooldown": 0.1,
         "projectile_speed": 500,
+        "projectile_color": (255, 120, 180),
+        "projectile_shape": "square",
+        "speed": 150,
     },
     {
         "type": "neko neko desu",
@@ -135,6 +158,9 @@ enemy_templates: list[dict] = [
         "max_hp": 20,
         "shoot_cooldown": 0.01,
         "projectile_speed": 500,
+        "projectile_color": (200, 255, 140),
+        "projectile_shape": "circle",
+        "speed": 160,
     },
     {
         "type": "BIG NEKU",
@@ -144,30 +170,20 @@ enemy_templates: list[dict] = [
         "max_hp": 1000,
         "shoot_cooldown": 1,
         "projectile_speed": 700,
+        "projectile_color": (160, 200, 255),
+        "projectile_shape": "diamond",
+        "speed": 60,
     },
 
 ]
 
 
 def clone_enemies_from_templates() -> list[dict]:
-    out: list[dict] = []
-    for t in enemy_templates:
-        out.append(
-            {
-                "type": t["type"],
-                "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
-                "color": t["color"],
-                "hp": t["hp"],
-                "max_hp": t["max_hp"],
-                "shoot_cooldown": t["shoot_cooldown"],
-                "time_since_shot": 999.0,
-                "projectile_speed": t["projectile_speed"],
-            }
-        )
-    return out
+    # Kept for compatibility but waves use start_wave() instead.
+    return [make_enemy_from_template(t, 1.0, 1.0) for t in enemy_templates]
 
 
-enemies: list[dict] = clone_enemies_from_templates()
+enemies: list[dict] = []
 
 # ----------------------------
 # Enemy projectiles
@@ -176,6 +192,7 @@ enemy_projectiles: list[dict] = []
 enemy_projectile_size = (10, 10)
 enemy_projectile_damage = 10
 enemy_projectiles_color = (200, 200, 200)
+enemy_projectile_shapes = ["circle", "square", "diamond"]
 
 # ----------------------------
 # Run counters (runs table)
@@ -195,6 +212,14 @@ deaths = 0
 
 POS_SAMPLE_INTERVAL = 0.10
 pos_timer = 0.0
+
+# Waves / progression
+wave_number = 1
+wave_respawn_delay = 2.5  # seconds between waves
+time_to_next_wave = 0.0
+wave_active = True
+base_enemies_per_wave = 4
+max_enemies_per_wave = 24
 
 
 # ----------------------------
@@ -259,6 +284,77 @@ def rect_offscreen(r: pygame.Rect) -> bool:
     return r.right < 0 or r.left > WIDTH or r.bottom < 0 or r.top > HEIGHT
 
 
+def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pygame.Rect:
+    """Find a spawn position not overlapping player or blocks."""
+    w, h = size
+    for _ in range(max_attempts):
+        x = random.randint(0, WIDTH - w)
+        y = random.randint(0, HEIGHT - h)
+        candidate = pygame.Rect(x, y, w, h)
+        if candidate.colliderect(player):
+            continue
+        if any(candidate.colliderect(b["rect"]) for b in blocks):
+            continue
+        return candidate
+    # fallback: top-left corner inside bounds
+    return pygame.Rect(max(0, WIDTH // 2 - w), max(0, HEIGHT // 2 - h), w, h)
+
+
+def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
+    hp = int(t["hp"] * hp_scale)
+    return {
+        "type": t["type"],
+        "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
+        "color": t["color"],
+        "hp": hp,
+        "max_hp": hp,
+        "shoot_cooldown": t["shoot_cooldown"],
+        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"]),
+        "projectile_speed": t["projectile_speed"],
+        "projectile_color": t.get("projectile_color", enemy_projectiles_color),
+        "projectile_shape": t.get("projectile_shape", "circle"),
+        "speed": t.get("speed", 80) * speed_scale,
+    }
+
+
+def log_enemy_spawns(new_enemies: list[dict]):
+    global enemies_spawned
+    for e in new_enemies:
+        enemies_spawned += 1
+        telemetry.log_enemy_spawn(
+            EnemySpawnEvent(
+                t=run_time,
+                enemy_type=e["type"],
+                x=e["rect"].x,
+                y=e["rect"].y,
+                w=e["rect"].w,
+                h=e["rect"].h,
+                hp=e["hp"],
+            )
+        )
+    telemetry.flush(force=True)
+
+
+def start_wave(wave_num: int):
+    """Spawn a new wave with scaling."""
+    global enemies, wave_active
+    enemies = []
+    hp_scale = 1.0 + 0.15 * (wave_num - 1)
+    speed_scale = 1.0 + 0.05 * (wave_num - 1)
+    count = min(base_enemies_per_wave + 2 * (wave_num - 1), max_enemies_per_wave)
+
+    spawned: list[dict] = []
+    for _ in range(count):
+        tmpl = random.choice(enemy_templates)
+        enemy = make_enemy_from_template(tmpl, hp_scale, speed_scale)
+        enemy["rect"] = random_spawn_position((enemy["rect"].w, enemy["rect"].h))
+        spawned.append(enemy)
+
+    enemies.extend(spawned)
+    log_enemy_spawns(spawned)
+    wave_active = True
+
+
 def draw_health_bar(x, y, w, h, hp, max_hp):
     hp = max(0, min(hp, max_hp))
     pygame.draw.rect(screen, (60, 60, 60), (x, y, w, h))
@@ -274,11 +370,26 @@ def draw_centered_text(text: str, y: int, color=(235, 235, 235), use_big=False):
     screen.blit(surf, rect)
 
 
+def draw_projectile(rect: pygame.Rect, color: tuple[int, int, int], shape: str):
+    if shape == "circle":
+        pygame.draw.circle(screen, color, rect.center, rect.w // 2)
+    elif shape == "diamond":
+        cx, cy = rect.center
+        hw, hh = rect.w // 2, rect.h // 2
+        points = [(cx, cy - hh), (cx + hw, cy), (cx, cy + hh), (cx - hw, cy)]
+        pygame.draw.polygon(screen, color, points)
+    else:
+        pygame.draw.rect(screen, color, rect)
+
+
 def spawn_player_bullet_and_log():
-    global shots_fired
+    global shots_fired, player_bullet_shape_index
 
     mx, my = pygame.mouse.get_pos()
     d = vec_toward(player.centerx, player.centery, mx, my)
+
+    shape = player_bullet_shapes[player_bullet_shape_index % len(player_bullet_shapes)]
+    player_bullet_shape_index = (player_bullet_shape_index + 1) % len(player_bullet_shapes)
 
     r = pygame.Rect(
         player.centerx - player_bullet_size[0] // 2,
@@ -286,7 +397,7 @@ def spawn_player_bullet_and_log():
         player_bullet_size[0],
         player_bullet_size[1],
     )
-    player_bullets.append({"rect": r, "vel": d * player_bullet_speed})
+    player_bullets.append({"rect": r, "vel": d * player_bullet_speed, "shape": shape, "color": player_bullets_color})
     shots_fired += 1
 
     telemetry.log_shot(
@@ -315,31 +426,19 @@ def spawn_enemy_projectile(enemy: dict):
             "rect": r,
             "vel": d * enemy["projectile_speed"],
             "enemy_type": enemy["type"],  # attribute damage source
+            "color": enemy.get("projectile_color", enemy_projectiles_color),
+            "shape": enemy.get("projectile_shape", "circle"),
         }
     )
 
 
 def log_enemy_spawns_for_current_wave():
-    global enemies_spawned
-    for e in enemies:
-        enemies_spawned += 1
-        telemetry.log_enemy_spawn(
-            EnemySpawnEvent(
-                t=run_time,
-                enemy_type=e["type"],
-                x=e["rect"].x,
-                y=e["rect"].y,
-                w=e["rect"].w,
-                h=e["rect"].h,
-                hp=e["hp"],
-            )
-        )
-    telemetry.flush(force=True)
+    log_enemy_spawns(enemies)
 
 
 def reset_after_death():
     global player_hp, player_time_since_shot, pos_timer
-    global enemies, player_bullets, enemy_projectiles
+    global enemies, player_bullets, enemy_projectiles, wave_number, time_to_next_wave, wave_active
 
     player_hp = player_max_hp
     player_time_since_shot = 999.0
@@ -352,15 +451,16 @@ def reset_after_death():
     player_bullets.clear()
     enemy_projectiles.clear()
 
-    enemies = clone_enemies_from_templates()
-    log_enemy_spawns_for_current_wave()
+    wave_number = 1
+    time_to_next_wave = 0.0
+    start_wave(wave_number)
 
 
 # ----------------------------
 # Start run + log initial spawns
 # ----------------------------
 run_id = telemetry.start_run(run_started_at, player_max_hp)
-log_enemy_spawns_for_current_wave()
+start_wave(wave_number)
 
 
 # ----------------------------
@@ -381,6 +481,11 @@ try:
                 running = False
 
             if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_a, pygame.K_d):
+                    last_horizontal_key = event.key
+                if event.key in (pygame.K_w, pygame.K_s):
+                    last_vertical_key = event.key
+
                 if event.key == pygame.K_ESCAPE:
                     if state == STATE_PLAYING:
                         state = STATE_PAUSED
@@ -416,22 +521,68 @@ try:
                         reset_after_death()
                         state = STATE_PLAYING
 
+            if event.type == pygame.KEYUP:
+                keys_now = pygame.key.get_pressed()
+                if event.key in (pygame.K_a, pygame.K_d):
+                    if last_horizontal_key == event.key:
+                        if keys_now[pygame.K_a] and not keys_now[pygame.K_d]:
+                            last_horizontal_key = pygame.K_a
+                        elif keys_now[pygame.K_d] and not keys_now[pygame.K_a]:
+                            last_horizontal_key = pygame.K_d
+                        else:
+                            last_horizontal_key = None
+                if event.key in (pygame.K_w, pygame.K_s):
+                    if last_vertical_key == event.key:
+                        if keys_now[pygame.K_w] and not keys_now[pygame.K_s]:
+                            last_vertical_key = pygame.K_w
+                        elif keys_now[pygame.K_s] and not keys_now[pygame.K_w]:
+                            last_vertical_key = pygame.K_s
+                        else:
+                            last_vertical_key = None
+
         # --- Simulation ---
         if state == STATE_PLAYING:
             # Movement
+            if not enemies and wave_active:
+                wave_active = False
+                time_to_next_wave = wave_respawn_delay
+
+            if not wave_active:
+                time_to_next_wave = max(0.0, time_to_next_wave - dt)
+                if time_to_next_wave <= 0.0:
+                    wave_number += 1
+                    start_wave(wave_number)
+
             keys = pygame.key.get_pressed()
             dx = dy = 0
-            if keys[pygame.K_a]:
-                dx -= 1
-            if keys[pygame.K_d]:
-                dx += 1
-            if keys[pygame.K_w]:
-                dy -= 1
-            if keys[pygame.K_s]:
-                dy += 1
+            left = keys[pygame.K_a]
+            right = keys[pygame.K_d]
+            up = keys[pygame.K_w]
+            down = keys[pygame.K_s]
 
-            move_x = int(dx * player_speed * dt)
-            move_y = int(dy * player_speed * dt)
+            if left and right:
+                dx = -1 if last_horizontal_key == pygame.K_a else 1
+            elif left:
+                dx = -1
+            elif right:
+                dx = 1
+
+            if up and down:
+                dy = -1 if last_vertical_key == pygame.K_w else 1
+            elif up:
+                dy = -1
+            elif down:
+                dy = 1
+
+            move_dir = pygame.Vector2(dx, dy)
+            if move_dir.length_squared() > 0:
+                move_dir = move_dir.normalize()
+                last_move_velocity = move_dir * player_speed
+            else:
+                last_move_velocity = pygame.Vector2(0, 0)
+
+            move_x = int(last_move_velocity.x * dt)
+            move_y = int(last_move_velocity.y * dt)
 
             # Shooting
             if pygame.mouse.get_pressed(3)[0] and player_time_since_shot >= player_shoot_cooldown:
@@ -439,6 +590,28 @@ try:
                 player_time_since_shot = 0.0
 
             move_player_with_push(player, move_x, move_y, blocks)
+
+            block_rects = [b["rect"] for b in blocks]
+            for e in enemies:
+                dir_vec = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
+                move_vec = dir_vec * e["speed"] * dt
+                dx_e = int(move_vec.x)
+                dy_e = int(move_vec.y)
+                if dx_e or dy_e:
+                    moved = False
+                    if can_move_rect(e["rect"], dx_e, dy_e, block_rects):
+                        e["rect"].x += dx_e
+                        e["rect"].y += dy_e
+                        moved = True
+                    else:
+                        if dx_e and can_move_rect(e["rect"], dx_e, 0, block_rects):
+                            e["rect"].x += dx_e
+                            moved = True
+                        if dy_e and can_move_rect(e["rect"], 0, dy_e, block_rects):
+                            e["rect"].y += dy_e
+                            moved = True
+                    if moved:
+                        clamp_rect_to_screen(e["rect"])
 
             # Position sampling
             pos_timer += dt
@@ -588,25 +761,44 @@ try:
 
         pygame.draw.rect(screen, (200, 60, 60), player)
 
+        if last_move_velocity.length_squared() > 0:
+            path_overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            future_times = [0.2, 0.4, 0.6, 0.8, 1.0]
+            for idx, t_pred in enumerate(future_times):
+                future_pos = pygame.Vector2(player.center) + last_move_velocity * t_pred
+                alpha = max(40, 170 - idx * 25)
+                pygame.draw.circle(
+                    path_overlay,
+                    (120, 255, 120, alpha),
+                    (int(future_pos.x), int(future_pos.y)),
+                    6,
+                )
+            screen.blit(path_overlay, (0, 0))
+
         for b in player_bullets:
-            pygame.draw.rect(screen, (240, 240, 80), b["rect"])
+            draw_projectile(b["rect"], b.get("color", player_bullets_color), b.get("shape", "square"))
         for p in enemy_projectiles:
-            pygame.draw.rect(screen, (120, 220, 255), p["rect"])
+            draw_projectile(p["rect"], p.get("color", enemy_projectiles_color), p.get("shape", "circle"))
 
         # HUD
         draw_health_bar(10, 10, 220, 18, player_hp, player_max_hp)
         screen.blit(font.render(f"HP: {player_hp}/{player_max_hp}", True, (230, 230, 230)), (12, 34))
         screen.blit(font.render(f"Lives: {lives}", True, (230, 230, 230)), (10, 58))
-        screen.blit(font.render(f"Enemies: {len(enemies)}", True, (230, 230, 230)), (10, 80))
-        screen.blit(font.render(f"Damage dealt: {damage_dealt}", True, (230, 230, 230)), (10, 102))
-        screen.blit(font.render(f"Damage taken: {damage_taken}", True, (230, 230, 230)), (10, 124))
+        screen.blit(font.render(f"Wave: {wave_number}", True, (230, 230, 230)), (10, 80))
+        if wave_active:
+            wave_text = f"Enemies: {len(enemies)}"
+        else:
+            wave_text = f"Next wave in: {time_to_next_wave:.1f}s"
+        screen.blit(font.render(wave_text, True, (230, 230, 230)), (10, 102))
+        screen.blit(font.render(f"Damage dealt: {damage_dealt}", True, (230, 230, 230)), (10, 124))
+        screen.blit(font.render(f"Damage taken: {damage_taken}", True, (230, 230, 230)), (10, 146))
         screen.blit(
             font.render(
                 f"Run: {run_time:.1f}s  Shots: {shots_fired}  Hits: {hits}  Kills: {enemies_killed}  Deaths: {deaths}",
                 True,
                 (230, 230, 230),
             ),
-            (10, 146),
+            (10, 168),
         )
 
         # Pause overlay
