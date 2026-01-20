@@ -14,7 +14,24 @@
 #add a pickup for boost
 #add a pickup for more firing speed
 #add a pickup for enemies spawn more often, that enemies can pick up, and that you have to shoot to destroy the pickup
-
+#--------------------------------------------------------
+#make pickups bigger, add in another pickup that increases the player's max health 
+#add a pickup that increases the player's speed
+#add a pickup that increases the player's firing rate
+#add a pickup that increases the player's bullet size
+#add a pickup that increases the player's bullet speed
+#add a pickup that increases the player's bullet damage
+#add a pickup that increases the player's bullet knockback
+#add a pickup that increases the player's bullet penetration
+#add a pickup that increases the player's bullet explosion radius
+#randomize the pickups, so that the player never knows what they will get
+#--------------------------------------------------------
+#make pickup that increases the shot size to 10x regular size, and another pickup that increase the shot beams to 3 beams
+#--------------------------------------------------------
+#add a pickup that bounces shots around on the walls
+#add an enemy that shoots shots that bounce around on the walls
+#stack pickups so that the player can get a combo of pickups
+#add in more squares and rectangles that can be moved around, but have health bars that enemies can shoot at to destroy them
 
 
 import math
@@ -156,14 +173,40 @@ fire_rate_buff_t = 0.0
 fire_rate_buff_duration = 10.0
 fire_rate_mult = 0.55  # reduces cooldown while active
 
+# Permanent player stat multipliers (from pickups)
+player_stat_multipliers = {
+    "speed": 1.0,
+    "firerate": 1.0,  # permanent firerate boost (stacks with temporary buff)
+    "bullet_size": 1.0,
+    "bullet_speed": 1.0,
+    "bullet_damage": 1.0,
+    "bullet_knockback": 1.0,
+    "bullet_penetration": 0,  # number of enemies bullet can pierce through
+    "bullet_explosion_radius": 0.0,  # explosion radius in pixels (0 = no explosion)
+}
+
+# Special bullet modifiers
+giant_bullets_active = False  # 10x bullet size
+triple_shot_active = False  # shoot 3 beams instead of 1
+bouncing_bullets_active = False  # bullets bounce off walls
+
 # ----------------------------
 # World blocks
 # ----------------------------
 blocks = [
-    {"rect": pygame.Rect(100, 100, 100, 100), "color": (80, 140, 220)},
-    {"rect": pygame.Rect(180, 180, 60, 30), "color": (30, 30, 30)},
-    {"rect": pygame.Rect(550, 420, 70, 70), "color": (200, 200, 200)},
-    {"rect": pygame.Rect(700, 420, 70, 70), "color": (220, 200, 10)},
+    {"rect": pygame.Rect(100, 100, 100, 100), "color": (80, 140, 220), "hp": None, "max_hp": None},  # indestructible
+    {"rect": pygame.Rect(180, 180, 60, 30), "color": (30, 30, 30), "hp": None, "max_hp": None},  # indestructible
+    {"rect": pygame.Rect(550, 420, 70, 70), "color": (200, 200, 200), "hp": None, "max_hp": None},  # indestructible
+    {"rect": pygame.Rect(700, 420, 70, 70), "color": (220, 200, 10), "hp": None, "max_hp": None},  # indestructible
+]
+
+# Add more destructible blocks
+destructible_blocks = [
+    {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 50, "max_hp": 50},
+    {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 40, "max_hp": 40},
+    {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 60, "max_hp": 60},
+    {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 45, "max_hp": 45},
+    {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 55, "max_hp": 55},
 ]
 
 # ----------------------------
@@ -254,6 +297,19 @@ enemy_templates: list[dict] = [
         "projectile_color": (160, 200, 255),
         "projectile_shape": "diamond",
         "speed": 60,
+    },
+    {
+        "type": "bouncer",
+        "rect": pygame.Rect(500, 500, 30, 30),
+        "color": (255, 100, 100),
+        "hp": 70,
+        "max_hp": 70,
+        "shoot_cooldown": 1.5,
+        "projectile_speed": 350,
+        "projectile_color": (255, 150, 150),
+        "projectile_shape": "square",
+        "speed": 85,
+        "bouncing_projectiles": True,  # shoots bouncing projectiles
     },
 
 ]
@@ -457,14 +513,19 @@ def start_wave(wave_num: int):
 
 
 def spawn_pickup(pickup_type: str):
-    size = (18, 18)
+    # Make pickups bigger
+    size = (32, 32)
     r = random_spawn_position(size)
-    if pickup_type == "boost":
-        color = (80, 200, 255)
-    elif pickup_type == "firerate":
-        color = (255, 200, 80)
-    else:  # "spawn_boost"
-        color = (255, 80, 200)
+    # All pickups look the same (mystery) - randomized color so player doesn't know what they're getting
+    mystery_colors = [
+        (180, 100, 255),  # purple
+        (100, 255, 180),  # green
+        (255, 180, 100),  # orange
+        (180, 255, 255),  # cyan
+        (255, 100, 180),  # pink
+        (255, 255, 100),  # yellow
+    ]
+    color = random.choice(mystery_colors)
     pickups.append({"type": pickup_type, "rect": r, "color": color})
 
 
@@ -499,18 +560,54 @@ def spawn_player_bullet_and_log():
     global shots_fired, player_bullet_shape_index
 
     mx, my = pygame.mouse.get_pos()
-    d = vec_toward(player.centerx, player.centery, mx, my)
+    base_dir = vec_toward(player.centerx, player.centery, mx, my)
 
     shape = player_bullet_shapes[player_bullet_shape_index % len(player_bullet_shapes)]
     player_bullet_shape_index = (player_bullet_shape_index + 1) % len(player_bullet_shapes)
 
-    r = pygame.Rect(
-        player.centerx - player_bullet_size[0] // 2,
-        player.centery - player_bullet_size[1] // 2,
-        player_bullet_size[0],
-        player_bullet_size[1],
-    )
-    player_bullets.append({"rect": r, "vel": d * player_bullet_speed, "shape": shape, "color": player_bullets_color})
+    # Determine shot pattern (single or triple)
+    if triple_shot_active:
+        # Triple shot: center + left + right spread
+        spread_angle_deg = 8.6  # degrees
+        directions = [
+            base_dir,  # center
+            base_dir.rotate(-spread_angle_deg),  # left
+            base_dir.rotate(spread_angle_deg),  # right
+        ]
+    else:
+        directions = [base_dir]
+
+    # Spawn bullets for each direction
+    for d in directions:
+        # Apply stat multipliers
+        size_mult = player_stat_multipliers["bullet_size"]
+        if giant_bullets_active:
+            size_mult *= 10.0  # 10x size multiplier
+        
+        effective_size = (
+            int(player_bullet_size[0] * size_mult),
+            int(player_bullet_size[1] * size_mult),
+        )
+        effective_speed = player_bullet_speed * player_stat_multipliers["bullet_speed"]
+        effective_damage = int(player_bullet_damage * player_stat_multipliers["bullet_damage"])
+
+        r = pygame.Rect(
+            player.centerx - effective_size[0] // 2,
+            player.centery - effective_size[1] // 2,
+            effective_size[0],
+            effective_size[1],
+        )
+        player_bullets.append({
+            "rect": r,
+            "vel": d * effective_speed,
+            "shape": shape,
+            "color": player_bullets_color,
+            "damage": effective_damage,
+            "penetration": int(player_stat_multipliers["bullet_penetration"]),
+            "explosion_radius": player_stat_multipliers["bullet_explosion_radius"],
+            "knockback": player_stat_multipliers["bullet_knockback"],
+            "bounces": 10 if bouncing_bullets_active else 0,  # max bounces
+        })
     shots_fired += 1
 
     telemetry.log_shot(
@@ -548,6 +645,7 @@ def spawn_enemy_projectile(enemy: dict):
     )
     proj_color = enemy.get("projectile_color", enemy_projectiles_color)
     proj_shape = enemy.get("projectile_shape", "circle")
+    bounces = enemy.get("bouncing_projectiles", False)
     enemy_projectiles.append(
         {
             "rect": r,
@@ -555,6 +653,7 @@ def spawn_enemy_projectile(enemy: dict):
             "enemy_type": enemy["type"],  # attribute damage source
             "color": proj_color,
             "shape": proj_shape,
+            "bounces": 10 if bounces else 0,  # max bounces for bouncing enemy type
         }
     )
     
@@ -763,7 +862,7 @@ try:
                 dy = 1
 
             move_dir = pygame.Vector2(dx, dy)
-            speed_mult = 1.0
+            speed_mult = player_stat_multipliers["speed"]  # Apply permanent speed multiplier
             if wants_slow:
                 speed_mult *= slow_speed_mult
             boosting = wants_boost and boost_meter > 0.0 and not wants_slow
@@ -783,7 +882,10 @@ try:
             move_y = int(last_move_velocity.y * dt)
 
             # Shooting
-            effective_cooldown = player_shoot_cooldown * (fire_rate_mult if fire_rate_buff_t > 0 else 1.0)
+            # Apply both temporary and permanent fire rate multipliers
+            temp_mult = fire_rate_mult if fire_rate_buff_t > 0 else 1.0
+            perm_mult = 1.0 / player_stat_multipliers["firerate"] if player_stat_multipliers["firerate"] > 1.0 else 1.0
+            effective_cooldown = player_shoot_cooldown * temp_mult * perm_mult
             if pygame.mouse.get_pressed(3)[0] and player_time_since_shot >= effective_cooldown:
                 spawn_player_bullet_and_log()
                 player_time_since_shot = 0.0
@@ -861,13 +963,25 @@ try:
             pickup_spawn_timer += dt
             if pickup_spawn_timer >= PICKUP_SPAWN_INTERVAL:
                 pickup_spawn_timer = 0.0
-                roll = random.random()
-                if roll < 0.45:
-                    spawn_pickup("boost")
-                elif roll < 0.80:
-                    spawn_pickup("firerate")
-                else:
-                    spawn_pickup("spawn_boost")
+                # Randomize pickup type - player never knows what they'll get
+                pickup_types = [
+                    "boost",  # temporary boost meter refill
+                    "firerate",  # temporary fire rate buff
+                    "spawn_boost",  # enemy can grab, player can shoot
+                    "max_health",  # permanent max HP increase
+                    "speed",  # permanent speed increase
+                    "firerate_permanent",  # permanent fire rate increase
+                    "bullet_size",  # permanent bullet size increase
+                    "bullet_speed",  # permanent bullet speed increase
+                    "bullet_damage",  # permanent bullet damage increase
+                    "bullet_knockback",  # permanent knockback increase
+                    "bullet_penetration",  # permanent penetration increase
+                    "bullet_explosion",  # permanent explosion radius increase
+                    "giant_bullets",  # 10x bullet size
+                    "triple_shot",  # shoot 3 beams
+                    "bouncing_bullets",  # bullets bounce off walls
+                ]
+                spawn_pickup(random.choice(pickup_types))
 
             # Pickup interactions
             for p in pickups[:]:
@@ -875,11 +989,36 @@ try:
                 ptype = p["type"]
 
                 # Player collects beneficial pickups
-                if ptype in ("boost", "firerate") and pr.colliderect(player):
+                if ptype != "spawn_boost" and pr.colliderect(player):
                     if ptype == "boost":
                         boost_meter = min(boost_meter_max, boost_meter + 45.0)
                     elif ptype == "firerate":
                         fire_rate_buff_t = fire_rate_buff_duration
+                    elif ptype == "max_health":
+                        player_max_hp += 15
+                        player_hp += 15  # also heal by the same amount
+                    elif ptype == "speed":
+                        player_stat_multipliers["speed"] += 0.15
+                    elif ptype == "firerate_permanent":
+                        player_stat_multipliers["firerate"] += 0.12
+                    elif ptype == "bullet_size":
+                        player_stat_multipliers["bullet_size"] += 0.20
+                    elif ptype == "bullet_speed":
+                        player_stat_multipliers["bullet_speed"] += 0.15
+                    elif ptype == "bullet_damage":
+                        player_stat_multipliers["bullet_damage"] += 0.20
+                    elif ptype == "bullet_knockback":
+                        player_stat_multipliers["bullet_knockback"] += 0.25
+                    elif ptype == "bullet_penetration":
+                        player_stat_multipliers["bullet_penetration"] += 1
+                    elif ptype == "bullet_explosion":
+                        player_stat_multipliers["bullet_explosion_radius"] += 25.0
+                    elif ptype == "giant_bullets":
+                        giant_bullets_active = True
+                    elif ptype == "triple_shot":
+                        triple_shot_active = True
+                    elif ptype == "bouncing_bullets":
+                        bouncing_bullets_active = True
                     pickups.remove(p)
                     continue
 
@@ -904,7 +1043,30 @@ try:
                 r.x += int(v.x * dt)
                 r.y += int(v.y * dt)
 
-                if rect_offscreen(r):
+                # Handle bouncing bullets
+                bounces_left = b.get("bounces", 0)
+                if bounces_left > 0:
+                    bounced = False
+                    if r.left < 0:
+                        v.x = abs(v.x)
+                        bounced = True
+                    elif r.right > WIDTH:
+                        v.x = -abs(v.x)
+                        bounced = True
+                    if r.top < 0:
+                        v.y = abs(v.y)
+                        bounced = True
+                    elif r.bottom > HEIGHT:
+                        v.y = -abs(v.y)
+                        bounced = True
+                    if bounced:
+                        b["bounces"] = bounces_left - 1
+                        b["vel"] = v
+                        # Keep bullet on screen
+                        r.x = max(0, min(r.x, WIDTH - r.w))
+                        r.y = max(0, min(r.y, HEIGHT - r.h))
+
+                if rect_offscreen(r) and bounces_left == 0:
                     player_bullets.remove(b)
                     continue
 
@@ -933,9 +1095,52 @@ try:
                     hits += 1
                     e = enemies[hit_enemy_index]
 
-                    # apply damage
-                    e["hp"] -= player_bullet_damage
-                    damage_dealt += player_bullet_damage
+                    # apply damage (use bullet's stored damage value)
+                    bullet_damage = b.get("damage", player_bullet_damage)
+                    e["hp"] -= bullet_damage
+                    damage_dealt += bullet_damage
+
+                    # Apply knockback if available
+                    knockback = b.get("knockback", 0.0)
+                    if knockback > 0.0:
+                        knockback_vec = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
+                        e["rect"].x += int(knockback_vec.x * knockback * 5)
+                        e["rect"].y += int(knockback_vec.y * knockback * 5)
+                        clamp_rect_to_screen(e["rect"])
+
+                    # Handle explosion if available
+                    explosion_radius = b.get("explosion_radius", 0.0)
+                    if explosion_radius > 0.0:
+                        exp_center = pygame.Vector2(b["rect"].center)
+                        for other_e in enemies:
+                            if other_e is e:
+                                continue
+                            dist = pygame.Vector2(other_e["rect"].center).distance_to(exp_center)
+                            if dist <= explosion_radius:
+                                # Damage falls off with distance
+                                exp_damage = int(bullet_damage * (1.0 - dist / explosion_radius) * 0.6)
+                                if exp_damage > 0:
+                                    other_e["hp"] -= exp_damage
+                                    damage_dealt += exp_damage
+                                    # Log explosion hit
+                                    telemetry.log_enemy_hit(
+                                        EnemyHitEvent(
+                                            t=run_time,
+                                            enemy_type=other_e["type"],
+                                            enemy_x=other_e["rect"].x,
+                                            enemy_y=other_e["rect"].y,
+                                            damage=exp_damage,
+                                            enemy_hp_after=max(0, other_e["hp"]),
+                                            killed=other_e["hp"] <= 0,
+                                        )
+                                    )
+                                    if other_e["hp"] <= 0:
+                                        try:
+                                            idx = enemies.index(other_e)
+                                            enemies.pop(idx)
+                                            enemies_killed += 1
+                                        except ValueError:
+                                            pass
 
                     killed = e["hp"] <= 0
                     hp_after = max(0, e["hp"])
@@ -946,25 +1151,57 @@ try:
                             enemy_type=e["type"],
                             enemy_x=e["rect"].x,
                             enemy_y=e["rect"].y,
-                            damage=player_bullet_damage,
+                            damage=bullet_damage,
                             enemy_hp_after=hp_after,
                             killed=killed,
                         )
                     )
 
-                    player_bullets.remove(b)
+                    # Handle penetration
+                    penetration = b.get("penetration", 0)
+                    if penetration > 0:
+                        # Bullet can pierce through
+                        b["penetration"] = penetration - 1
+                        # Continue to next enemy if penetration remains
+                        if b["penetration"] > 0:
+                            continue
+                    else:
+                        # No penetration left, remove bullet
+                        player_bullets.remove(b)
 
                     if killed:
                         enemies.pop(hit_enemy_index)
                         enemies_killed += 1
 
-                    continue
+                    # If bullet was removed, continue to next bullet
+                    if b not in player_bullets:
+                        continue
 
-                # bullets stop on blocks
+                # bullets interact with indestructible blocks
                 for blk in blocks:
                     if r.colliderect(blk["rect"]):
-                        player_bullets.remove(b)
+                        # Bouncing bullets can bounce off blocks too
+                        if b.get("bounces", 0) > 0:
+                            # Simple bounce: reverse velocity
+                            b["vel"] = -b["vel"]
+                            b["bounces"] = b.get("bounces", 0) - 1
+                        else:
+                            player_bullets.remove(b)
                         break
+                
+                # Player bullets can destroy destructible blocks
+                for db in destructible_blocks[:]:
+                    if r.colliderect(db["rect"]):
+                        bullet_damage = b.get("damage", player_bullet_damage)
+                        db["hp"] -= bullet_damage
+                        if db["hp"] <= 0:
+                            destructible_blocks.remove(db)
+                        # Remove bullet unless it has penetration
+                        if b.get("penetration", 0) == 0:
+                            player_bullets.remove(b)
+                        break
+                if b not in player_bullets:
+                    continue
 
             # Enemy projectiles update
             for p in enemy_projectiles[:]:
@@ -973,8 +1210,42 @@ try:
                 r.x += int(v.x * dt)
                 r.y += int(v.y * dt)
 
-                if rect_offscreen(r):
+                # Handle bouncing enemy projectiles
+                bounces_left = p.get("bounces", 0)
+                if bounces_left > 0:
+                    bounced = False
+                    if r.left < 0:
+                        v.x = abs(v.x)
+                        bounced = True
+                    elif r.right > WIDTH:
+                        v.x = -abs(v.x)
+                        bounced = True
+                    if r.top < 0:
+                        v.y = abs(v.y)
+                        bounced = True
+                    elif r.bottom > HEIGHT:
+                        v.y = -abs(v.y)
+                        bounced = True
+                    if bounced:
+                        p["bounces"] = bounces_left - 1
+                        p["vel"] = v
+                        # Keep projectile on screen
+                        r.x = max(0, min(r.x, WIDTH - r.w))
+                        r.y = max(0, min(r.y, HEIGHT - r.h))
+
+                if rect_offscreen(r) and bounces_left == 0:
                     enemy_projectiles.remove(p)
+                    continue
+
+                # Enemy projectiles can damage destructible blocks
+                for db in destructible_blocks[:]:
+                    if r.colliderect(db["rect"]):
+                        db["hp"] -= enemy_projectile_damage
+                        if db["hp"] <= 0:
+                            destructible_blocks.remove(db)
+                        enemy_projectiles.remove(p)
+                        break
+                if p not in enemy_projectiles:
                     continue
 
                 if r.colliderect(player):
@@ -1039,6 +1310,11 @@ try:
 
         for blk in blocks:
             pygame.draw.rect(screen, blk["color"], blk["rect"])
+        
+        # Draw destructible blocks with health bars
+        for db in destructible_blocks:
+            pygame.draw.rect(screen, db["color"], db["rect"])
+            draw_health_bar(db["rect"].x, db["rect"].y - 10, db["rect"].w, 6, db["hp"], db["max_hp"])
 
         for pu in pickups:
             pygame.draw.rect(screen, pu["color"], pu["rect"])
@@ -1065,6 +1341,12 @@ try:
 
         for b in player_bullets:
             draw_projectile(b["rect"], b.get("color", player_bullets_color), b.get("shape", "square"))
+            # Draw explosion radius indicator if bullet has explosion
+            if b.get("explosion_radius", 0.0) > 0.0:
+                exp_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                radius = int(b["explosion_radius"])
+                pygame.draw.circle(exp_surf, (255, 200, 0, 30), b["rect"].center, radius, 2)
+                screen.blit(exp_surf, (0, 0))
         for p in enemy_projectiles:
             draw_projectile(p["rect"], p.get("color", enemy_projectiles_color), p.get("shape", "circle"))
 
@@ -1085,6 +1367,34 @@ try:
             screen.blit(font.render(f"Firerate buff: {fire_rate_buff_t:.1f}s", True, (255, 220, 120)), (10, 212))
         if enemy_spawn_boost_level > 0:
             screen.blit(font.render(f"Enemy spawn boost: +{enemy_spawn_boost_level}", True, (255, 140, 220)), (10, 234))
+        
+        # Display permanent stat upgrades
+        y_offset = 256
+        if player_stat_multipliers["speed"] > 1.0:
+            screen.blit(font.render(f"Speed: +{int((player_stat_multipliers['speed']-1.0)*100)}%", True, (150, 255, 150)), (10, y_offset))
+            y_offset += 22
+        if player_stat_multipliers["firerate"] > 1.0:
+            screen.blit(font.render(f"Fire Rate: +{int((player_stat_multipliers['firerate']-1.0)*100)}%", True, (150, 255, 150)), (10, y_offset))
+            y_offset += 22
+        if player_stat_multipliers["bullet_damage"] > 1.0:
+            screen.blit(font.render(f"Damage: +{int((player_stat_multipliers['bullet_damage']-1.0)*100)}%", True, (150, 255, 150)), (10, y_offset))
+            y_offset += 22
+        if player_stat_multipliers["bullet_penetration"] > 0:
+            screen.blit(font.render(f"Penetration: {int(player_stat_multipliers['bullet_penetration'])}", True, (150, 255, 150)), (10, y_offset))
+            y_offset += 22
+        if player_stat_multipliers["bullet_explosion_radius"] > 0:
+            screen.blit(font.render(f"Explosion: {int(player_stat_multipliers['bullet_explosion_radius'])}px", True, (150, 255, 150)), (10, y_offset))
+            y_offset += 22
+        if giant_bullets_active:
+            screen.blit(font.render("GIANT BULLETS (10x)", True, (255, 200, 0)), (10, y_offset))
+            y_offset += 22
+        if triple_shot_active:
+            screen.blit(font.render("TRIPLE SHOT", True, (255, 200, 0)), (10, y_offset))
+            y_offset += 22
+        if bouncing_bullets_active:
+            screen.blit(font.render("BOUNCING BULLETS", True, (255, 200, 0)), (10, y_offset))
+            y_offset += 22
+        
         screen.blit(
             font.render(
                 f"Run: {run_time:.1f}s  Shots: {shots_fired}  Hits: {hits}  Kills: {enemies_killed}  Deaths: {deaths}",
