@@ -8,3 +8,6 @@ download of sql database is unnecessary, it will be generated with the running o
 
 EDIT 1-20-26:
 I have started using Cursor to add additional features to the game, in collaboration with LP, A, and others
+
+EDIT 2:
+I have begun to use the game to develop into a sort of bullet hell game, using cursor. The game is intentionally simple, and is meant to be fun, (even if it was generated using AI, I wouldn't have been able to make the game otherwise)
