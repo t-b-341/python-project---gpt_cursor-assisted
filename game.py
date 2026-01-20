@@ -41,9 +41,6 @@
 #make the map bigger, and add in more geometry, with areas of health recovery, and overshields (extra health bar that can be used to block damage)
 #--------------------------------------------------------
 #add a pickup that increases the player's overshield
-
-
-
 #FUTURE
 #SMALL FEATURES TO ADD; integrate C++ for the physics and collision detection?
 #multiple levels, with different themes and enemies, and pickups, and powerups
@@ -56,8 +53,6 @@
 #add a difficulty selector, so the player can choose the difficulty of the game, which impacts enemy spawns (more, harder enemies, fewer pickups?)
 #by end of game it's a bullet hell with the player having all their tools
 #add space bar to jump in direction of movement?
-
-
 #--------------------------------------------------------
 
 
@@ -156,11 +151,28 @@ run_started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 # ----------------------------
 # Game state
 # ----------------------------
+STATE_MENU = "MENU"
 STATE_PLAYING = "PLAYING"
 STATE_PAUSED = "PAUSED"
 STATE_CONTINUE = "CONTINUE"
+STATE_ENDURANCE = "ENDURANCE"
 
-state = STATE_PLAYING
+state = STATE_MENU
+
+# Difficulty settings
+DIFFICULTY_EASY = "EASY"
+DIFFICULTY_NORMAL = "NORMAL"
+DIFFICULTY_HARD = "HARD"
+difficulty = DIFFICULTY_NORMAL
+difficulty_selected = 1  # 0 = Easy, 1 = Normal, 2 = Hard
+difficulty_options = [DIFFICULTY_EASY, DIFFICULTY_NORMAL, DIFFICULTY_HARD]
+
+# Difficulty multipliers
+difficulty_multipliers = {
+    DIFFICULTY_EASY: {"enemy_hp": 0.7, "enemy_speed": 0.8, "enemy_spawn": 0.8, "pickup_spawn": 1.3},
+    DIFFICULTY_NORMAL: {"enemy_hp": 1.0, "enemy_speed": 1.0, "enemy_spawn": 1.0, "pickup_spawn": 1.0},
+    DIFFICULTY_HARD: {"enemy_hp": 1.5, "enemy_speed": 1.3, "enemy_spawn": 1.5, "pickup_spawn": 0.7},
+}
 
 pause_options = ["Continue", "Quit"]
 pause_selected = 0
@@ -191,6 +203,15 @@ last_horizontal_key = None  # keycode of current "latest" horizontal key
 last_vertical_key = None  # keycode of current "latest" vertical key
 last_move_velocity = pygame.Vector2(0, 0)
 
+# Jump/Dash mechanic (space bar)
+jump_cooldown = 0.5  # seconds between jumps
+jump_cooldown_timer = 0.0
+jump_velocity = pygame.Vector2(0, 0)  # Current jump velocity
+jump_speed = 600  # pixels per second
+jump_duration = 0.15  # seconds
+jump_timer = 0.0
+is_jumping = False
+
 # Boost / slow
 boost_meter_max = 100.0
 boost_meter = boost_meter_max
@@ -216,10 +237,17 @@ player_stat_multipliers = {
     "bullet_explosion_radius": 0.0,  # explosion radius in pixels (0 = no explosion)
 }
 
-# Weapon mode system (keys 1-5 to switch)
+# Weapon mode system (keys 1-6 to switch)
 # "basic" = normal bullets, "rocket" = rocket launcher, "triple" = triple shot,
-# "bouncing" = bouncing bullets, "giant" = giant bullets
+# "bouncing" = bouncing bullets, "giant" = giant bullets, "laser" = laser beam
 current_weapon_mode = "basic"
+
+# Laser beam system
+laser_beams: list[dict] = []  # List of active laser beams
+laser_length = 800  # Maximum laser length in pixels
+laser_damage = 50  # Damage per frame while on target
+laser_cooldown = 0.3  # Cooldown between laser shots
+laser_time_since_shot = 999.0
 
 # ----------------------------
 # World blocks
@@ -392,6 +420,8 @@ damage_dealt = 0
 enemies_spawned = 0
 enemies_killed = 0
 deaths = 0
+score = 0
+survival_time = 0.0  # Total time survived in seconds
 
 POS_SAMPLE_INTERVAL = 0.10
 pos_timer = 0.0
@@ -428,6 +458,19 @@ def vec_toward(ax, ay, bx, by) -> pygame.Vector2:
     if v.length_squared() == 0:
         return pygame.Vector2(1, 0)
     return v.normalize()
+
+
+def line_rect_intersection(start: pygame.Vector2, end: pygame.Vector2, rect: pygame.Rect) -> pygame.Vector2 | None:
+    """Find the closest intersection point between a line and a rectangle."""
+    # Check if line intersects with rectangle
+    clipped = rect.clipline(start, end)
+    if not clipped:
+        return None
+    # Return the point closest to start
+    p1, p2 = clipped
+    dist1 = (pygame.Vector2(p1) - start).length_squared()
+    dist2 = (pygame.Vector2(p2) - start).length_squared()
+    return pygame.Vector2(p1) if dist1 < dist2 else pygame.Vector2(p2)
 
 
 def can_move_rect(rect: pygame.Rect, dx: int, dy: int, other_rects: list[pygame.Rect]) -> bool:
@@ -534,9 +577,14 @@ def start_wave(wave_num: int):
     """Spawn a new wave with scaling."""
     global enemies, wave_active
     enemies = []
-    hp_scale = 1.0 + 0.15 * (wave_num - 1)
-    speed_scale = 1.0 + 0.05 * (wave_num - 1)
-    count = min(base_enemies_per_wave + enemy_spawn_boost_level + 2 * (wave_num - 1), max_enemies_per_wave)
+    # Apply difficulty multipliers
+    diff_mult = difficulty_multipliers[difficulty]
+    hp_scale = (1.0 + 0.15 * (wave_num - 1)) * diff_mult["enemy_hp"]
+    speed_scale = (1.0 + 0.05 * (wave_num - 1)) * diff_mult["enemy_speed"]
+    # Apply difficulty to enemy count
+    diff_mult = difficulty_multipliers[difficulty]
+    base_count = base_enemies_per_wave + enemy_spawn_boost_level + 2 * (wave_num - 1)
+    count = min(int(base_count * diff_mult["enemy_spawn"]), max_enemies_per_wave)
 
     spawned: list[dict] = []
     for _ in range(count):
@@ -583,6 +631,47 @@ def spawn_pickup(pickup_type: str):
         "timer": 15.0,  # pickup despawns after 15 seconds
         "age": 0.0,  # current age for visual effects
     })
+
+
+def spawn_weapon_drop(enemy: dict):
+    """Spawn a weapon drop from a killed enemy."""
+    enemy_type = enemy.get("type", "grunt")
+    weapon_drop_map = {
+        "grunt": "basic",
+        "stinky": "basic",
+        "heavy": "rocket",
+        "baka": "triple",
+        "neko neko desu": "bouncing",
+        "BIG NEKU": "giant",
+        "bouncer": "bouncing",
+    }
+    # 30% chance to drop weapon
+    if random.random() < 0.3 and enemy_type in weapon_drop_map:
+        weapon_type = weapon_drop_map[enemy_type]
+        # Spawn weapon pickup at enemy location
+        weapon_pickup_size = (28, 28)
+        weapon_pickup_rect = pygame.Rect(
+            enemy["rect"].centerx - weapon_pickup_size[0] // 2,
+            enemy["rect"].centery - weapon_pickup_size[1] // 2,
+            weapon_pickup_size[0],
+            weapon_pickup_size[1]
+        )
+        weapon_colors_map = {
+            "basic": (200, 200, 200),
+            "rocket": (255, 100, 0),
+            "triple": (100, 200, 255),
+            "bouncing": (100, 255, 100),
+            "giant": (255, 200, 0),
+            "laser": (255, 50, 50),
+        }
+        pickups.append({
+            "type": weapon_type,
+            "rect": weapon_pickup_rect,
+            "color": weapon_colors_map.get(weapon_type, (180, 100, 255)),
+            "timer": 10.0,  # Weapon pickups last 10 seconds
+            "age": 0.0,
+            "is_weapon_drop": True,  # Mark as weapon drop
+        })
 
 
 def draw_health_bar(x, y, w, h, hp, max_hp):
@@ -799,12 +888,20 @@ def reset_after_death():
     global player_hp, player_time_since_shot, pos_timer
     global enemies, player_bullets, enemy_projectiles, wave_number, time_to_next_wave, wave_active
     global current_weapon_mode, overshield
+    global jump_cooldown_timer, jump_timer, is_jumping, jump_velocity
+    global laser_beams, laser_time_since_shot
 
     player_hp = player_max_hp
     overshield = 0  # Reset overshield
     player_time_since_shot = 999.0
+    laser_time_since_shot = 999.0
     pos_timer = 0.0
     current_weapon_mode = "basic"  # Reset to basic weapon
+    jump_cooldown_timer = 0.0
+    jump_timer = 0.0
+    is_jumping = False
+    jump_velocity = pygame.Vector2(0, 0)
+    laser_beams.clear()
 
     player.x = (WIDTH - player.w) // 2
     player.y = (HEIGHT - player.h) // 2
@@ -821,8 +918,8 @@ def reset_after_death():
 # ----------------------------
 # Start run + log initial spawns
 # ----------------------------
-run_id = telemetry.start_run(run_started_at, player_max_hp)
-start_wave(wave_number)
+run_id = None  # Will be set when game starts
+# Don't start wave automatically - wait for menu selection
 
 
 # ----------------------------
@@ -835,6 +932,7 @@ try:
 
         if state == STATE_PLAYING:
             run_time += dt
+            survival_time += dt  # Track total survival time
             player_time_since_shot += dt
 
         # --- Events ---
@@ -857,7 +955,7 @@ try:
                 if event.key in (controls["move_up"], controls["move_down"]):
                     last_vertical_key = event.key
 
-                # Weapon switching (keys 1-5)
+                # Weapon switching (keys 1-6)
                 if state == STATE_PLAYING:
                     if event.key == pygame.K_1:
                         current_weapon_mode = "basic"
@@ -869,7 +967,38 @@ try:
                         current_weapon_mode = "bouncing"
                     elif event.key == pygame.K_5:
                         current_weapon_mode = "giant"
+                    elif event.key == pygame.K_6:
+                        current_weapon_mode = "laser"
+                    # Space bar jump/dash in direction of movement
+                    elif event.key == pygame.K_SPACE and jump_cooldown_timer <= 0.0 and not is_jumping:
+                        if last_move_velocity.length_squared() > 0:
+                            # Jump in direction of movement
+                            jump_dir = last_move_velocity.normalize()
+                            jump_velocity = jump_dir * jump_speed
+                            jump_timer = jump_duration
+                            is_jumping = True
+                            jump_cooldown_timer = jump_cooldown
+                        elif move_dir.length_squared() > 0:
+                            # Fallback: use current move direction
+                            jump_dir = move_dir.normalize()
+                            jump_velocity = jump_dir * jump_speed
+                            jump_timer = jump_duration
+                            is_jumping = True
+                            jump_cooldown_timer = jump_cooldown
 
+                # Menu navigation
+                if state == STATE_MENU:
+                    if event.key == pygame.K_UP or event.key == pygame.K_w:
+                        difficulty_selected = (difficulty_selected - 1) % len(difficulty_options)
+                    elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                        difficulty_selected = (difficulty_selected + 1) % len(difficulty_options)
+                    elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                        # Start game with selected difficulty
+                        difficulty = difficulty_options[difficulty_selected]
+                        state = STATE_PLAYING
+                        run_id = telemetry.start_run(run_started_at, player_max_hp)
+                        start_wave(wave_number)
+                
                 if event.key == pygame.K_ESCAPE:
                     if state == STATE_PLAYING:
                         state = STATE_PAUSED
@@ -880,6 +1009,8 @@ try:
                         running = False
                     elif state == STATE_CONTROLS:
                         state = STATE_PAUSED
+                    elif state == STATE_MENU:
+                        running = False
 
                 if event.key == pygame.K_p:
                     if state == STATE_PLAYING:
@@ -1014,19 +1145,113 @@ try:
             else:
                 last_move_velocity = pygame.Vector2(0, 0)
 
-            move_x = int(last_move_velocity.x * dt)
-            move_y = int(last_move_velocity.y * dt)
+            # Update jump timers
+            if jump_cooldown_timer > 0.0:
+                jump_cooldown_timer -= dt
+            if is_jumping:
+                jump_timer -= dt
+                if jump_timer <= 0.0:
+                    is_jumping = False
+                    jump_velocity = pygame.Vector2(0, 0)
+
+            # Apply jump velocity if jumping
+            total_velocity = last_move_velocity.copy()
+            if is_jumping:
+                # Apply jump velocity (decay over time)
+                jump_factor = jump_timer / jump_duration
+                total_velocity += jump_velocity * jump_factor
+
+            move_x = int(total_velocity.x * dt)
+            move_y = int(total_velocity.y * dt)
 
             # Shooting
-            # Apply both temporary and permanent fire rate multipliers
-            temp_mult = fire_rate_mult if fire_rate_buff_t > 0 else 1.0
-            perm_mult = 1.0 / player_stat_multipliers["firerate"] if player_stat_multipliers["firerate"] > 1.0 else 1.0
-            # Rocket launcher has slower fire rate
-            rocket_mult = 3.5 if current_weapon_mode == "rocket" else 1.0
-            effective_cooldown = player_shoot_cooldown * temp_mult * perm_mult * rocket_mult
-            if pygame.mouse.get_pressed(3)[0] and player_time_since_shot >= effective_cooldown:
-                spawn_player_bullet_and_log()
-                player_time_since_shot = 0.0
+            laser_time_since_shot += dt
+            if current_weapon_mode == "laser":
+                # Laser beam weapon - continuous beam while mouse is held
+                if pygame.mouse.get_pressed(3)[0] and laser_time_since_shot >= laser_cooldown:
+                    # Create or update laser beam
+                    mouse_x, mouse_y = pygame.mouse.get_pos()
+                    player_center = pygame.Vector2(player.center)
+                    mouse_pos = pygame.Vector2(mouse_x, mouse_y)
+                    direction = (mouse_pos - player_center)
+                    if direction.length_squared() > 0:
+                        direction = direction.normalize()
+                        # Calculate laser end point (stops at blocks or enemies)
+                        laser_end = player_center + direction * laser_length
+                        closest_hit = None
+                        closest_dist = laser_length
+                        
+                        # Check collision with blocks first (solid blocks stop laser)
+                        for blk in blocks:
+                            hit = line_rect_intersection(player_center, laser_end, blk["rect"])
+                            if hit:
+                                dist = (hit - player_center).length()
+                                if dist < closest_dist:
+                                    closest_dist = dist
+                                    closest_hit = hit
+                                    laser_end = hit
+                        
+                        # Check collision with destructible blocks (can damage them)
+                        for db in destructible_blocks[:]:
+                            hit = line_rect_intersection(player_center, laser_end, db["rect"])
+                            if hit:
+                                dist = (hit - player_center).length()
+                                if dist < closest_dist:
+                                    closest_dist = dist
+                                    closest_hit = hit
+                                    laser_end = hit
+                                # Damage destructible block
+                                db["hp"] -= laser_damage * dt * 60  # Damage per second
+                                if db["hp"] <= 0:
+                                    destructible_blocks.remove(db)
+                        
+                        # Check collision with enemies (can damage them)
+                        for e in enemies[:]:
+                            hit = line_rect_intersection(player_center, laser_end, e["rect"])
+                            if hit:
+                                dist = (hit - player_center).length()
+                                if dist < closest_dist:
+                                    closest_dist = dist
+                                    closest_hit = hit
+                                    laser_end = hit
+                                # Damage enemy continuously
+                                e["hp"] -= laser_damage * dt * 60
+                                damage_dealt += int(laser_damage * dt * 60)
+                                if e["hp"] <= 0:
+                                    spawn_weapon_drop(e)
+                                    enemies.remove(e)
+                                    enemies_killed += 1
+                                    # Score calculation
+                                    base_points = 100
+                                    wave_bonus = wave_number * 50
+                                    time_bonus = int(run_time * 2)
+                                    score += base_points + wave_bonus + time_bonus
+                        # Store laser beam for drawing
+                        if len(laser_beams) == 0:
+                            laser_beams.append({
+                                "start": player_center,
+                                "end": laser_end,
+                                "color": (255, 50, 50),  # Bright red
+                                "width": 8,
+                            })
+                        else:
+                            laser_beams[0]["start"] = player_center
+                            laser_beams[0]["end"] = laser_end
+                else:
+                    # Clear laser when not shooting
+                    laser_beams.clear()
+            else:
+                # Normal shooting for other weapons
+                # Apply both temporary and permanent fire rate multipliers
+                temp_mult = fire_rate_mult if fire_rate_buff_t > 0 else 1.0
+                perm_mult = 1.0 / player_stat_multipliers["firerate"] if player_stat_multipliers["firerate"] > 1.0 else 1.0
+                # Rocket launcher has slower fire rate
+                rocket_mult = 3.5 if current_weapon_mode == "rocket" else 1.0
+                effective_cooldown = player_shoot_cooldown * temp_mult * perm_mult * rocket_mult
+                if pygame.mouse.get_pressed(3)[0] and player_time_since_shot >= effective_cooldown:
+                    spawn_player_bullet_and_log()
+                    player_time_since_shot = 0.0
+                player_time_since_shot += dt
 
             move_player_with_push(player, move_x, move_y, blocks)
 
@@ -1106,9 +1331,11 @@ try:
                     spawn_enemy_projectile(e)
                     e["time_since_shot"] = 0.0
 
-            # Pickup spawning
+            # Pickup spawning (affected by difficulty)
+            diff_mult = difficulty_multipliers[difficulty]
+            effective_spawn_interval = PICKUP_SPAWN_INTERVAL / diff_mult["pickup_spawn"]
             pickup_spawn_timer += dt
-            if pickup_spawn_timer >= PICKUP_SPAWN_INTERVAL:
+            if pickup_spawn_timer >= effective_spawn_interval:
                 pickup_spawn_timer = 0.0
                 # Randomize pickup type - player never knows what they'll get
                 pickup_types = [
@@ -1300,8 +1527,14 @@ try:
                                     if other_e["hp"] <= 0:
                                         try:
                                             idx = enemies.index(other_e)
+                                            spawn_weapon_drop(other_e)
                                             enemies.pop(idx)
                                             enemies_killed += 1
+                                            # Score calculation for explosion kills
+                                            base_points = 100
+                                            wave_bonus = wave_number * 50
+                                            time_bonus = int(run_time * 2)
+                                            score += base_points + wave_bonus + time_bonus
                                         except ValueError:
                                             pass
 
@@ -1333,8 +1566,14 @@ try:
                         player_bullets.remove(b)
 
                     if killed:
+                        spawn_weapon_drop(e)
                         enemies.pop(hit_enemy_index)
                         enemies_killed += 1
+                        # Score calculation: base points + wave bonus + time bonus
+                        base_points = 100
+                        wave_bonus = wave_number * 50
+                        time_bonus = int(run_time * 2)  # 2 points per second survived
+                        score += base_points + wave_bonus + time_bonus
 
                     # If bullet was removed, continue to next bullet
                     if b not in player_bullets:
@@ -1481,6 +1720,31 @@ try:
 
         # --- Draw ---
         screen.fill((30, 30, 30))
+        
+        # Menu screen
+        if state == STATE_MENU:
+            draw_centered_text("MOUSE AIM SHOOTER", 200, (255, 255, 255), use_big=True)
+            draw_centered_text("Select Difficulty", 300, (200, 200, 200))
+            
+            y_start = 400
+            for i, diff_option in enumerate(difficulty_options):
+                color = (255, 255, 100) if i == difficulty_selected else (150, 150, 150)
+                prefix = "> " if i == difficulty_selected else "  "
+                draw_centered_text(f"{prefix}{diff_option}", y_start + i * 60, color)
+            
+            draw_centered_text("Press ENTER to Start", 650, (100, 255, 100))
+            draw_centered_text("Press ESC to Quit", 700, (200, 200, 200))
+            
+            # Show difficulty descriptions
+            diff_descriptions = {
+                DIFFICULTY_EASY: "Easier enemies, more pickups",
+                DIFFICULTY_NORMAL: "Balanced gameplay",
+                DIFFICULTY_HARD: "Harder enemies, fewer pickups",
+            }
+            draw_centered_text(diff_descriptions[difficulty_options[difficulty_selected]], 550, (150, 150, 255))
+            
+            pygame.display.flip()
+            continue
 
         for blk in blocks:
             pygame.draw.rect(screen, blk["color"], blk["rect"])
@@ -1553,6 +1817,14 @@ try:
                 )
             screen.blit(path_overlay, (0, 0))
 
+        # Draw laser beams
+        for laser in laser_beams:
+            pygame.draw.line(screen, laser["color"], laser["start"], laser["end"], laser["width"])
+            # Draw glow effect
+            glow_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            pygame.draw.line(glow_surf, (*laser["color"], 100), laser["start"], laser["end"], laser["width"] + 4)
+            screen.blit(glow_surf, (0, 0))
+        
         for b in player_bullets:
             draw_projectile(b["rect"], b.get("color", player_bullets_color), b.get("shape", "square"))
             # Draw explosion radius indicator if bullet has explosion
@@ -1596,14 +1868,16 @@ try:
         screen.blit(font.render(wave_text, True, (230, 230, 230)), (10, lives_y + 48))
         screen.blit(font.render(f"Damage dealt: {damage_dealt}", True, (230, 230, 230)), (10, lives_y + 70))
         screen.blit(font.render(f"Damage taken: {damage_taken}", True, (230, 230, 230)), (10, lives_y + 92))
-        screen.blit(font.render(f"Boost: {int(boost_meter)}/{int(boost_meter_max)}", True, (230, 230, 230)), (10, lives_y + 136))
+        screen.blit(font.render(f"Score: {score:,}", True, (255, 255, 100)), (10, lives_y + 114))
+        screen.blit(font.render(f"Time: {int(survival_time//60)}m {int(survival_time%60)}s", True, (200, 200, 255)), (10, lives_y + 136))
+        screen.blit(font.render(f"Boost: {int(boost_meter)}/{int(boost_meter_max)}", True, (230, 230, 230)), (10, lives_y + 158))
         if fire_rate_buff_t > 0:
-            screen.blit(font.render(f"Firerate buff: {fire_rate_buff_t:.1f}s", True, (255, 220, 120)), (10, lives_y + 158))
+            screen.blit(font.render(f"Firerate buff: {fire_rate_buff_t:.1f}s", True, (255, 220, 120)), (10, lives_y + 180))
         if enemy_spawn_boost_level > 0:
-            screen.blit(font.render(f"Enemy spawn boost: +{enemy_spawn_boost_level}", True, (255, 140, 220)), (10, lives_y + 180))
+            screen.blit(font.render(f"Enemy spawn boost: +{enemy_spawn_boost_level}", True, (255, 140, 220)), (10, lives_y + 202))
         
         # Display permanent stat upgrades
-        y_offset = lives_y + 202
+        y_offset = lives_y + 224
         if player_stat_multipliers["speed"] > 1.0:
             screen.blit(font.render(f"Speed: +{int((player_stat_multipliers['speed']-1.0)*100)}%", True, (150, 255, 150)), (10, y_offset))
             y_offset += 22
@@ -1625,14 +1899,16 @@ try:
             "rocket": "ROCKET LAUNCHER",
             "triple": "TRIPLE SHOT",
             "bouncing": "BOUNCING BULLETS",
-            "giant": "GIANT BULLETS (10x)"
+            "giant": "GIANT BULLETS (10x)",
+            "laser": "LASER BEAM"
         }
         weapon_colors = {
             "basic": (200, 200, 200),
             "rocket": (255, 100, 0),
             "triple": (100, 200, 255),
             "bouncing": (100, 255, 100),
-            "giant": (255, 200, 0)
+            "giant": (255, 200, 0),
+            "laser": (255, 50, 50)
         }
         screen.blit(font.render(f"Weapon: {weapon_names.get(current_weapon_mode, 'UNKNOWN')}", True, weapon_colors.get(current_weapon_mode, (255, 255, 255))), (10, y_offset))
         y_offset += 22
