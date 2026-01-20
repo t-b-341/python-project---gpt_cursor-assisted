@@ -1,3 +1,14 @@
+#FEATURES TO ADD
+#--------
+#change player bullet color
+#change enemy bullet colors
+#enemy movement
+#enemy respawn timer
+#survival timer, waves, multiple levels
+#movement direction overwrites to most recent move direction
+#player path prediction
+#different shapes for shots (circle, squares, etc., like 2hu)
+
 import pygame
 from datetime import datetime, timezone
 
@@ -74,6 +85,7 @@ player_bullet_size = (8, 8)
 player_bullet_damage = 20
 player_shoot_cooldown = 0.12
 player_time_since_shot = 999.0
+player_bullets_color = (10, 200, 200)
 
 # ----------------------------
 # Enemy templates + cloning
@@ -124,6 +136,16 @@ enemy_templates: list[dict] = [
         "shoot_cooldown": 0.01,
         "projectile_speed": 500,
     },
+    {
+        "type": "BIG NEKU",
+        "rect": pygame.Rect(400, 450, 28, 28),
+        "color": (100, 200, 0),
+        "hp": 1000,
+        "max_hp": 1000,
+        "shoot_cooldown": 1,
+        "projectile_speed": 700,
+    },
+
 ]
 
 
@@ -153,6 +175,7 @@ enemies: list[dict] = clone_enemies_from_templates()
 enemy_projectiles: list[dict] = []
 enemy_projectile_size = (10, 10)
 enemy_projectile_damage = 10
+enemy_projectiles_color = (200, 200, 200)
 
 # ----------------------------
 # Run counters (runs table)
