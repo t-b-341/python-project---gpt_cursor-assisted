@@ -32,7 +32,14 @@
 #add an enemy that shoots shots that bounce around on the walls
 #stack pickups so that the player can get a combo of pickups
 #add in more squares and rectangles that can be moved around, but have health bars that enemies can shoot at to destroy them
-
+#--------------------------------------------------------
+#add a pickup timer, and effects around the pickup, and an effect when the player picks up the pickup
+#add a pickup that functions like a rocket launcher with a longer rate of fire, but the shots do more damage with an area of effect
+#--------------------------------------------------------
+#add a map to key 1 for the basic fire, then key 2 for the rocket launcher, then key 3 for the triple shot, then key 4 for the bouncing bullets, then key 5 for the giant bullets
+#--------------------------------------------------------
+#make the map bigger, and add in more geometry, with areas of health recovery, and overshields (extra health bar that can be used to block damage)
+#--------------------------------------------------------
 
 import math
 import random
@@ -110,7 +117,7 @@ controls = load_controls()
 # ----------------------------
 # Window / timing
 # ----------------------------
-WIDTH, HEIGHT = 1000, 1000
+WIDTH, HEIGHT = 1600, 1600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Mouse Aim Shooter + Telemetry (SQLite)")
 
@@ -150,6 +157,8 @@ player = pygame.Rect((WIDTH - 25) // 2, (HEIGHT - 25) // 2, 25, 25)
 player_speed = 300  # px/s
 player_max_hp = 100
 player_hp = player_max_hp
+overshield_max = 50  # Maximum overshield capacity
+overshield = 0  # Current overshield amount
 pygame.mouse.set_visible(True)
 
 LIVES_START = 10
@@ -185,10 +194,10 @@ player_stat_multipliers = {
     "bullet_explosion_radius": 0.0,  # explosion radius in pixels (0 = no explosion)
 }
 
-# Special bullet modifiers
-giant_bullets_active = False  # 10x bullet size
-triple_shot_active = False  # shoot 3 beams instead of 1
-bouncing_bullets_active = False  # bullets bounce off walls
+# Weapon mode system (keys 1-5 to switch)
+# "basic" = normal bullets, "rocket" = rocket launcher, "triple" = triple shot,
+# "bouncing" = bouncing bullets, "giant" = giant bullets
+current_weapon_mode = "basic"
 
 # ----------------------------
 # World blocks
@@ -200,13 +209,28 @@ blocks = [
     {"rect": pygame.Rect(700, 420, 70, 70), "color": (220, 200, 10), "hp": None, "max_hp": None},  # indestructible
 ]
 
-# Add more destructible blocks
+# Add more destructible blocks (scattered across larger map)
 destructible_blocks = [
     {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 50, "max_hp": 50},
     {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 40, "max_hp": 40},
     {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 60, "max_hp": 60},
     {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 45, "max_hp": 45},
     {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 55, "max_hp": 55},
+    {"rect": pygame.Rect(1100, 300, 90, 90), "color": (180, 120, 180), "hp": 55, "max_hp": 55},
+    {"rect": pygame.Rect(1300, 500, 70, 70), "color": (120, 180, 120), "hp": 45, "max_hp": 45},
+    {"rect": pygame.Rect(1000, 800, 80, 60), "color": (200, 120, 100), "hp": 50, "max_hp": 50},
+    {"rect": pygame.Rect(400, 1000, 100, 50), "color": (150, 150, 220), "hp": 60, "max_hp": 60},
+    {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "hp": 45, "max_hp": 45},
+    {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "hp": 55, "max_hp": 55},
+    {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "hp": 40, "max_hp": 40},
+]
+
+# Health recovery zones (areas where player regenerates health)
+health_recovery_zones = [
+    {"rect": pygame.Rect(200, 200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80)},  # 20 HP/s
+    {"rect": pygame.Rect(1250, 250, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80)},
+    {"rect": pygame.Rect(600, 1000, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80)},
+    {"rect": pygame.Rect(1400, 1200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80)},
 ]
 
 # ----------------------------
@@ -363,6 +387,10 @@ pickups: list[dict] = []
 pickup_spawn_timer = 0.0
 PICKUP_SPAWN_INTERVAL = 7.5
 enemy_spawn_boost_level = 0  # enemies can increase this by collecting "spawn_boost" pickups
+
+# Visual effects for pickups
+pickup_particles: list[dict] = []  # particles around pickups
+collection_effects: list[dict] = []  # effects when pickups are collected
 
 
 # ----------------------------
@@ -526,7 +554,13 @@ def spawn_pickup(pickup_type: str):
         (255, 255, 100),  # yellow
     ]
     color = random.choice(mystery_colors)
-    pickups.append({"type": pickup_type, "rect": r, "color": color})
+    pickups.append({
+        "type": pickup_type,
+        "rect": r,
+        "color": color,
+        "timer": 15.0,  # pickup despawns after 15 seconds
+        "age": 0.0,  # current age for visual effects
+    })
 
 
 def draw_health_bar(x, y, w, h, hp, max_hp):
@@ -535,6 +569,61 @@ def draw_health_bar(x, y, w, h, hp, max_hp):
     fill_w = int(w * (hp / max_hp)) if max_hp > 0 else 0
     pygame.draw.rect(screen, (60, 200, 60), (x, y, fill_w, h))
     pygame.draw.rect(screen, (20, 20, 20), (x, y, w, h), 2)
+
+
+def create_pickup_collection_effect(x: int, y: int, color: tuple[int, int, int]):
+    """Create particle effect when pickup is collected."""
+    global collection_effects
+    for _ in range(12):
+        angle = random.uniform(0, 2 * math.pi)
+        speed = random.uniform(50, 150)
+        collection_effects.append({
+            "x": float(x),
+            "y": float(y),
+            "vel_x": math.cos(angle) * speed,
+            "vel_y": math.sin(angle) * speed,
+            "color": color,
+            "life": 0.4,  # particle lifetime
+            "size": random.randint(3, 6),
+        })
+
+
+def update_pickup_effects(dt: float):
+    """Update pickup particle effects."""
+    global pickup_particles, collection_effects
+    
+    # Update collection effects
+    for effect in collection_effects[:]:
+        effect["x"] += effect["vel_x"] * dt
+        effect["y"] += effect["vel_y"] * dt
+        effect["life"] -= dt
+        if effect["life"] <= 0:
+            collection_effects.remove(effect)
+    
+    # Generate particles around pickups
+    pickup_particles.clear()
+    for p in pickups:
+        center_x = p["rect"].centerx
+        center_y = p["rect"].centery
+        age = p.get("age", 0.0)
+        # Create pulsing glow effect
+        pulse = (math.sin(age * 4.0) + 1.0) / 2.0  # 0 to 1
+        glow_radius = 20 + pulse * 10
+        glow_alpha = int(100 + pulse * 80)
+        
+        # Add particles around pickup
+        for i in range(8):
+            angle = (i / 8.0) * 2 * math.pi + age * 2.0
+            dist = glow_radius * 0.7
+            px = center_x + math.cos(angle) * dist
+            py = center_y + math.sin(angle) * dist
+            pickup_particles.append({
+                "x": px,
+                "y": py,
+                "color": p["color"],
+                "alpha": int(glow_alpha * 0.6),
+                "size": 3,
+            })
 
 
 def draw_centered_text(text: str, y: int, color=(235, 235, 235), use_big=False):
@@ -565,8 +654,8 @@ def spawn_player_bullet_and_log():
     shape = player_bullet_shapes[player_bullet_shape_index % len(player_bullet_shapes)]
     player_bullet_shape_index = (player_bullet_shape_index + 1) % len(player_bullet_shapes)
 
-    # Determine shot pattern (single or triple)
-    if triple_shot_active:
+    # Determine shot pattern based on weapon mode
+    if current_weapon_mode == "triple":
         # Triple shot: center + left + right spread
         spread_angle_deg = 8.6  # degrees
         directions = [
@@ -581,7 +670,7 @@ def spawn_player_bullet_and_log():
     for d in directions:
         # Apply stat multipliers
         size_mult = player_stat_multipliers["bullet_size"]
-        if giant_bullets_active:
+        if current_weapon_mode == "giant":
             size_mult *= 10.0  # 10x size multiplier
         
         effective_size = (
@@ -589,7 +678,15 @@ def spawn_player_bullet_and_log():
             int(player_bullet_size[1] * size_mult),
         )
         effective_speed = player_bullet_speed * player_stat_multipliers["bullet_speed"]
-        effective_damage = int(player_bullet_damage * player_stat_multipliers["bullet_damage"])
+        base_damage = int(player_bullet_damage * player_stat_multipliers["bullet_damage"])
+        
+        # Rocket launcher: more damage and always has explosion
+        if current_weapon_mode == "rocket":
+            effective_damage = int(base_damage * 2.5)  # 2.5x damage
+            rocket_explosion = max(80.0, player_stat_multipliers["bullet_explosion_radius"] + 60.0)
+        else:
+            effective_damage = base_damage
+            rocket_explosion = 0.0
 
         r = pygame.Rect(
             player.centerx - effective_size[0] // 2,
@@ -601,12 +698,13 @@ def spawn_player_bullet_and_log():
             "rect": r,
             "vel": d * effective_speed,
             "shape": shape,
-            "color": player_bullets_color,
+            "color": (255, 100, 0) if current_weapon_mode == "rocket" else player_bullets_color,  # orange for rockets
             "damage": effective_damage,
             "penetration": int(player_stat_multipliers["bullet_penetration"]),
-            "explosion_radius": player_stat_multipliers["bullet_explosion_radius"],
+            "explosion_radius": max(rocket_explosion, player_stat_multipliers["bullet_explosion_radius"]),
             "knockback": player_stat_multipliers["bullet_knockback"],
-            "bounces": 10 if bouncing_bullets_active else 0,  # max bounces
+            "bounces": 10 if current_weapon_mode == "bouncing" else 0,  # max bounces
+            "is_rocket": current_weapon_mode == "rocket",
         })
     shots_fired += 1
 
@@ -678,10 +776,13 @@ def log_enemy_spawns_for_current_wave():
 def reset_after_death():
     global player_hp, player_time_since_shot, pos_timer
     global enemies, player_bullets, enemy_projectiles, wave_number, time_to_next_wave, wave_active
+    global current_weapon_mode, overshield
 
     player_hp = player_max_hp
+    overshield = 0  # Reset overshield
     player_time_since_shot = 999.0
     pos_timer = 0.0
+    current_weapon_mode = "basic"  # Reset to basic weapon
 
     player.x = (WIDTH - player.w) // 2
     player.y = (HEIGHT - player.h) // 2
@@ -733,6 +834,19 @@ try:
                     last_horizontal_key = event.key
                 if event.key in (controls["move_up"], controls["move_down"]):
                     last_vertical_key = event.key
+
+                # Weapon switching (keys 1-5)
+                if state == STATE_PLAYING:
+                    if event.key == pygame.K_1:
+                        current_weapon_mode = "basic"
+                    elif event.key == pygame.K_2:
+                        current_weapon_mode = "rocket"
+                    elif event.key == pygame.K_3:
+                        current_weapon_mode = "triple"
+                    elif event.key == pygame.K_4:
+                        current_weapon_mode = "bouncing"
+                    elif event.key == pygame.K_5:
+                        current_weapon_mode = "giant"
 
                 if event.key == pygame.K_ESCAPE:
                     if state == STATE_PLAYING:
@@ -885,16 +999,27 @@ try:
             # Apply both temporary and permanent fire rate multipliers
             temp_mult = fire_rate_mult if fire_rate_buff_t > 0 else 1.0
             perm_mult = 1.0 / player_stat_multipliers["firerate"] if player_stat_multipliers["firerate"] > 1.0 else 1.0
-            effective_cooldown = player_shoot_cooldown * temp_mult * perm_mult
+            # Rocket launcher has slower fire rate
+            rocket_mult = 3.5 if current_weapon_mode == "rocket" else 1.0
+            effective_cooldown = player_shoot_cooldown * temp_mult * perm_mult * rocket_mult
             if pygame.mouse.get_pressed(3)[0] and player_time_since_shot >= effective_cooldown:
                 spawn_player_bullet_and_log()
                 player_time_since_shot = 0.0
 
             move_player_with_push(player, move_x, move_y, blocks)
 
+            # Health recovery zones - heal player when inside
+            for zone in health_recovery_zones:
+                if player.colliderect(zone["rect"]):
+                    heal_amount = zone["heal_rate"] * dt
+                    player_hp = min(player_max_hp, player_hp + heal_amount)
+
             # Update timed buffs
             if fire_rate_buff_t > 0:
                 fire_rate_buff_t = max(0.0, fire_rate_buff_t - dt)
+            
+            # Update pickup visual effects
+            update_pickup_effects(dt)
 
             block_rects = [b["rect"] for b in blocks]
             for e in enemies:
@@ -980,8 +1105,18 @@ try:
                     "giant_bullets",  # 10x bullet size
                     "triple_shot",  # shoot 3 beams
                     "bouncing_bullets",  # bullets bounce off walls
+                    "rocket_launcher",  # slower fire rate, more damage, AOE
+                    "overshield",  # adds overshield (extra health bar)
                 ]
                 spawn_pickup(random.choice(pickup_types))
+
+            # Update pickup timers and remove expired pickups
+            for p in pickups[:]:
+                p["timer"] = p.get("timer", 15.0) - dt
+                p["age"] = p.get("age", 0.0) + dt
+                if p.get("timer", 15.0) <= 0.0:
+                    pickups.remove(p)
+                    continue
 
             # Pickup interactions
             for p in pickups[:]:
@@ -1014,11 +1149,17 @@ try:
                     elif ptype == "bullet_explosion":
                         player_stat_multipliers["bullet_explosion_radius"] += 25.0
                     elif ptype == "giant_bullets":
-                        giant_bullets_active = True
+                        current_weapon_mode = "giant"
                     elif ptype == "triple_shot":
-                        triple_shot_active = True
+                        current_weapon_mode = "triple"
                     elif ptype == "bouncing_bullets":
-                        bouncing_bullets_active = True
+                        current_weapon_mode = "bouncing"
+                    elif ptype == "rocket_launcher":
+                        current_weapon_mode = "rocket"
+                    elif ptype == "overshield":
+                        overshield = min(overshield_max, overshield + 25)  # Add 25 overshield (up to max)
+                    # Create pickup collection effect (particles)
+                    create_pickup_collection_effect(pr.centerx, pr.centery, p["color"])
                     pickups.remove(p)
                     continue
 
@@ -1249,8 +1390,19 @@ try:
                     continue
 
                 if r.colliderect(player):
-                    # apply damage
-                    player_hp -= enemy_projectile_damage
+                    # apply damage - overshield absorbs damage first
+                    remaining_damage = enemy_projectile_damage
+                    if overshield > 0:
+                        if overshield >= remaining_damage:
+                            overshield -= remaining_damage
+                            remaining_damage = 0
+                        else:
+                            remaining_damage -= overshield
+                            overshield = 0
+                    
+                    # Apply remaining damage to player HP
+                    if remaining_damage > 0:
+                        player_hp -= remaining_damage
                     damage_taken += enemy_projectile_damage
 
                     if player_hp < 0:
@@ -1311,13 +1463,53 @@ try:
         for blk in blocks:
             pygame.draw.rect(screen, blk["color"], blk["rect"])
         
+        # Draw health recovery zones (semi-transparent green)
+        for zone in health_recovery_zones:
+            zone_surf = pygame.Surface((zone["rect"].w, zone["rect"].h), pygame.SRCALPHA)
+            pygame.draw.rect(zone_surf, zone["color"], (0, 0, zone["rect"].w, zone["rect"].h))
+            screen.blit(zone_surf, zone["rect"].topleft)
+            # Draw border
+            pygame.draw.rect(screen, (50, 255, 50), zone["rect"], 2)
+        
         # Draw destructible blocks with health bars
         for db in destructible_blocks:
             pygame.draw.rect(screen, db["color"], db["rect"])
             draw_health_bar(db["rect"].x, db["rect"].y - 10, db["rect"].w, 6, db["hp"], db["max_hp"])
 
+        # Draw pickup particles (glow effect)
+        for particle in pickup_particles:
+            particle_surf = pygame.Surface((particle["size"] * 2, particle["size"] * 2), pygame.SRCALPHA)
+            color_with_alpha = (*particle["color"], particle["alpha"])
+            pygame.draw.circle(particle_surf, color_with_alpha, (particle["size"], particle["size"]), particle["size"])
+            screen.blit(particle_surf, (particle["x"] - particle["size"], particle["y"] - particle["size"]))
+        
+        # Draw pickups with pulsing effect
         for pu in pickups:
+            age = pu.get("age", 0.0)
+            pulse = (math.sin(age * 4.0) + 1.0) / 2.0
+            # Draw glow ring
+            glow_surf = pygame.Surface((pu["rect"].w + 20, pu["rect"].h + 20), pygame.SRCALPHA)
+            glow_alpha = int(80 + pulse * 60)
+            glow_color = (*pu["color"], glow_alpha)
+            pygame.draw.ellipse(glow_surf, glow_color, (0, 0, pu["rect"].w + 20, pu["rect"].h + 20))
+            screen.blit(glow_surf, (pu["rect"].x - 10, pu["rect"].y - 10))
+            # Draw pickup
             pygame.draw.rect(screen, pu["color"], pu["rect"])
+            # Draw timer bar
+            timer_ratio = pu.get("timer", 15.0) / 15.0
+            timer_bar_y = pu["rect"].bottom + 2
+            timer_bar_w = pu["rect"].w
+            timer_bar_h = 3
+            pygame.draw.rect(screen, (60, 60, 60), (pu["rect"].x, timer_bar_y, timer_bar_w, timer_bar_h))
+            pygame.draw.rect(screen, (255, 200, 0), (pu["rect"].x, timer_bar_y, int(timer_bar_w * timer_ratio), timer_bar_h))
+        
+        # Draw collection effects
+        for effect in collection_effects:
+            alpha = int(255 * (effect["life"] / 0.4))
+            effect_surf = pygame.Surface((effect["size"] * 2, effect["size"] * 2), pygame.SRCALPHA)
+            color_with_alpha = (*effect["color"], alpha)
+            pygame.draw.circle(effect_surf, color_with_alpha, (effect["size"], effect["size"]), effect["size"])
+            screen.blit(effect_surf, (effect["x"] - effect["size"], effect["y"] - effect["size"]))
 
         for e in enemies:
             pygame.draw.rect(screen, e["color"], e["rect"])
@@ -1351,25 +1543,45 @@ try:
             draw_projectile(p["rect"], p.get("color", enemy_projectiles_color), p.get("shape", "circle"))
 
         # HUD
-        draw_health_bar(10, 10, 220, 18, player_hp, player_max_hp)
-        screen.blit(font.render(f"HP: {player_hp}/{player_max_hp}", True, (230, 230, 230)), (12, 34))
-        screen.blit(font.render(f"Lives: {lives}", True, (230, 230, 230)), (10, 58))
-        screen.blit(font.render(f"Wave: {wave_number}", True, (230, 230, 230)), (10, 80))
+        # Draw overshield bar (above HP bar)
+        hp_bar_y = 10
+        if overshield > 0:
+            overshield_bar_x = 10
+            overshield_bar_y = 10
+            overshield_bar_w = 220
+            overshield_bar_h = 12
+            overshield_ratio = overshield / overshield_max
+            # Background
+            pygame.draw.rect(screen, (40, 40, 40), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h))
+            # Overshield (cyan/blue color)
+            pygame.draw.rect(screen, (100, 200, 255), (overshield_bar_x, overshield_bar_y, int(overshield_bar_w * overshield_ratio), overshield_bar_h))
+            # Border
+            pygame.draw.rect(screen, (150, 220, 255), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h), 2)
+            # Text
+            screen.blit(font.render(f"Shield: {int(overshield)}/{int(overshield_max)}", True, (150, 220, 255)), (overshield_bar_x + 5, overshield_bar_y - 1))
+            hp_bar_y = 28  # Move HP bar down if overshield is shown
+        
+        draw_health_bar(10, hp_bar_y, 220, 18, player_hp, player_max_hp)
+        hp_text_y = hp_bar_y + 24
+        screen.blit(font.render(f"HP: {player_hp}/{player_max_hp}", True, (230, 230, 230)), (12, hp_text_y))
+        lives_y = hp_text_y + 24
+        screen.blit(font.render(f"Lives: {lives}", True, (230, 230, 230)), (10, lives_y))
+        screen.blit(font.render(f"Wave: {wave_number}", True, (230, 230, 230)), (10, lives_y + 24))
         if wave_active:
             wave_text = f"Enemies: {len(enemies)}"
         else:
             wave_text = f"Next wave in: {time_to_next_wave:.1f}s"
-        screen.blit(font.render(wave_text, True, (230, 230, 230)), (10, 102))
-        screen.blit(font.render(f"Damage dealt: {damage_dealt}", True, (230, 230, 230)), (10, 124))
-        screen.blit(font.render(f"Damage taken: {damage_taken}", True, (230, 230, 230)), (10, 146))
-        screen.blit(font.render(f"Boost: {int(boost_meter)}/{int(boost_meter_max)}", True, (230, 230, 230)), (10, 190))
+        screen.blit(font.render(wave_text, True, (230, 230, 230)), (10, lives_y + 48))
+        screen.blit(font.render(f"Damage dealt: {damage_dealt}", True, (230, 230, 230)), (10, lives_y + 70))
+        screen.blit(font.render(f"Damage taken: {damage_taken}", True, (230, 230, 230)), (10, lives_y + 92))
+        screen.blit(font.render(f"Boost: {int(boost_meter)}/{int(boost_meter_max)}", True, (230, 230, 230)), (10, lives_y + 136))
         if fire_rate_buff_t > 0:
-            screen.blit(font.render(f"Firerate buff: {fire_rate_buff_t:.1f}s", True, (255, 220, 120)), (10, 212))
+            screen.blit(font.render(f"Firerate buff: {fire_rate_buff_t:.1f}s", True, (255, 220, 120)), (10, lives_y + 158))
         if enemy_spawn_boost_level > 0:
-            screen.blit(font.render(f"Enemy spawn boost: +{enemy_spawn_boost_level}", True, (255, 140, 220)), (10, 234))
+            screen.blit(font.render(f"Enemy spawn boost: +{enemy_spawn_boost_level}", True, (255, 140, 220)), (10, lives_y + 180))
         
         # Display permanent stat upgrades
-        y_offset = 256
+        y_offset = lives_y + 202
         if player_stat_multipliers["speed"] > 1.0:
             screen.blit(font.render(f"Speed: +{int((player_stat_multipliers['speed']-1.0)*100)}%", True, (150, 255, 150)), (10, y_offset))
             y_offset += 22
@@ -1385,15 +1597,25 @@ try:
         if player_stat_multipliers["bullet_explosion_radius"] > 0:
             screen.blit(font.render(f"Explosion: {int(player_stat_multipliers['bullet_explosion_radius'])}px", True, (150, 255, 150)), (10, y_offset))
             y_offset += 22
-        if giant_bullets_active:
-            screen.blit(font.render("GIANT BULLETS (10x)", True, (255, 200, 0)), (10, y_offset))
-            y_offset += 22
-        if triple_shot_active:
-            screen.blit(font.render("TRIPLE SHOT", True, (255, 200, 0)), (10, y_offset))
-            y_offset += 22
-        if bouncing_bullets_active:
-            screen.blit(font.render("BOUNCING BULLETS", True, (255, 200, 0)), (10, y_offset))
-            y_offset += 22
+        # Display current weapon mode
+        weapon_names = {
+            "basic": "BASIC FIRE",
+            "rocket": "ROCKET LAUNCHER",
+            "triple": "TRIPLE SHOT",
+            "bouncing": "BOUNCING BULLETS",
+            "giant": "GIANT BULLETS (10x)"
+        }
+        weapon_colors = {
+            "basic": (200, 200, 200),
+            "rocket": (255, 100, 0),
+            "triple": (100, 200, 255),
+            "bouncing": (100, 255, 100),
+            "giant": (255, 200, 0)
+        }
+        screen.blit(font.render(f"Weapon: {weapon_names.get(current_weapon_mode, 'UNKNOWN')}", True, weapon_colors.get(current_weapon_mode, (255, 255, 255))), (10, y_offset))
+        y_offset += 22
+        screen.blit(font.render("Press 1-5 to switch weapons", True, (150, 150, 150)), (10, y_offset))
+        y_offset += 22
         
         screen.blit(
             font.render(
