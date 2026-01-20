@@ -54,6 +54,7 @@
 #by end of game it's a bullet hell with the player having all their tools
 #add space bar to jump in direction of movement?
 #--------------------------------------------------------
+#add friendly AI, about 1-2 per every 3-5 enemies that move independently, and attack the enemies, and help the player, with a health bar and various spawn classes and behavior patterns
 
 
 
@@ -227,6 +228,9 @@ jump_timer = 0.0
 is_jumping = False
 
 # Boost / slow
+previous_boost_state = False  # Track for telemetry
+previous_slow_state = False  # Track for telemetry
+
 boost_meter_max = 100.0
 boost_meter = boost_meter_max
 boost_drain_per_s = 45.0
@@ -255,6 +259,7 @@ player_stat_multipliers = {
 # "basic" = normal bullets, "rocket" = rocket launcher, "triple" = triple shot,
 # "bouncing" = bouncing bullets, "giant" = giant bullets, "laser" = laser beam
 current_weapon_mode = "basic"
+previous_weapon_mode = "basic"  # Track for telemetry
 
 # Laser beam system
 laser_beams: list[dict] = []  # List of active laser beams
@@ -291,11 +296,14 @@ destructible_blocks = [
 
 # Health recovery zones (areas where player regenerates health)
 health_recovery_zones = [
-    {"rect": pygame.Rect(200, 200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80)},  # 20 HP/s
-    {"rect": pygame.Rect(1250, 250, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80)},
-    {"rect": pygame.Rect(600, 1000, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80)},
-    {"rect": pygame.Rect(1400, 1200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80)},
+    {"rect": pygame.Rect(200, 200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Health Zone 1", "zone_id": None},  # 20 HP/s
+    {"rect": pygame.Rect(1250, 250, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Health Zone 2", "zone_id": None},
+    {"rect": pygame.Rect(600, 1000, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Health Zone 3", "zone_id": None},
+    {"rect": pygame.Rect(1400, 1200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Health Zone 4", "zone_id": None},
 ]
+
+# Track which zones player is currently in (for telemetry)
+player_current_zones = set()  # Set of zone names player is in
 
 # ----------------------------
 # Player bullets
@@ -427,6 +435,71 @@ def clone_enemies_from_templates() -> list[dict]:
 
 
 enemies: list[dict] = []
+
+# ----------------------------
+# Friendly AI
+# ----------------------------
+friendly_ai_templates: list[dict] = [
+    {
+        "type": "scout",
+        "rect": pygame.Rect(0, 0, 24, 24),
+        "color": (100, 200, 255),  # Light blue
+        "hp": 40,
+        "max_hp": 40,
+        "shoot_cooldown": 0.4,
+        "projectile_speed": 600,
+        "projectile_color": (150, 220, 255),
+        "projectile_shape": "circle",
+        "speed": 180,
+        "behavior": "aggressive",  # Charges nearest enemy
+        "damage": 15,
+    },
+    {
+        "type": "guardian",
+        "rect": pygame.Rect(0, 0, 28, 28),
+        "color": (100, 255, 150),  # Light green
+        "hp": 80,
+        "max_hp": 80,
+        "shoot_cooldown": 0.6,
+        "projectile_speed": 500,
+        "projectile_color": (150, 255, 200),
+        "projectile_shape": "square",
+        "speed": 120,
+        "behavior": "defensive",  # Stays near player, attacks nearby enemies
+        "damage": 20,
+    },
+    {
+        "type": "sniper",
+        "rect": pygame.Rect(0, 0, 22, 22),
+        "color": (255, 200, 100),  # Orange
+        "hp": 30,
+        "max_hp": 30,
+        "shoot_cooldown": 1.2,
+        "projectile_speed": 800,
+        "projectile_color": (255, 220, 150),
+        "projectile_shape": "diamond",
+        "speed": 100,
+        "behavior": "ranged",  # Keeps distance, snipes enemies
+        "damage": 35,
+    },
+    {
+        "type": "tank",
+        "rect": pygame.Rect(0, 0, 32, 32),
+        "color": (200, 150, 255),  # Purple
+        "hp": 150,
+        "max_hp": 150,
+        "shoot_cooldown": 0.8,
+        "projectile_speed": 400,
+        "projectile_color": (220, 180, 255),
+        "projectile_shape": "square",
+        "speed": 80,
+        "behavior": "tank",  # Slow, high HP, draws enemy fire
+        "damage": 25,
+    },
+]
+
+friendly_ai: list[dict] = []
+friendly_projectiles: list[dict] = []
 
 # ----------------------------
 # Enemy projectiles
@@ -666,6 +739,12 @@ def start_wave(wave_num: int):
 
     enemies.extend(spawned)
     log_enemy_spawns(spawned)
+    
+    # Spawn friendly AI: 1-2 per every 3-5 enemies
+    # Calculate friendly AI count based on enemy count
+    friendly_count = max(1, min(2, (count + 2) // 3))  # 1-2 friendly per 3-5 enemies
+    spawn_friendly_ai(friendly_count, hp_scale, speed_scale)
+    
     wave_active = True
     
     # Log wave start event
@@ -1023,13 +1102,54 @@ def apply_pickup_effect(pickup_type: str):
     elif pickup_type == "bullet_explosion":
         player_stat_multipliers["bullet_explosion_radius"] += 25.0
     elif pickup_type == "giant_bullets":
+        previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "giant"
+        # Log weapon switch from pickup
+        if previous_weapon_mode != current_weapon_mode:
+            telemetry.log_player_action(PlayerActionEvent(
+                t=run_time,
+                action_type="weapon_switch",
+                x=player.centerx,
+                y=player.centery,
+                duration=None,
+                success=True
+            ))
     elif pickup_type == "triple_shot":
+        previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "triple"
+        if previous_weapon_mode != current_weapon_mode:
+            telemetry.log_player_action(PlayerActionEvent(
+                t=run_time,
+                action_type="weapon_switch",
+                x=player.centerx,
+                y=player.centery,
+                duration=None,
+                success=True
+            ))
     elif pickup_type == "bouncing_bullets":
+        previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "bouncing"
+        if previous_weapon_mode != current_weapon_mode:
+            telemetry.log_player_action(PlayerActionEvent(
+                t=run_time,
+                action_type="weapon_switch",
+                x=player.centerx,
+                y=player.centery,
+                duration=None,
+                success=True
+            ))
     elif pickup_type == "rocket_launcher":
+        previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "rocket"
+        if previous_weapon_mode != current_weapon_mode:
+            telemetry.log_player_action(PlayerActionEvent(
+                t=run_time,
+                action_type="weapon_switch",
+                x=player.centerx,
+                y=player.centery,
+                duration=None,
+                success=True
+            ))
     elif pickup_type == "overshield":
         overshield = min(overshield_max, overshield + 25)
 
@@ -1041,7 +1161,8 @@ def render_hud_text(text: str, y: int, color=(230, 230, 230)) -> int:
 
 
 def reset_after_death():
-    global player_hp, player_time_since_shot, pos_timer
+    global player_hp, player_time_since_shot, pos_timer, previous_weapon_mode, current_weapon_mode
+    global previous_boost_state, previous_slow_state, player_current_zones
     global enemies, player_bullets, enemy_projectiles, wave_number, time_to_next_wave, wave_active
     global current_weapon_mode, overshield
     global jump_cooldown_timer, jump_timer, is_jumping, jump_velocity
@@ -1053,6 +1174,10 @@ def reset_after_death():
     laser_time_since_shot = 999.0
     pos_timer = 0.0
     current_weapon_mode = "basic"  # Reset to basic weapon
+    previous_weapon_mode = "basic"
+    previous_boost_state = False
+    previous_slow_state = False
+    player_current_zones = set()
     jump_cooldown_timer = 0.0
     jump_timer = 0.0
     is_jumping = False
@@ -1065,6 +1190,8 @@ def reset_after_death():
 
     player_bullets.clear()
     enemy_projectiles.clear()
+    friendly_ai.clear()
+    friendly_projectiles.clear()
 
     wave_number = 1
     time_to_next_wave = 0.0
@@ -1114,9 +1241,21 @@ try:
                 # Weapon switching (keys 1-6)
                 if state == STATE_PLAYING:
                     if event.key in WEAPON_KEY_MAP:
+                        previous_weapon_mode = current_weapon_mode
                         current_weapon_mode = WEAPON_KEY_MAP[event.key]
+                        # Log weapon switch
+                        if previous_weapon_mode != current_weapon_mode:
+                            telemetry.log_player_action(PlayerActionEvent(
+                                t=run_time,
+                                action_type="weapon_switch",
+                                x=player.centerx,
+                                y=player.centery,
+                                duration=None,
+                                success=True
+                            ))
                     # Space bar jump/dash in direction of movement
                     elif event.key == pygame.K_SPACE and jump_cooldown_timer <= 0.0 and not is_jumping:
+                        jump_success = False
                         if last_move_velocity.length_squared() > 0:
                             # Jump in direction of movement
                             jump_dir = last_move_velocity.normalize()
@@ -1124,6 +1263,7 @@ try:
                             jump_timer = jump_duration
                             is_jumping = True
                             jump_cooldown_timer = jump_cooldown
+                            jump_success = True
                         elif move_dir.length_squared() > 0:
                             # Fallback: use current move direction
                             jump_dir = move_dir.normalize()
@@ -1131,6 +1271,18 @@ try:
                             jump_timer = jump_duration
                             is_jumping = True
                             jump_cooldown_timer = jump_cooldown
+                            jump_success = True
+                        
+                        # Log jump action
+                        if jump_success:
+                            telemetry.log_player_action(PlayerActionEvent(
+                                t=run_time,
+                                action_type="jump",
+                                x=player.centerx,
+                                y=player.centery,
+                                duration=jump_duration,
+                                success=True
+                            ))
 
                 # Menu navigation
                 if state == STATE_MENU:
@@ -1283,6 +1435,32 @@ try:
             if wants_slow:
                 speed_mult *= slow_speed_mult
             boosting = wants_boost and boost_meter > 0.0 and not wants_slow
+            
+            # Log boost/slow state changes
+            if boosting != previous_boost_state:
+                if boosting:
+                    telemetry.log_player_action(PlayerActionEvent(
+                        t=run_time,
+                        action_type="boost",
+                        x=player.centerx,
+                        y=player.centery,
+                        duration=None,
+                        success=True
+                    ))
+                previous_boost_state = boosting
+            
+            if wants_slow != previous_slow_state:
+                if wants_slow:
+                    telemetry.log_player_action(PlayerActionEvent(
+                        t=run_time,
+                        action_type="slow",
+                        x=player.centerx,
+                        y=player.centery,
+                        duration=None,
+                        success=True
+                    ))
+                previous_slow_state = wants_slow
+            
             if boosting:
                 speed_mult *= boost_speed_mult
                 boost_meter = max(0.0, boost_meter - boost_drain_per_s * dt)
@@ -1399,10 +1577,46 @@ try:
             move_player_with_push(player, move_x, move_y, blocks)
 
             # Health recovery zones - heal player when inside
+            # Health recovery zones and zone visit tracking
+            current_frame_zones = set()
             for zone in health_recovery_zones:
                 if player.colliderect(zone["rect"]):
+                    # Track zone entry
+                    zone_name = zone.get("name", f"Health Zone {health_recovery_zones.index(zone) + 1}")
+                    current_frame_zones.add(zone_name)
+                    
+                    # Log zone entry if just entered
+                    if zone_name not in player_current_zones:
+                        telemetry.log_zone_visit(ZoneVisitEvent(
+                            t=run_time,
+                            zone_id=zone.get("zone_id"),
+                            zone_name=zone_name,
+                            zone_type="health_recovery",
+                            event_type="enter",
+                            x=player.centerx,
+                            y=player.centery
+                        ))
+                    
                     heal_amount = zone["heal_rate"] * dt
                     player_hp = min(player_max_hp, player_hp + heal_amount)
+            
+            # Log zone exits
+            for zone_name in player_current_zones - current_frame_zones:
+                # Find the zone to get its info
+                zone_info = next((z for z in health_recovery_zones if z.get("name") == zone_name), None)
+                if zone_info:
+                    telemetry.log_zone_visit(ZoneVisitEvent(
+                        t=run_time,
+                        zone_id=zone_info.get("zone_id"),
+                        zone_name=zone_name,
+                        zone_type="health_recovery",
+                        event_type="exit",
+                        x=player.centerx,
+                        y=player.centery
+                    ))
+            
+            # Update current zones
+            player_current_zones = current_frame_zones
 
             # Update timed buffs
             if fire_rate_buff_t > 0:
@@ -1466,6 +1680,23 @@ try:
                             vel_y=float(vel_vec.y),
                         )
                     )
+
+            # Friendly AI shooting
+            for f in friendly_ai:
+                f["time_since_shot"] += dt
+                if f["target"] and f["time_since_shot"] >= f["shoot_cooldown"]:
+                    # Check if target is still alive and in range
+                    if f["target"] in enemies:
+                        target_pos = pygame.Vector2(f["target"]["rect"].center)
+                        f_pos = pygame.Vector2(f["rect"].center)
+                        dist = (target_pos - f_pos).length()
+                        # Shoot if in range (varies by behavior)
+                        max_range = 600 if f["behavior"] == "ranged" else 400
+                        if dist <= max_range:
+                            spawn_friendly_projectile(f, f["target"])
+                            f["time_since_shot"] = 0.0
+                    else:
+                        f["target"] = None
 
             # Enemy shooting
             for e in enemies:
@@ -1575,6 +1806,48 @@ try:
                     if grabbed:
                         pickups.remove(p)
                         continue
+
+            # Friendly projectiles update
+            for fp in friendly_projectiles[:]:
+                fp["rect"].x += int(fp["vel"].x * dt)
+                fp["rect"].y += int(fp["vel"].y * dt)
+                
+                if rect_offscreen(fp["rect"]):
+                    friendly_projectiles.remove(fp)
+                    continue
+                
+                # Check collision with enemies
+                hit_enemy = None
+                for e in enemies:
+                    if fp["rect"].colliderect(e["rect"]):
+                        hit_enemy = e
+                        break
+                
+                if hit_enemy:
+                    hit_enemy["hp"] -= fp["damage"]
+                    damage_dealt += fp["damage"]
+                    # Log friendly AI hit
+                    telemetry.log_enemy_hit(
+                        EnemyHitEvent(
+                            t=run_time,
+                            enemy_type=hit_enemy["type"],
+                            enemy_x=hit_enemy["rect"].x,
+                            enemy_y=hit_enemy["rect"].y,
+                            damage=fp["damage"],
+                            enemy_hp_after=hit_enemy["hp"],
+                            killed=hit_enemy["hp"] <= 0,
+                        )
+                    )
+                    if hit_enemy["hp"] <= 0:
+                        kill_enemy(hit_enemy)
+                    friendly_projectiles.remove(fp)
+                    continue
+                
+                # Check collision with blocks
+                for blk in blocks:
+                    if fp["rect"].colliderect(blk["rect"]):
+                        friendly_projectiles.remove(fp)
+                        break
 
             # Player bullets update
             for b in player_bullets[:]:
