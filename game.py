@@ -78,6 +78,8 @@ from telemetry import (
     EnemyPositionEvent,
     PlayerVelocityEvent,
     BulletMetadataEvent,
+    PlayerActionEvent,
+    ZoneVisitEvent,
 )
 
 pygame.init()
@@ -156,8 +158,20 @@ STATE_PLAYING = "PLAYING"
 STATE_PAUSED = "PAUSED"
 STATE_CONTINUE = "CONTINUE"
 STATE_ENDURANCE = "ENDURANCE"
+STATE_GAME_OVER = "GAME_OVER"
 
 state = STATE_MENU
+
+# Level system
+current_level = 1
+max_level = 5
+level_themes = {
+    1: {"name": "Forest", "bg_color": (20, 60, 20), "block_color_shift": (0, 0, 0)},
+    2: {"name": "Desert", "bg_color": (60, 50, 20), "block_color_shift": (20, 10, -10)},
+    3: {"name": "Ice", "bg_color": (20, 40, 60), "block_color_shift": (-20, -10, 20)},
+    4: {"name": "Volcano", "bg_color": (60, 20, 20), "block_color_shift": (30, -10, -20)},
+    5: {"name": "Void", "bg_color": (10, 10, 20), "block_color_shift": (-30, -30, 10)},
+}
 
 # Difficulty settings
 DIFFICULTY_EASY = "EASY"
@@ -388,6 +402,24 @@ enemy_templates: list[dict] = [
 
 ]
 
+# Boss enemy template (spawned at specific waves)
+boss_template = {
+    "type": "FINAL_BOSS",
+    "rect": pygame.Rect(WIDTH // 2 - 50, HEIGHT // 2 - 50, 100, 100),
+    "color": (255, 0, 0),
+    "hp": 5000,
+    "max_hp": 5000,
+    "shoot_cooldown": 0.5,
+    "projectile_speed": 400,
+    "projectile_color": (255, 50, 50),
+    "projectile_shape": "circle",
+    "speed": 50,
+    "is_boss": True,
+    "phase": 1,  # Boss has 3 phases
+    "phase_hp_thresholds": [0.66, 0.33],  # Phase 2 at 66% HP, Phase 3 at 33% HP
+    "time_since_shot": 0.0,
+}
+
 
 def clone_enemies_from_templates() -> list[dict]:
     # Kept for compatibility but waves use start_wave() instead.
@@ -433,11 +465,28 @@ time_to_next_wave = 0.0
 wave_active = True
 base_enemies_per_wave = 4
 max_enemies_per_wave = 24
+boss_wave_interval = 10  # Boss appears every 10 waves
+boss_active = False
 
 # Pickups
 pickups: list[dict] = []
 pickup_spawn_timer = 0.0
 PICKUP_SPAWN_INTERVAL = 7.5
+
+# Scoring constants
+SCORE_BASE_POINTS = 100
+SCORE_WAVE_MULTIPLIER = 50
+SCORE_TIME_MULTIPLIER = 2
+
+# Weapon key mapping
+WEAPON_KEY_MAP = {
+    pygame.K_1: "basic",
+    pygame.K_2: "rocket",
+    pygame.K_3: "triple",
+    pygame.K_4: "bouncing",
+    pygame.K_5: "giant",
+    pygame.K_6: "laser",
+}
 enemy_spawn_boost_level = 0  # enemies can increase this by collecting "spawn_boost" pickups
 
 # Visual effects for pickups
@@ -575,14 +624,36 @@ def log_enemy_spawns(new_enemies: list[dict]):
 
 def start_wave(wave_num: int):
     """Spawn a new wave with scaling."""
-    global enemies, wave_active
+    global enemies, wave_active, boss_active
     enemies = []
+    boss_active = False
+    
+    # Check if this is a boss wave
+    if wave_num % boss_wave_interval == 0:
+        # Spawn boss
+        boss = boss_template.copy()
+        boss["rect"] = pygame.Rect(WIDTH // 2 - 50, HEIGHT // 2 - 50, 100, 100)
+        # Scale boss HP with wave number
+        diff_mult = difficulty_multipliers[difficulty]
+        boss_hp_scale = 1.0 + (wave_num // boss_wave_interval - 1) * 0.5
+        boss["hp"] = int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"])
+        boss["max_hp"] = boss["hp"]
+        boss["phase"] = 1
+        boss["time_since_shot"] = 0.0
+        enemies.append(boss)
+        boss_active = True
+        log_enemy_spawns([boss])
+        wave_active = True
+        return
+    
+    # Normal wave spawning
     # Apply difficulty multipliers
     diff_mult = difficulty_multipliers[difficulty]
-    hp_scale = (1.0 + 0.15 * (wave_num - 1)) * diff_mult["enemy_hp"]
-    speed_scale = (1.0 + 0.05 * (wave_num - 1)) * diff_mult["enemy_speed"]
+    # Level-based scaling
+    level_mult = 1.0 + (current_level - 1) * 0.2
+    hp_scale = (1.0 + 0.15 * (wave_num - 1)) * diff_mult["enemy_hp"] * level_mult
+    speed_scale = (1.0 + 0.05 * (wave_num - 1)) * diff_mult["enemy_speed"] * level_mult
     # Apply difficulty to enemy count
-    diff_mult = difficulty_multipliers[difficulty]
     base_count = base_enemies_per_wave + enemy_spawn_boost_level + 2 * (wave_num - 1)
     count = min(int(base_count * diff_mult["enemy_spawn"]), max_enemies_per_wave)
 
@@ -880,8 +951,93 @@ def spawn_enemy_projectile(enemy: dict):
     )
 
 
+def spawn_boss_projectile(boss: dict, direction: pygame.Vector2):
+    """Spawn a projectile from the boss in a specific direction."""
+    r = pygame.Rect(
+        boss["rect"].centerx - enemy_projectile_size[0] // 2,
+        boss["rect"].centery - enemy_projectile_size[1] // 2,
+        enemy_projectile_size[0],
+        enemy_projectile_size[1],
+    )
+    proj_color = boss.get("projectile_color", enemy_projectiles_color)
+    proj_shape = boss.get("projectile_shape", "circle")
+    enemy_projectiles.append(
+        {
+            "rect": r,
+            "vel": direction * boss["projectile_speed"],
+            "enemy_type": boss["type"],
+            "color": proj_color,
+            "shape": proj_shape,
+            "bounces": 0,
+        }
+    )
+
+
 def log_enemy_spawns_for_current_wave():
     log_enemy_spawns(enemies)
+
+
+def calculate_kill_score(wave_num: int, run_time: float) -> int:
+    """Calculate score for killing an enemy."""
+    return SCORE_BASE_POINTS + (wave_num * SCORE_WAVE_MULTIPLIER) + int(run_time * SCORE_TIME_MULTIPLIER)
+
+
+def kill_enemy(enemy: dict):
+    """Handle enemy death: drop weapon, update score, remove from list."""
+    global enemies_killed, score
+    spawn_weapon_drop(enemy)
+    try:
+        enemies.remove(enemy)
+    except ValueError:
+        pass  # Already removed
+    enemies_killed += 1
+    score += calculate_kill_score(wave_number, run_time)
+
+
+def apply_pickup_effect(pickup_type: str):
+    """Apply the effect of a collected pickup."""
+    global boost_meter, fire_rate_buff_t, player_max_hp, player_hp
+    global player_stat_multipliers, current_weapon_mode, overshield
+    
+    if pickup_type == "boost":
+        boost_meter = min(boost_meter_max, boost_meter + 45.0)
+    elif pickup_type == "firerate":
+        fire_rate_buff_t = fire_rate_buff_duration
+    elif pickup_type == "max_health":
+        player_max_hp += 15
+        player_hp += 15  # also heal by the same amount
+    elif pickup_type == "speed":
+        player_stat_multipliers["speed"] += 0.15
+    elif pickup_type == "firerate_permanent":
+        player_stat_multipliers["firerate"] += 0.12
+    elif pickup_type == "bullet_size":
+        player_stat_multipliers["bullet_size"] += 0.20
+    elif pickup_type == "bullet_speed":
+        player_stat_multipliers["bullet_speed"] += 0.15
+    elif pickup_type == "bullet_damage":
+        player_stat_multipliers["bullet_damage"] += 0.20
+    elif pickup_type == "bullet_knockback":
+        player_stat_multipliers["bullet_knockback"] += 0.25
+    elif pickup_type == "bullet_penetration":
+        player_stat_multipliers["bullet_penetration"] += 1
+    elif pickup_type == "bullet_explosion":
+        player_stat_multipliers["bullet_explosion_radius"] += 25.0
+    elif pickup_type == "giant_bullets":
+        current_weapon_mode = "giant"
+    elif pickup_type == "triple_shot":
+        current_weapon_mode = "triple"
+    elif pickup_type == "bouncing_bullets":
+        current_weapon_mode = "bouncing"
+    elif pickup_type == "rocket_launcher":
+        current_weapon_mode = "rocket"
+    elif pickup_type == "overshield":
+        overshield = min(overshield_max, overshield + 25)
+
+
+def render_hud_text(text: str, y: int, color=(230, 230, 230)) -> int:
+    """Render HUD text at position and return next Y position."""
+    screen.blit(font.render(text, True, color), (10, y))
+    return y + 24
 
 
 def reset_after_death():
@@ -957,18 +1113,8 @@ try:
 
                 # Weapon switching (keys 1-6)
                 if state == STATE_PLAYING:
-                    if event.key == pygame.K_1:
-                        current_weapon_mode = "basic"
-                    elif event.key == pygame.K_2:
-                        current_weapon_mode = "rocket"
-                    elif event.key == pygame.K_3:
-                        current_weapon_mode = "triple"
-                    elif event.key == pygame.K_4:
-                        current_weapon_mode = "bouncing"
-                    elif event.key == pygame.K_5:
-                        current_weapon_mode = "giant"
-                    elif event.key == pygame.K_6:
-                        current_weapon_mode = "laser"
+                    if event.key in WEAPON_KEY_MAP:
+                        current_weapon_mode = WEAPON_KEY_MAP[event.key]
                     # Space bar jump/dash in direction of movement
                     elif event.key == pygame.K_SPACE and jump_cooldown_timer <= 0.0 and not is_jumping:
                         if last_move_velocity.length_squared() > 0:
@@ -1047,7 +1193,7 @@ try:
 
                 # Continue screen
                 if state == STATE_CONTINUE:
-                    if event.key == pygame.K_RETURN:
+                    if event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                         reset_after_death()
                         state = STATE_PLAYING
 
@@ -1096,6 +1242,10 @@ try:
                 time_to_next_wave = max(0.0, time_to_next_wave - dt)
                 if time_to_next_wave <= 0.0:
                     wave_number += 1
+                    # Level progression: advance level every 5 waves
+                    new_level = min(max_level, (wave_number - 1) // 5 + 1)
+                    if new_level > current_level:
+                        current_level = new_level
                     start_wave(wave_number)
 
             keys = pygame.key.get_pressed()
@@ -1218,14 +1368,7 @@ try:
                                 e["hp"] -= laser_damage * dt * 60
                                 damage_dealt += int(laser_damage * dt * 60)
                                 if e["hp"] <= 0:
-                                    spawn_weapon_drop(e)
-                                    enemies.remove(e)
-                                    enemies_killed += 1
-                                    # Score calculation
-                                    base_points = 100
-                                    wave_bonus = wave_number * 50
-                                    time_bonus = int(run_time * 2)
-                                    score += base_points + wave_bonus + time_bonus
+                                    kill_enemy(e)
                         # Store laser beam for drawing
                         if len(laser_beams) == 0:
                             laser_beams.append({
@@ -1327,13 +1470,52 @@ try:
             # Enemy shooting
             for e in enemies:
                 e["time_since_shot"] += dt
-                if e["time_since_shot"] >= e["shoot_cooldown"]:
+                
+                # Boss phase detection and special shooting
+                if e.get("is_boss", False):
+                    hp_ratio = e["hp"] / e["max_hp"]
+                    # Check phase transitions
+                    if e["phase"] == 1 and hp_ratio <= e["phase_hp_thresholds"][0]:
+                        e["phase"] = 2
+                        e["shoot_cooldown"] = 0.3  # Faster shooting in phase 2
+                        e["color"] = (255, 100, 0)  # Orange
+                    elif e["phase"] == 2 and hp_ratio <= e["phase_hp_thresholds"][1]:
+                        e["phase"] = 3
+                        e["shoot_cooldown"] = 0.15  # Very fast shooting in phase 3
+                        e["color"] = (255, 0, 255)  # Magenta
+                    
+                    # Boss shooting patterns based on phase
+                    if e["time_since_shot"] >= e["shoot_cooldown"]:
+                        if e["phase"] == 1:
+                            # Phase 1: Single shots
+                            spawn_enemy_projectile(e)
+                        elif e["phase"] == 2:
+                            # Phase 2: Triple shot spread
+                            base_dir = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
+                            for angle in [-15, 0, 15]:
+                                dir_vec = base_dir.rotate(angle)
+                                spawn_boss_projectile(e, dir_vec)
+                        elif e["phase"] == 3:
+                            # Phase 3: 8-way spread
+                            base_dir = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
+                            for angle in range(0, 360, 45):
+                                dir_vec = base_dir.rotate(angle)
+                                spawn_boss_projectile(e, dir_vec)
+                        e["time_since_shot"] = 0.0
+                elif e["time_since_shot"] >= e["shoot_cooldown"]:
                     spawn_enemy_projectile(e)
                     e["time_since_shot"] = 0.0
 
             # Pickup spawning (affected by difficulty)
-            diff_mult = difficulty_multipliers[difficulty]
-            effective_spawn_interval = PICKUP_SPAWN_INTERVAL / diff_mult["pickup_spawn"]
+            if state == STATE_PLAYING or state == STATE_ENDURANCE:
+                # Use cached multiplier if available, otherwise calculate
+                if 'diff_mult' in locals():
+                    effective_spawn_interval = PICKUP_SPAWN_INTERVAL / diff_mult["pickup_spawn"]
+                else:
+                    diff_mult = difficulty_multipliers[difficulty]
+                    effective_spawn_interval = PICKUP_SPAWN_INTERVAL / diff_mult["pickup_spawn"]
+            else:
+                effective_spawn_interval = PICKUP_SPAWN_INTERVAL
             pickup_spawn_timer += dt
             if pickup_spawn_timer >= effective_spawn_interval:
                 pickup_spawn_timer = 0.0
@@ -1374,39 +1556,7 @@ try:
 
                 # Player collects beneficial pickups
                 if ptype != "spawn_boost" and pr.colliderect(player):
-                    if ptype == "boost":
-                        boost_meter = min(boost_meter_max, boost_meter + 45.0)
-                    elif ptype == "firerate":
-                        fire_rate_buff_t = fire_rate_buff_duration
-                    elif ptype == "max_health":
-                        player_max_hp += 15
-                        player_hp += 15  # also heal by the same amount
-                    elif ptype == "speed":
-                        player_stat_multipliers["speed"] += 0.15
-                    elif ptype == "firerate_permanent":
-                        player_stat_multipliers["firerate"] += 0.12
-                    elif ptype == "bullet_size":
-                        player_stat_multipliers["bullet_size"] += 0.20
-                    elif ptype == "bullet_speed":
-                        player_stat_multipliers["bullet_speed"] += 0.15
-                    elif ptype == "bullet_damage":
-                        player_stat_multipliers["bullet_damage"] += 0.20
-                    elif ptype == "bullet_knockback":
-                        player_stat_multipliers["bullet_knockback"] += 0.25
-                    elif ptype == "bullet_penetration":
-                        player_stat_multipliers["bullet_penetration"] += 1
-                    elif ptype == "bullet_explosion":
-                        player_stat_multipliers["bullet_explosion_radius"] += 25.0
-                    elif ptype == "giant_bullets":
-                        current_weapon_mode = "giant"
-                    elif ptype == "triple_shot":
-                        current_weapon_mode = "triple"
-                    elif ptype == "bouncing_bullets":
-                        current_weapon_mode = "bouncing"
-                    elif ptype == "rocket_launcher":
-                        current_weapon_mode = "rocket"
-                    elif ptype == "overshield":
-                        overshield = min(overshield_max, overshield + 25)  # Add 25 overshield (up to max)
+                    apply_pickup_effect(ptype)
                     # Create pickup collection effect (particles)
                     create_pickup_collection_effect(pr.centerx, pr.centery, p["color"])
                     pickups.remove(p)
@@ -1525,18 +1675,7 @@ try:
                                         )
                                     )
                                     if other_e["hp"] <= 0:
-                                        try:
-                                            idx = enemies.index(other_e)
-                                            spawn_weapon_drop(other_e)
-                                            enemies.pop(idx)
-                                            enemies_killed += 1
-                                            # Score calculation for explosion kills
-                                            base_points = 100
-                                            wave_bonus = wave_number * 50
-                                            time_bonus = int(run_time * 2)
-                                            score += base_points + wave_bonus + time_bonus
-                                        except ValueError:
-                                            pass
+                                        kill_enemy(other_e)
 
                     killed = e["hp"] <= 0
                     hp_after = max(0, e["hp"])
@@ -1566,14 +1705,7 @@ try:
                         player_bullets.remove(b)
 
                     if killed:
-                        spawn_weapon_drop(e)
-                        enemies.pop(hit_enemy_index)
-                        enemies_killed += 1
-                        # Score calculation: base points + wave bonus + time bonus
-                        base_points = 100
-                        wave_bonus = wave_number * 50
-                        time_bonus = int(run_time * 2)  # 2 points per second survived
-                        score += base_points + wave_bonus + time_bonus
+                        kill_enemy(e)
 
                     # If bullet was removed, continue to next bullet
                     if b not in player_bullets:
@@ -1702,7 +1834,8 @@ try:
                             continue_blink_t = 0.0
                             continue
                         else:
-                            running = False
+                            # Game over - offer endurance mode
+                            state = STATE_GAME_OVER
 
                     continue
 
@@ -1719,7 +1852,22 @@ try:
             telemetry.tick(dt_real)
 
         # --- Draw ---
-        screen.fill((30, 30, 30))
+        # Apply level theme
+        theme = level_themes.get(current_level, level_themes[1])
+        screen.fill(theme["bg_color"])
+        
+        # Game Over screen
+        if state == STATE_GAME_OVER:
+            theme = level_themes.get(current_level, level_themes[1])
+            screen.fill(theme["bg_color"])
+            draw_centered_text("GAME OVER", 200, (255, 100, 100), use_big=True)
+            draw_centered_text(f"Final Score: {score:,}", 300, (255, 255, 100))
+            draw_centered_text(f"Waves Survived: {wave_number - 1}", 350, (200, 200, 255))
+            draw_centered_text(f"Time Survived: {int(survival_time//60)}m {int(survival_time%60)}s", 400, (200, 200, 255))
+            draw_centered_text("Press E for Endurance Mode", 550, (100, 255, 100))
+            draw_centered_text("Press ESC to Quit", 600, (200, 200, 200))
+            pygame.display.flip()
+            continue
         
         # Menu screen
         if state == STATE_MENU:
@@ -1859,40 +2007,39 @@ try:
         hp_text_y = hp_bar_y + 24
         screen.blit(font.render(f"HP: {player_hp}/{player_max_hp}", True, (230, 230, 230)), (12, hp_text_y))
         lives_y = hp_text_y + 24
-        screen.blit(font.render(f"Lives: {lives}", True, (230, 230, 230)), (10, lives_y))
-        screen.blit(font.render(f"Wave: {wave_number}", True, (230, 230, 230)), (10, lives_y + 24))
+        # Render HUD using helper function
+        y = render_hud_text(f"Lives: {lives}", lives_y)
+        y = render_hud_text(f"Level: {current_level} - {level_themes[current_level]['name']}", y, (255, 200, 100))
+        y = render_hud_text(f"Wave: {wave_number}", y)
         if wave_active:
             wave_text = f"Enemies: {len(enemies)}"
         else:
             wave_text = f"Next wave in: {time_to_next_wave:.1f}s"
-        screen.blit(font.render(wave_text, True, (230, 230, 230)), (10, lives_y + 48))
-        screen.blit(font.render(f"Damage dealt: {damage_dealt}", True, (230, 230, 230)), (10, lives_y + 70))
-        screen.blit(font.render(f"Damage taken: {damage_taken}", True, (230, 230, 230)), (10, lives_y + 92))
-        screen.blit(font.render(f"Score: {score:,}", True, (255, 255, 100)), (10, lives_y + 114))
-        screen.blit(font.render(f"Time: {int(survival_time//60)}m {int(survival_time%60)}s", True, (200, 200, 255)), (10, lives_y + 136))
-        screen.blit(font.render(f"Boost: {int(boost_meter)}/{int(boost_meter_max)}", True, (230, 230, 230)), (10, lives_y + 158))
+        y = render_hud_text(wave_text, y)
+        y = render_hud_text(f"Damage dealt: {damage_dealt}", y)
+        y = render_hud_text(f"Damage taken: {damage_taken}", y)
+        y = render_hud_text(f"Score: {score:,}", y, (255, 255, 100))
+        y = render_hud_text(f"Time: {int(survival_time//60)}m {int(survival_time%60)}s", y, (200, 200, 255))
+        if state == STATE_ENDURANCE:
+            y = render_hud_text("ENDURANCE MODE", y, (255, 100, 100))
+        y = render_hud_text(f"Boost: {int(boost_meter)}/{int(boost_meter_max)}", y)
         if fire_rate_buff_t > 0:
-            screen.blit(font.render(f"Firerate buff: {fire_rate_buff_t:.1f}s", True, (255, 220, 120)), (10, lives_y + 180))
+            y = render_hud_text(f"Firerate buff: {fire_rate_buff_t:.1f}s", y, (255, 220, 120))
         if enemy_spawn_boost_level > 0:
-            screen.blit(font.render(f"Enemy spawn boost: +{enemy_spawn_boost_level}", True, (255, 140, 220)), (10, lives_y + 202))
+            y = render_hud_text(f"Enemy spawn boost: +{enemy_spawn_boost_level}", y, (255, 140, 220))
         
         # Display permanent stat upgrades
-        y_offset = lives_y + 224
+        y_offset = y
         if player_stat_multipliers["speed"] > 1.0:
-            screen.blit(font.render(f"Speed: +{int((player_stat_multipliers['speed']-1.0)*100)}%", True, (150, 255, 150)), (10, y_offset))
-            y_offset += 22
+            y_offset = render_hud_text(f"Speed: +{int((player_stat_multipliers['speed']-1.0)*100)}%", y_offset, (150, 255, 150))
         if player_stat_multipliers["firerate"] > 1.0:
-            screen.blit(font.render(f"Fire Rate: +{int((player_stat_multipliers['firerate']-1.0)*100)}%", True, (150, 255, 150)), (10, y_offset))
-            y_offset += 22
+            y_offset = render_hud_text(f"Fire Rate: +{int((player_stat_multipliers['firerate']-1.0)*100)}%", y_offset, (150, 255, 150))
         if player_stat_multipliers["bullet_damage"] > 1.0:
-            screen.blit(font.render(f"Damage: +{int((player_stat_multipliers['bullet_damage']-1.0)*100)}%", True, (150, 255, 150)), (10, y_offset))
-            y_offset += 22
+            y_offset = render_hud_text(f"Damage: +{int((player_stat_multipliers['bullet_damage']-1.0)*100)}%", y_offset, (150, 255, 150))
         if player_stat_multipliers["bullet_penetration"] > 0:
-            screen.blit(font.render(f"Penetration: {int(player_stat_multipliers['bullet_penetration'])}", True, (150, 255, 150)), (10, y_offset))
-            y_offset += 22
+            y_offset = render_hud_text(f"Penetration: {int(player_stat_multipliers['bullet_penetration'])}", y_offset, (150, 255, 150))
         if player_stat_multipliers["bullet_explosion_radius"] > 0:
-            screen.blit(font.render(f"Explosion: {int(player_stat_multipliers['bullet_explosion_radius'])}px", True, (150, 255, 150)), (10, y_offset))
-            y_offset += 22
+            y_offset = render_hud_text(f"Explosion: {int(player_stat_multipliers['bullet_explosion_radius'])}px", y_offset, (150, 255, 150))
         # Display current weapon mode
         weapon_names = {
             "basic": "BASIC FIRE",
@@ -1969,7 +2116,7 @@ try:
             continue_blink_t += dt_real
             show = (int(continue_blink_t * 2) % 2) == 0
             if show:
-                draw_centered_text("Press Enter to continue", HEIGHT // 2 + 10)
+                draw_centered_text("Press Enter or Space to continue", HEIGHT // 2 + 10)
             draw_centered_text("Press Esc to quit", HEIGHT // 2 + 60, color=(190, 190, 190))
 
         pygame.display.flip()

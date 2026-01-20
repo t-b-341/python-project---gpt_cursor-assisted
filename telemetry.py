@@ -107,6 +107,75 @@ class BulletMetadataEvent:
     source_enemy_type: Optional[str] = None
 
 
+@dataclass
+class ScoreEvent:
+    t: float
+    score: int
+    score_change: int
+    source: str  # "kill", "wave", "time", etc.
+
+
+@dataclass
+class LevelEvent:
+    t: float
+    level: int
+    level_name: str
+
+
+@dataclass
+class BossEvent:
+    t: float
+    wave_number: int
+    phase: int
+    hp: int
+    max_hp: int
+    event_type: str  # "spawn", "phase_transition", "defeated"
+
+
+@dataclass
+class WeaponSwitchEvent:
+    t: float
+    weapon_mode: str  # "basic", "rocket", "triple", etc.
+
+
+@dataclass
+class PickupEvent:
+    t: float
+    pickup_type: str
+    x: int
+    y: int
+    collected: bool  # True if player collected, False if spawned/expired
+
+
+@dataclass
+class OvershieldEvent:
+    t: float
+    overshield: int
+    max_overshield: int
+    change: int  # positive = gained, negative = lost
+
+
+@dataclass
+class PlayerActionEvent:
+    t: float
+    action_type: str  # "jump", "boost", "slow", "dash", "weapon_switch"
+    x: int
+    y: int
+    duration: Optional[float] = None  # for boost/slow
+    success: bool = True  # for failed actions
+
+
+@dataclass
+class ZoneVisitEvent:
+    t: float
+    zone_id: int
+    zone_name: str
+    zone_type: str
+    event_type: str  # "enter" or "exit"
+    x: int
+    y: int
+
+
 class Telemetry:
     """
     Buffered SQLite telemetry writer.
@@ -142,6 +211,14 @@ class Telemetry:
         self._enemy_pos_buf: list[tuple] = []
         self._player_velocity_buf: list[tuple] = []
         self._bullet_metadata_buf: list[tuple] = []
+        self._score_buf: list[tuple] = []
+        self._level_buf: list[tuple] = []
+        self._boss_buf: list[tuple] = []
+        self._weapon_switch_buf: list[tuple] = []
+        self._pickup_buf: list[tuple] = []
+        self._overshield_buf: list[tuple] = []
+        self._player_action_buf: list[tuple] = []
+        self._zone_visit_buf: list[tuple] = []
 
     # ----------------------------
     # Schema helpers
@@ -165,6 +242,75 @@ class Telemetry:
             return
         self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl};")
         self.conn.commit()
+
+    def _create_index_if_missing(self, table: str, index_name: str, columns: str) -> None:
+        """Create an index if it doesn't exist."""
+        try:
+            self.conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table}({columns});")
+        except sqlite3.OperationalError:
+            pass  # Index might already exist or table might not exist yet
+
+    def _create_views(self) -> None:
+        """Create views for common queries."""
+        # Player performance summary view
+        try:
+            self.conn.execute("""
+                CREATE VIEW IF NOT EXISTS player_performance_summary AS
+                SELECT 
+                    r.id AS run_id,
+                    r.difficulty,
+                    r.max_level,
+                    r.final_score,
+                    r.seconds_survived,
+                    r.enemies_killed,
+                    r.damage_dealt,
+                    r.damage_taken,
+                    CASE 
+                        WHEN r.shots_fired > 0 
+                        THEN CAST(r.hits AS REAL) / r.shots_fired * 100.0 
+                        ELSE 0.0 
+                    END AS accuracy_pct,
+                    CASE 
+                        WHEN r.seconds_survived > 0 
+                        THEN CAST(r.enemies_killed AS REAL) / r.seconds_survived 
+                        ELSE 0.0 
+                    END AS kills_per_second,
+                    CASE 
+                        WHEN r.seconds_survived > 0 
+                        THEN CAST(r.damage_dealt AS REAL) / r.seconds_survived 
+                        ELSE 0.0 
+                    END AS dps
+                FROM runs r;
+            """)
+        except sqlite3.OperationalError:
+            pass  # View might already exist
+
+        # Wave performance view
+        try:
+            self.conn.execute("""
+                CREATE VIEW IF NOT EXISTS wave_performance AS
+                SELECT 
+                    w.run_id,
+                    w.wave_number,
+                    w.enemies_spawned,
+                    w.hp_scale,
+                    w.speed_scale,
+                    COUNT(DISTINCT eh.id) AS enemies_killed,
+                    COALESCE(SUM(eh.damage), 0) AS damage_dealt,
+                    MIN(CASE WHEN w.event_type = 'start' THEN w.t END) AS start_time,
+                    MIN(CASE WHEN w.event_type = 'end' THEN w.t END) AS end_time
+                FROM waves w
+                LEFT JOIN enemy_hits eh ON eh.run_id = w.run_id 
+                    AND eh.t BETWEEN 
+                        (SELECT MIN(t) FROM waves w2 WHERE w2.run_id = w.run_id AND w2.wave_number = w.wave_number AND w2.event_type = 'start')
+                        AND COALESCE(
+                            (SELECT MIN(t) FROM waves w3 WHERE w3.run_id = w.run_id AND w3.wave_number = w.wave_number + 1 AND w3.event_type = 'start'),
+                            (SELECT seconds_survived FROM runs WHERE id = w.run_id)
+                        )
+                GROUP BY w.run_id, w.wave_number, w.enemies_spawned, w.hp_scale, w.speed_scale;
+            """)
+        except sqlite3.OperationalError:
+            pass  # View might already exist
 
     def _init_schema_and_migrate(self) -> None:
         cur = self.conn.cursor()
@@ -192,6 +338,10 @@ class Telemetry:
         self._add_column_if_missing("runs", "damage_dealt", "damage_dealt INTEGER NOT NULL DEFAULT 0")
         self._add_column_if_missing("runs", "deaths", "deaths INTEGER NOT NULL DEFAULT 0")
         self._add_column_if_missing("runs", "max_wave", "max_wave INTEGER")
+        self._add_column_if_missing("runs", "final_score", "final_score INTEGER")
+        self._add_column_if_missing("runs", "max_level", "max_level INTEGER")
+        self._add_column_if_missing("runs", "difficulty", "difficulty TEXT")
+        self._add_column_if_missing("runs", "endurance_mode", "endurance_mode INTEGER NOT NULL DEFAULT 0")
         
         # Add bullet metadata columns to shots table
         self._add_column_if_missing("shots", "shape", "shape TEXT")
@@ -343,7 +493,141 @@ class Telemetry:
         );
         """)
 
+        # New tables for enhanced features
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS score_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            score INTEGER NOT NULL,
+            score_change INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS level_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            level INTEGER NOT NULL,
+            level_name TEXT NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS boss_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            wave_number INTEGER NOT NULL,
+            phase INTEGER NOT NULL,
+            hp INTEGER NOT NULL,
+            max_hp INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS weapon_switches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            weapon_mode TEXT NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS pickup_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            pickup_type TEXT NOT NULL,
+            x INTEGER NOT NULL,
+            y INTEGER NOT NULL,
+            collected INTEGER NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS overshield_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            overshield INTEGER NOT NULL,
+            max_overshield INTEGER NOT NULL,
+            change INTEGER NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        # Zones reference table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS zones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            zone_name TEXT NOT NULL UNIQUE,
+            zone_type TEXT NOT NULL,
+            x_min INTEGER NOT NULL,
+            x_max INTEGER NOT NULL,
+            y_min INTEGER NOT NULL,
+            y_max INTEGER NOT NULL
+        );
+        """)
+
+        # Player actions table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS player_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            action_type TEXT NOT NULL,
+            x INTEGER NOT NULL,
+            y INTEGER NOT NULL,
+            duration REAL,
+            success INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        # Zone visits table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS player_zone_visits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            zone_id INTEGER,
+            zone_name TEXT NOT NULL,
+            zone_type TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            x INTEGER NOT NULL,
+            y INTEGER NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE,
+            FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE SET NULL
+        );
+        """)
+
+        # Create indexes for better query performance
         self.conn.commit()
+        self._create_index_if_missing("enemy_hits", "idx_enemy_hits_run_t", "run_id, t")
+        self._create_index_if_missing("player_damage", "idx_player_damage_run_t", "run_id, t")
+        self._create_index_if_missing("waves", "idx_waves_run_wave", "run_id, wave_number")
+        self._create_index_if_missing("score_events", "idx_score_run_t", "run_id, t")
+        self._create_index_if_missing("weapon_switches", "idx_weapon_run_t", "run_id, t")
+        self._create_index_if_missing("pickup_events", "idx_pickup_run_t", "run_id, t")
+        self._create_index_if_missing("boss_events", "idx_boss_run_wave", "run_id, wave_number")
+        self._create_index_if_missing("player_actions", "idx_actions_run_t", "run_id, t")
+        self._create_index_if_missing("player_actions", "idx_actions_type", "action_type")
+        self._create_index_if_missing("player_zone_visits", "idx_zone_visits_run_t", "run_id, t")
+        self._create_index_if_missing("player_zone_visits", "idx_zone_visits_zone", "zone_id")
+        self.conn.commit()
+        
+        # Create views for common queries
+        self._create_views()
 
     # ----------------------------
     # Run lifecycle
@@ -371,78 +655,49 @@ class Telemetry:
         enemies_killed: int,
         deaths: int,
         max_wave: Optional[int] = None,
+        final_score: Optional[int] = None,
+        max_level: Optional[int] = None,
+        difficulty: Optional[str] = None,
+        endurance_mode: bool = False,
     ) -> None:
         if self.run_id is None:
             return
 
         self.flush(force=True)
 
-        # Build update query dynamically based on whether max_wave column exists
+        # Build update query dynamically based on available columns
         cols = self._columns("runs")
-        has_max_wave = "max_wave" in cols
+        update_fields = [
+            "ended_at = ?", "seconds_survived = ?", "player_hp_end = ?",
+            "shots_fired = ?", "hits = ?", "damage_taken = ?",
+            "damage_dealt = ?", "enemies_spawned = ?", "enemies_killed = ?", "deaths = ?"
+        ]
+        values = [
+            ended_at_iso, float(seconds_survived), int(player_hp_end),
+            int(shots_fired), int(hits), int(damage_taken),
+            int(damage_dealt), int(enemies_spawned), int(enemies_killed), int(deaths)
+        ]
         
-        if has_max_wave and max_wave is not None:
-            self.conn.execute(
-                """
-                UPDATE runs
-                SET ended_at = ?,
-                    seconds_survived = ?,
-                    player_hp_end = ?,
-                    shots_fired = ?,
-                    hits = ?,
-                    damage_taken = ?,
-                    damage_dealt = ?,
-                    enemies_spawned = ?,
-                    enemies_killed = ?,
-                    deaths = ?,
-                    max_wave = ?
-                WHERE id = ?;
-                """,
-                (
-                    ended_at_iso,
-                    float(seconds_survived),
-                    int(player_hp_end),
-                    int(shots_fired),
-                    int(hits),
-                    int(damage_taken),
-                    int(damage_dealt),
-                    int(enemies_spawned),
-                    int(enemies_killed),
-                    int(deaths),
-                    int(max_wave),
-                    int(self.run_id),
-                ),
-            )
-        else:
-            self.conn.execute(
-                """
-                UPDATE runs
-                SET ended_at = ?,
-                    seconds_survived = ?,
-                    player_hp_end = ?,
-                    shots_fired = ?,
-                    hits = ?,
-                    damage_taken = ?,
-                    damage_dealt = ?,
-                    enemies_spawned = ?,
-                    enemies_killed = ?,
-                    deaths = ?
-                WHERE id = ?;
-                """,
-                (
-                    ended_at_iso,
-                    float(seconds_survived),
-                    int(player_hp_end),
-                    int(shots_fired),
-                    int(hits),
-                    int(damage_taken),
-                    int(damage_dealt),
-                    int(enemies_spawned),
-                    int(enemies_killed),
-                    int(deaths),
-                    int(self.run_id),
-                ),
-            )
+        if "max_wave" in cols and max_wave is not None:
+            update_fields.append("max_wave = ?")
+            values.append(int(max_wave))
+        if "final_score" in cols and final_score is not None:
+            update_fields.append("final_score = ?")
+            values.append(int(final_score))
+        if "max_level" in cols and max_level is not None:
+            update_fields.append("max_level = ?")
+            values.append(int(max_level))
+        if "difficulty" in cols and difficulty is not None:
+            update_fields.append("difficulty = ?")
+            values.append(difficulty)
+        if "endurance_mode" in cols:
+            update_fields.append("endurance_mode = ?")
+            values.append(1 if endurance_mode else 0)
+        
+        values.append(int(self.run_id))
+        
+        query = f"UPDATE runs SET {', '.join(update_fields)} WHERE id = ?;"
+        self.conn.execute(query, tuple(values))
         self.conn.commit()
 
     # ----------------------------
@@ -572,6 +827,112 @@ class Telemetry:
             )
         )
 
+    def log_score(self, event: ScoreEvent) -> None:
+        if self.run_id is None:
+            return
+        self._score_buf.append(
+            (self.run_id, float(event.t), int(event.score), int(event.score_change), event.source)
+        )
+
+    def log_level(self, event: LevelEvent) -> None:
+        if self.run_id is None:
+            return
+        self._level_buf.append(
+            (self.run_id, float(event.t), int(event.level), event.level_name)
+        )
+
+    def log_boss(self, event: BossEvent) -> None:
+        if self.run_id is None:
+            return
+        self._boss_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                int(event.wave_number),
+                int(event.phase),
+                int(event.hp),
+                int(event.max_hp),
+                event.event_type,
+            )
+        )
+
+    def log_weapon_switch(self, event: WeaponSwitchEvent) -> None:
+        if self.run_id is None:
+            return
+        self._weapon_switch_buf.append(
+            (self.run_id, float(event.t), event.weapon_mode)
+        )
+
+    def log_pickup(self, event: PickupEvent) -> None:
+        if self.run_id is None:
+            return
+        self._pickup_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                event.pickup_type,
+                int(event.x),
+                int(event.y),
+                1 if event.collected else 0,
+            )
+        )
+
+    def log_overshield(self, event: OvershieldEvent) -> None:
+        if self.run_id is None:
+            return
+        self._overshield_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                int(event.overshield),
+                int(event.max_overshield),
+                int(event.change),
+            )
+        )
+
+    def log_player_action(self, event: PlayerActionEvent) -> None:
+        if self.run_id is None:
+            return
+        self._player_action_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                event.action_type,
+                int(event.x),
+                int(event.y),
+                float(event.duration) if event.duration is not None else None,
+                1 if event.success else 0,
+            )
+        )
+
+    def log_zone_visit(self, event: ZoneVisitEvent) -> None:
+        if self.run_id is None:
+            return
+        # Try to find zone_id from zone_name, or use NULL
+        zone_id = None
+        try:
+            row = self.conn.execute(
+                "SELECT id FROM zones WHERE zone_name = ? LIMIT 1;",
+                (event.zone_name,)
+            ).fetchone()
+            if row:
+                zone_id = row[0]
+        except sqlite3.OperationalError:
+            pass  # zones table might not exist yet
+        
+        self._zone_visit_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                zone_id,
+                event.zone_name,
+                event.zone_type,
+                event.event_type,
+                int(event.x),
+                int(event.y),
+            )
+        )
+
     # ----------------------------
     # Flush / tick / close
     # ----------------------------
@@ -580,18 +941,16 @@ class Telemetry:
         if self._time_since_flush >= self.flush_interval_s:
             self.flush()
 
-        if (
-            len(self._enemy_spawn_buf)
-            + len(self._pos_buf)
-            + len(self._shot_buf)
-            + len(self._enemy_hit_buf)
-            + len(self._player_damage_buf)
-            + len(self._player_death_buf)
-            + len(self._wave_buf)
-            + len(self._enemy_pos_buf)
-            + len(self._player_velocity_buf)
-            + len(self._bullet_metadata_buf)
-        ) >= self.max_buffer:
+        # Calculate total buffer size efficiently
+        total_buf_size = (
+            len(self._enemy_spawn_buf) + len(self._pos_buf) + len(self._shot_buf)
+            + len(self._enemy_hit_buf) + len(self._player_damage_buf) + len(self._player_death_buf)
+            + len(self._wave_buf) + len(self._enemy_pos_buf) + len(self._player_velocity_buf)
+            + len(self._bullet_metadata_buf) + len(self._score_buf) + len(self._level_buf)
+            + len(self._boss_buf) + len(self._weapon_switch_buf) + len(self._pickup_buf)
+            + len(self._overshield_buf)
+        )
+        if total_buf_size >= self.max_buffer:
             self.flush()
 
     def flush(self, force: bool = False) -> None:
@@ -709,6 +1068,94 @@ class Telemetry:
                 self._bullet_metadata_buf,
             )
             self._bullet_metadata_buf.clear()
+            wrote_any = True
+
+        if self._score_buf:
+            cur.executemany(
+                """
+                INSERT INTO score_events (run_id, t, score, score_change, source)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                self._score_buf,
+            )
+            self._score_buf.clear()
+            wrote_any = True
+
+        if self._level_buf:
+            cur.executemany(
+                """
+                INSERT INTO level_events (run_id, t, level, level_name)
+                VALUES (?, ?, ?, ?);
+                """,
+                self._level_buf,
+            )
+            self._level_buf.clear()
+            wrote_any = True
+
+        if self._boss_buf:
+            cur.executemany(
+                """
+                INSERT INTO boss_events (run_id, t, wave_number, phase, hp, max_hp, event_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?);
+                """,
+                self._boss_buf,
+            )
+            self._boss_buf.clear()
+            wrote_any = True
+
+        if self._weapon_switch_buf:
+            cur.executemany(
+                """
+                INSERT INTO weapon_switches (run_id, t, weapon_mode)
+                VALUES (?, ?, ?);
+                """,
+                self._weapon_switch_buf,
+            )
+            self._weapon_switch_buf.clear()
+            wrote_any = True
+
+        if self._pickup_buf:
+            cur.executemany(
+                """
+                INSERT INTO pickup_events (run_id, t, pickup_type, x, y, collected)
+                VALUES (?, ?, ?, ?, ?, ?);
+                """,
+                self._pickup_buf,
+            )
+            self._pickup_buf.clear()
+            wrote_any = True
+
+        if self._overshield_buf:
+            cur.executemany(
+                """
+                INSERT INTO overshield_events (run_id, t, overshield, max_overshield, change)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                self._overshield_buf,
+            )
+            self._overshield_buf.clear()
+            wrote_any = True
+
+        if self._player_action_buf:
+            cur.executemany(
+                """
+                INSERT INTO player_actions (run_id, t, action_type, x, y, duration, success)
+                VALUES (?, ?, ?, ?, ?, ?, ?);
+                """,
+                self._player_action_buf,
+            )
+            self._player_action_buf.clear()
+            wrote_any = True
+
+        if self._zone_visit_buf:
+            cur.executemany(
+                """
+                INSERT INTO player_zone_visits (run_id, t, zone_id, zone_name, zone_type, event_type, x, y)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                self._zone_visit_buf,
+            )
+            self._zone_visit_buf.clear()
             wrote_any = True
 
         if wrote_any:

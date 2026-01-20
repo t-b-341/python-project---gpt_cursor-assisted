@@ -116,12 +116,14 @@ def draw_movement_heatmap(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -
         no_data(ax, "player_positions table missing")
         return False
 
+    # Sample for large datasets to improve performance
     df = read_df(
         conn,
         """
         SELECT x, y
         FROM player_positions
-        WHERE run_id = ?;
+        WHERE run_id = ? AND (id % 5 = 0 OR 1=1)
+        LIMIT 50000;
         """,
         (run_id,),
     )
@@ -132,9 +134,9 @@ def draw_movement_heatmap(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -
     df["x"] = safe_numeric(df["x"], fill=0.0)
     df["y"] = safe_numeric(df["y"], fill=0.0)
 
-    # Note: colorbar is tricky in a single shared axes window.
-    # For popup, we omit colorbar; PNGs still look fine.
-    ax.hist2d(df["x"], df["y"], bins=50)
+    # Use adaptive binning based on data range
+    bins = min(50, max(20, int((df["x"].max() - df["x"].min()) / 10)))
+    ax.hist2d(df["x"], df["y"], bins=bins, cmap="hot")
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_aspect("equal", adjustable="datalim")
@@ -533,12 +535,18 @@ def draw_enemy_movement_paths(ax: plt.Axes, conn: sqlite3.Connection, run_id: in
         no_data(ax, "enemy_positions table missing")
         return False
 
+    # Sample data for performance (every 5th point) to improve rendering speed
     df = read_df(
         conn,
         """
         SELECT enemy_type, x, y, t
-        FROM enemy_positions
-        WHERE run_id = ?
+        FROM (
+            SELECT enemy_type, x, y, t,
+                   ROW_NUMBER() OVER (PARTITION BY enemy_type ORDER BY t) AS rn
+            FROM enemy_positions
+            WHERE run_id = ?
+        ) sampled
+        WHERE rn % 5 = 0 OR rn = 1
         ORDER BY enemy_type, t ASC;
         """,
         (run_id,),
@@ -550,14 +558,19 @@ def draw_enemy_movement_paths(ax: plt.Axes, conn: sqlite3.Connection, run_id: in
     df["x"] = safe_numeric(df["x"], fill=0.0)
     df["y"] = safe_numeric(df["y"], fill=0.0)
 
-    for enemy_type in df["enemy_type"].unique():
-        type_df = df[df["enemy_type"] == enemy_type]
-        ax.plot(type_df["x"], type_df["y"], alpha=0.4, linewidth=1, label=enemy_type)
+    # Limit to top 10 enemy types by frequency for readability
+    top_types = df["enemy_type"].value_counts().head(10).index
+    df_filtered = df[df["enemy_type"].isin(top_types)]
+
+    for enemy_type in top_types:
+        type_df = df_filtered[df_filtered["enemy_type"] == enemy_type]
+        if not type_df.empty:
+            ax.plot(type_df["x"], type_df["y"], alpha=0.4, linewidth=1, label=enemy_type)
 
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_aspect("equal", adjustable="datalim")
-    ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
     return True
 
 
@@ -657,6 +670,563 @@ def draw_survival_time_per_wave(ax: plt.Axes, conn: sqlite3.Connection, run_id: 
     ax.set_xlabel("Wave Number")
     ax.set_ylabel("Survival Time (s)")
     ax.grid(True, alpha=0.3, axis="y")
+    return True
+
+
+def draw_score_progression(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Score progression over time."""
+    if not table_exists(conn, "score_events"):
+        no_data(ax, "score_events table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT t, score, score_change, source
+        FROM score_events
+        WHERE run_id = ?
+        ORDER BY t ASC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No score data")
+        return False
+
+    df["t"] = safe_numeric(df["t"], fill=0.0)
+    df["score"] = safe_numeric(df["score"], fill=0).astype(int)
+
+    ax.plot(df["t"], df["score"], linewidth=2, label="Total Score")
+    ax.fill_between(df["t"], df["score"], alpha=0.3)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Score")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    return True
+
+
+def draw_score_by_source(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Breakdown of score by source."""
+    if not table_exists(conn, "score_events"):
+        no_data(ax, "score_events table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT source, SUM(score_change) AS total_score
+        FROM score_events
+        WHERE run_id = ? AND score_change > 0
+        GROUP BY source
+        ORDER BY total_score DESC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No score data")
+        return False
+
+    df["total_score"] = safe_numeric(df["total_score"], fill=0).astype(int)
+    colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(df)))
+    ax.barh(df["source"], df["total_score"], color=colors)
+    ax.set_xlabel("Total Score")
+    ax.set_ylabel("Source")
+    ax.grid(True, alpha=0.3, axis="x")
+    return True
+
+
+def draw_level_progression(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Level progression over time."""
+    if not table_exists(conn, "level_events"):
+        no_data(ax, "level_events table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT t, level, level_name
+        FROM level_events
+        WHERE run_id = ?
+        ORDER BY t ASC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No level data")
+        return False
+
+    df["t"] = safe_numeric(df["t"], fill=0.0)
+    df["level"] = safe_numeric(df["level"], fill=1).astype(int)
+
+    ax.step(df["t"], df["level"], where="post", linewidth=2, marker="o", markersize=6)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Level")
+    ax.grid(True, alpha=0.3)
+    return True
+
+
+def draw_boss_encounters(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Boss HP over time during encounters."""
+    if not table_exists(conn, "boss_events"):
+        no_data(ax, "boss_events table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT t, wave_number, phase, hp, max_hp, event_type
+        FROM boss_events
+        WHERE run_id = ?
+        ORDER BY t ASC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No boss data")
+        return False
+
+    df["t"] = safe_numeric(df["t"], fill=0.0)
+    df["hp"] = safe_numeric(df["hp"], fill=0).astype(int)
+    df["max_hp"] = safe_numeric(df["max_hp"], fill=1).astype(int)
+    df["hp_pct"] = (df["hp"] / df["max_hp"]) * 100.0
+
+    # Plot HP percentage over time
+    ax.plot(df["t"], df["hp_pct"], linewidth=2, label="Boss HP %")
+    ax.fill_between(df["t"], df["hp_pct"], alpha=0.3)
+    
+    # Mark phase transitions
+    phase_changes = df[df["event_type"] == "phase_transition"]
+    if not phase_changes.empty:
+        ax.scatter(phase_changes["t"], phase_changes["hp_pct"], c="red", s=100, 
+                   marker="X", zorder=5, label="Phase Change")
+    
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("HP %")
+    ax.set_ylim(0, 105)
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    return True
+
+
+def draw_weapon_usage(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Time spent using each weapon."""
+    if not table_exists(conn, "weapon_switches"):
+        no_data(ax, "weapon_switches table missing")
+        return False
+
+    # Get run end time for last weapon duration calculation
+    run_end = read_df(
+        conn,
+        """
+        SELECT seconds_survived FROM runs WHERE id = ?;
+        """,
+        (run_id,),
+    )
+    run_end_time = run_end["seconds_survived"].iloc[0] if not run_end.empty and not run_end["seconds_survived"].isna().all() else None
+
+    df = read_df(
+        conn,
+        """
+        SELECT t, weapon_mode,
+               LEAD(t) OVER (ORDER BY t) - t AS duration
+        FROM weapon_switches
+        WHERE run_id = ?
+        ORDER BY t ASC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No weapon switch data")
+        return False
+
+    df["t"] = safe_numeric(df["t"], fill=0.0)
+    df["duration"] = safe_numeric(df["duration"], fill=0.0)
+    
+    # For last weapon, estimate duration to run end
+    if run_end_time is not None:
+        last_t = df["t"].iloc[-1] if not df.empty else 0.0
+        df.loc[df.index[-1], "duration"] = max(0.0, run_end_time - last_t)
+    else:
+        df["duration"] = df["duration"].fillna(0.0)
+
+    weapon_times = df.groupby("weapon_mode")["duration"].sum().sort_values(ascending=False)
+    
+    if weapon_times.empty or weapon_times.sum() == 0:
+        no_data(ax, "No weapon usage data")
+        return False
+    
+    colors = plt.cm.Set3(np.linspace(0, 1, len(weapon_times)))
+    ax.pie(weapon_times.values, labels=weapon_times.index, autopct="%1.1f%%", 
+           colors=colors, startangle=90)
+    ax.set_title("Weapon Usage Time")
+    return True
+
+
+def draw_pickup_collection(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Pickup collection statistics."""
+    if not table_exists(conn, "pickup_events"):
+        no_data(ax, "pickup_events table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT pickup_type, 
+               SUM(CASE WHEN collected = 1 THEN 1 ELSE 0 END) AS collected_count,
+               COUNT(*) AS total_count
+        FROM pickup_events
+        WHERE run_id = ?
+        GROUP BY pickup_type
+        ORDER BY collected_count DESC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No pickup data")
+        return False
+
+    df["collected_count"] = safe_numeric(df["collected_count"], fill=0).astype(int)
+    df["total_count"] = safe_numeric(df["total_count"], fill=0).astype(int)
+    df["collection_rate"] = (df["collected_count"] / df["total_count"]) * 100.0
+
+    colors = plt.cm.RdYlGn(np.linspace(0.3, 0.7, len(df)))
+    bars = ax.barh(df["pickup_type"], df["collected_count"], color=colors)
+    ax.set_xlabel("Collected Count")
+    ax.set_ylabel("Pickup Type")
+    ax.grid(True, alpha=0.3, axis="x")
+    
+    # Add collection rate as text
+    for i, (idx, row) in enumerate(df.iterrows()):
+        ax.text(row["collected_count"], i, f" {row['collection_rate']:.0f}%", 
+                va="center", fontsize=9)
+    return True
+
+
+def draw_overshield_usage(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Overshield changes over time."""
+    if not table_exists(conn, "overshield_events"):
+        no_data(ax, "overshield_events table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT t, overshield, max_overshield, change
+        FROM overshield_events
+        WHERE run_id = ?
+        ORDER BY t ASC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No overshield data")
+        return False
+
+    df["t"] = safe_numeric(df["t"], fill=0.0)
+    df["overshield"] = safe_numeric(df["overshield"], fill=0).astype(int)
+    df["max_overshield"] = safe_numeric(df["max_overshield"], fill=1).astype(int)
+
+    ax.plot(df["t"], df["overshield"], linewidth=2, label="Overshield", color="cyan")
+    ax.fill_between(df["t"], df["overshield"], alpha=0.3, color="cyan")
+    ax.axhline(y=df["max_overshield"].iloc[0] if not df.empty else 0, 
+               color="red", linestyle="--", alpha=0.5, label="Max Overshield")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Overshield")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    return True
+
+
+def draw_player_action_frequency(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Frequency of player actions using GROUP BY."""
+    if not table_exists(conn, "player_actions"):
+        no_data(ax, "player_actions table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT action_type, COUNT(*) AS count
+        FROM player_actions
+        WHERE run_id = ?
+        GROUP BY action_type
+        ORDER BY count DESC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No action data")
+        return False
+
+    df["count"] = safe_numeric(df["count"], fill=0).astype(int)
+    colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(df)))
+    ax.bar(df["action_type"], df["count"], color=colors)
+    ax.set_xlabel("Action Type")
+    ax.set_ylabel("Frequency")
+    ax.tick_params(axis="x", rotation=45)
+    ax.grid(True, alpha=0.3, axis="y")
+    return True
+
+
+def draw_weapon_effectiveness_comparison(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Compare weapons using JOINs across multiple tables."""
+    if not table_exists(conn, "weapon_switches") or not table_exists(conn, "enemy_hits"):
+        no_data(ax, "Required tables missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        WITH weapon_periods AS (
+            SELECT 
+                w.weapon_mode,
+                w.t AS start_time,
+                COALESCE(
+                    (SELECT MIN(t) FROM weapon_switches w2 
+                     WHERE w2.run_id = w.run_id AND w2.t > w.t),
+                    (SELECT seconds_survived FROM runs WHERE id = w.run_id)
+                ) AS end_time
+            FROM weapon_switches w
+            WHERE w.run_id = ?
+        )
+        SELECT 
+            wp.weapon_mode,
+            COUNT(DISTINCT s.id) AS shots_fired,
+            COUNT(DISTINCT eh.id) AS hits,
+            COALESCE(SUM(eh.damage), 0) AS total_damage,
+            COUNT(DISTINCT CASE WHEN eh.killed = 1 THEN eh.id END) AS kills
+        FROM weapon_periods wp
+        LEFT JOIN shots s ON s.run_id = ? 
+            AND s.t BETWEEN wp.start_time AND wp.end_time
+        LEFT JOIN enemy_hits eh ON eh.run_id = ?
+            AND eh.t BETWEEN wp.start_time AND wp.end_time
+        GROUP BY wp.weapon_mode
+        ORDER BY total_damage DESC;
+        """,
+        (run_id, run_id, run_id),
+    )
+    if df.empty:
+        no_data(ax, "No weapon data")
+        return False
+
+    df["shots_fired"] = safe_numeric(df["shots_fired"], fill=0).astype(int)
+    df["hits"] = safe_numeric(df["hits"], fill=0).astype(int)
+    df["total_damage"] = safe_numeric(df["total_damage"], fill=0).astype(int)
+    df["kills"] = safe_numeric(df["kills"], fill=0).astype(int)
+    df["accuracy"] = (df["hits"] / df["shots_fired"].replace(0, float("nan"))) * 100.0
+    df["accuracy"] = df["accuracy"].fillna(0.0)
+
+    x = np.arange(len(df))
+    width = 0.35
+    ax.bar(x - width/2, df["total_damage"], width, label="Damage", alpha=0.8)
+    ax.bar(x + width/2, df["kills"] * 50, width, label="Kills (×50)", alpha=0.8)
+    ax.set_xlabel("Weapon")
+    ax.set_ylabel("Value")
+    ax.set_xticks(x)
+    ax.set_xticklabels(df["weapon_mode"], rotation=45, ha="right")
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="y")
+    return True
+
+
+def draw_action_patterns_with_cte(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Use CTEs to analyze action sequences."""
+    if not table_exists(conn, "player_actions"):
+        no_data(ax, "player_actions table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        WITH action_sequences AS (
+            SELECT 
+                action_type,
+                t,
+                LAG(action_type) OVER (ORDER BY t) AS prev_action,
+                LEAD(action_type) OVER (ORDER BY t) AS next_action,
+                t - LAG(t) OVER (ORDER BY t) AS time_since_prev
+            FROM player_actions
+            WHERE run_id = ?
+        ),
+        action_transitions AS (
+            SELECT 
+                prev_action || ' -> ' || action_type AS transition,
+                COUNT(*) AS frequency,
+                AVG(time_since_prev) AS avg_time
+            FROM action_sequences
+            WHERE prev_action IS NOT NULL
+            GROUP BY transition
+        )
+        SELECT * FROM action_transitions
+        ORDER BY frequency DESC
+        LIMIT 10;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No action pattern data")
+        return False
+
+    df["frequency"] = safe_numeric(df["frequency"], fill=0).astype(int)
+    df["avg_time"] = safe_numeric(df["avg_time"], fill=0.0)
+
+    colors = plt.cm.plasma(np.linspace(0.2, 0.8, len(df)))
+    bars = ax.barh(df["transition"], df["frequency"], color=colors)
+    ax.set_xlabel("Frequency")
+    ax.set_ylabel("Action Transition")
+    ax.grid(True, alpha=0.3, axis="x")
+    
+    # Add average time annotations
+    for i, (idx, row) in enumerate(df.iterrows()):
+        ax.text(row["frequency"], i, f"  {row['avg_time']:.2f}s avg", 
+                va="center", fontsize=8)
+    return True
+
+
+def draw_running_statistics(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Show running totals using window functions."""
+    if not table_exists(conn, "score_events"):
+        no_data(ax, "score_events table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT 
+            t,
+            score,
+            score_change,
+            SUM(score_change) OVER (ORDER BY t) AS running_score,
+            AVG(score_change) OVER (
+                ORDER BY t 
+                ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
+            ) AS moving_avg_10,
+            COUNT(*) OVER (ORDER BY t) AS event_count
+        FROM score_events
+        WHERE run_id = ?
+        ORDER BY t;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No score data")
+        return False
+
+    df["t"] = safe_numeric(df["t"], fill=0.0)
+    df["running_score"] = safe_numeric(df["running_score"], fill=0).astype(int)
+    df["moving_avg_10"] = safe_numeric(df["moving_avg_10"], fill=0.0)
+
+    ax.plot(df["t"], df["running_score"], linewidth=2, label="Running Score", color="blue")
+    ax.plot(df["t"], df["moving_avg_10"] * 10, linewidth=1.5, label="Moving Avg (×10)", 
+            color="orange", alpha=0.7)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Score")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    return True
+
+
+def draw_zone_effectiveness(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Compare zones using correlated subqueries."""
+    if not table_exists(conn, "player_zone_visits"):
+        no_data(ax, "player_zone_visits table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT 
+            zone_name,
+            zone_type,
+            COUNT(CASE WHEN event_type = 'enter' THEN 1 END) AS visit_count,
+            (SELECT COUNT(*) 
+             FROM player_actions pa 
+             WHERE pa.run_id = ? 
+             AND pa.action_type = 'boost'
+             AND EXISTS (
+                 SELECT 1 FROM player_zone_visits pzv2
+                 WHERE pzv2.run_id = ?
+                 AND pzv2.zone_name = pzv.zone_name
+                 AND pzv2.event_type = 'enter'
+                 AND ABS(pa.t - pzv2.t) < 1.0
+             )
+            ) AS boost_actions_in_zone
+        FROM player_zone_visits pzv
+        WHERE pzv.run_id = ?
+        GROUP BY zone_name, zone_type
+        ORDER BY visit_count DESC;
+        """,
+        (run_id, run_id, run_id),
+    )
+    if df.empty:
+        no_data(ax, "No zone data")
+        return False
+
+    df["visit_count"] = safe_numeric(df["visit_count"], fill=0).astype(int)
+    df["boost_actions_in_zone"] = safe_numeric(df["boost_actions_in_zone"], fill=0).astype(int)
+
+    x = np.arange(len(df))
+    width = 0.35
+    ax.bar(x - width/2, df["visit_count"], width, label="Visits", alpha=0.8)
+    ax.bar(x + width/2, df["boost_actions_in_zone"], width, label="Boost Actions", alpha=0.8)
+    ax.set_xlabel("Zone")
+    ax.set_ylabel("Count")
+    ax.set_xticks(x)
+    ax.set_xticklabels(df["zone_name"], rotation=45, ha="right")
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="y")
+    return True
+
+
+def draw_performance_summary_view(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Use the player_performance_summary view."""
+    if not table_exists(conn, "runs"):
+        no_data(ax, "runs table missing")
+        return False
+
+    # Check if view exists
+    view_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='view' AND name='player_performance_summary'"
+    ).fetchone()
+    
+    if not view_exists:
+        no_data(ax, "View not available")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT 
+            accuracy_pct,
+            kills_per_second,
+            dps,
+            difficulty,
+            max_level
+        FROM player_performance_summary
+        WHERE run_id = ?;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No performance data")
+        return False
+
+    metrics = ["Accuracy %", "Kills/sec", "DPS"]
+    values = [
+        df["accuracy_pct"].iloc[0] if not df.empty else 0.0,
+        df["kills_per_second"].iloc[0] if not df.empty else 0.0,
+        df["dps"].iloc[0] if not df.empty else 0.0,
+    ]
+
+    colors = plt.cm.RdYlGn(np.linspace(0.3, 0.7, len(metrics)))
+    bars = ax.barh(metrics, values, color=colors)
+    ax.set_xlabel("Value")
+    ax.set_title(f"Performance Summary (Level {df['max_level'].iloc[0] if not df.empty else '?'}, {df['difficulty'].iloc[0] if not df.empty else '?'})")
+    ax.grid(True, alpha=0.3, axis="x")
+    
+    # Add value labels
+    for i, (metric, val) in enumerate(zip(metrics, values)):
+        ax.text(val, i, f"  {val:.2f}", va="center", fontsize=10, fontweight="bold")
     return True
 
 
@@ -865,6 +1435,19 @@ def main():
         Page("Enemy density heatmap", "enemy_density.png", draw_enemy_density_heatmap),
         Page("Bullet shape distribution", "bullet_shapes.png", draw_bullet_shape_distribution),
         Page("Bullet color usage", "bullet_colors.png", draw_bullet_color_usage),
+        Page("Score progression", "score_progression.png", draw_score_progression),
+        Page("Score by source", "score_by_source.png", draw_score_by_source),
+        Page("Level progression", "level_progression.png", draw_level_progression),
+        Page("Boss encounters", "boss_encounters.png", draw_boss_encounters),
+        Page("Weapon usage", "weapon_usage.png", draw_weapon_usage),
+        Page("Pickup collection", "pickup_collection.png", draw_pickup_collection),
+        Page("Overshield usage", "overshield_usage.png", draw_overshield_usage),
+        Page("Player action frequency", "player_actions.png", draw_player_action_frequency),
+        Page("Weapon effectiveness comparison", "weapon_effectiveness.png", draw_weapon_effectiveness_comparison),
+        Page("Action patterns (CTE)", "action_patterns.png", draw_action_patterns_with_cte),
+        Page("Running statistics", "running_stats.png", draw_running_statistics),
+        Page("Zone effectiveness", "zone_effectiveness.png", draw_zone_effectiveness),
+        Page("Performance summary (View)", "performance_summary.png", draw_performance_summary_view),
         Page("Accuracy over runs", "accuracy_over_runs.png", draw_accuracy_over_runs),
         Page("Damage totals over runs", "damage_totals_over_runs.png", draw_damage_totals_over_runs),
     ]
