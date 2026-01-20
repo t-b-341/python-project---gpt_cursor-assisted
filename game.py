@@ -296,10 +296,10 @@ destructible_blocks = [
 
 # Health recovery zones (areas where player regenerates health)
 health_recovery_zones = [
-    {"rect": pygame.Rect(200, 200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Health Zone 1", "zone_id": None},  # 20 HP/s
-    {"rect": pygame.Rect(1250, 250, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Health Zone 2", "zone_id": None},
-    {"rect": pygame.Rect(600, 1000, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Health Zone 3", "zone_id": None},
-    {"rect": pygame.Rect(1400, 1200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Health Zone 4", "zone_id": None},
+    {"rect": pygame.Rect(200, 200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Northwest Healing Zone", "zone_id": 1},
+    {"rect": pygame.Rect(1250, 250, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Northeast Healing Zone", "zone_id": 2},
+    {"rect": pygame.Rect(600, 1000, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "South-Central Healing Zone", "zone_id": 3},
+    {"rect": pygame.Rect(1400, 1200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Southeast Healing Zone", "zone_id": 4},
 ]
 
 # Track which zones player is currently in (for telemetry)
@@ -692,6 +692,77 @@ def log_enemy_spawns(new_enemies: list[dict]):
                 hp=e["hp"],
             )
         )
+
+
+def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
+    """Create a friendly AI unit from a template."""
+    hp = int(t["hp"] * hp_scale)
+    return {
+        "type": t["type"],
+        "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
+        "color": t["color"],
+        "hp": hp,
+        "max_hp": hp,
+        "shoot_cooldown": t["shoot_cooldown"],
+        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"]),
+        "projectile_speed": t["projectile_speed"],
+        "projectile_color": t["projectile_color"],
+        "projectile_shape": t["projectile_shape"],
+        "speed": t["speed"] * speed_scale,
+        "behavior": t["behavior"],
+        "damage": t["damage"],
+        "target": None,  # Current target enemy
+    }
+
+
+def find_nearest_enemy(friendly_pos: pygame.Vector2) -> dict | None:
+    """Find the nearest enemy to a friendly AI unit."""
+    if not enemies:
+        return None
+    nearest = None
+    min_dist = float("inf")
+    for e in enemies:
+        dist = (pygame.Vector2(e["rect"].center) - friendly_pos).length_squared()
+        if dist < min_dist:
+            min_dist = dist
+            nearest = e
+    return nearest
+
+
+def spawn_friendly_ai(count: int, hp_scale: float, speed_scale: float):
+    """Spawn friendly AI units."""
+    global friendly_ai
+    for _ in range(count):
+        tmpl = random.choice(friendly_ai_templates)
+        friendly = make_friendly_from_template(tmpl, hp_scale, speed_scale)
+        # Spawn near player but not too close
+        spawn_x = player.centerx + random.randint(-200, 200)
+        spawn_y = player.centery + random.randint(-200, 200)
+        spawn_x = max(50, min(spawn_x, WIDTH - 50))
+        spawn_y = max(50, min(spawn_y, HEIGHT - 50))
+        friendly["rect"].center = (spawn_x, spawn_y)
+        friendly_ai.append(friendly)
+
+
+def spawn_friendly_projectile(friendly: dict, target: dict):
+    """Spawn a projectile from friendly AI targeting an enemy."""
+    d = vec_toward(
+        friendly["rect"].centerx, friendly["rect"].centery,
+        target["rect"].centerx, target["rect"].centery
+    )
+    r = pygame.Rect(
+        friendly["rect"].centerx - 6,
+        friendly["rect"].centery - 6,
+        12, 12
+    )
+    friendly_projectiles.append({
+        "rect": r,
+        "vel": d * friendly["projectile_speed"],
+        "damage": friendly["damage"],
+        "color": friendly["projectile_color"],
+        "shape": friendly["projectile_shape"],
+        "source_type": friendly["type"],
+    })
     telemetry.flush(force=True)
 
 
@@ -1582,7 +1653,8 @@ try:
             for zone in health_recovery_zones:
                 if player.colliderect(zone["rect"]):
                     # Track zone entry
-                    zone_name = zone.get("name", f"Health Zone {health_recovery_zones.index(zone) + 1}")
+                    # Zone name is guaranteed to exist (optimized)
+                    zone_name = zone["name"]
                     current_frame_zones.add(zone_name)
                     
                     # Log zone entry if just entered
@@ -2055,6 +2127,20 @@ try:
                 if p not in enemy_projectiles:
                     continue
 
+                # Check collision with friendly AI first
+                hit_friendly = None
+                for f in friendly_ai:
+                    if r.colliderect(f["rect"]):
+                        hit_friendly = f
+                        break
+                
+                if hit_friendly:
+                    hit_friendly["hp"] -= enemy_projectile_damage
+                    if hit_friendly["hp"] <= 0:
+                        friendly_ai.remove(hit_friendly)
+                    enemy_projectiles.remove(p)
+                    continue
+
                 if r.colliderect(player):
                     # apply damage - overshield absorbs damage first
                     remaining_damage = enemy_projectile_damage
@@ -2217,6 +2303,20 @@ try:
             color_with_alpha = (*effect["color"], alpha)
             pygame.draw.circle(effect_surf, color_with_alpha, (effect["size"], effect["size"]), effect["size"])
             screen.blit(effect_surf, (effect["x"] - effect["size"], effect["y"] - effect["size"]))
+
+        # Draw friendly AI
+        for f in friendly_ai:
+            pygame.draw.rect(screen, f["color"], f["rect"])
+            # Draw health bar above friendly AI
+            bar_x = f["rect"].x
+            bar_y = f["rect"].y - 8
+            bar_w = f["rect"].w
+            bar_h = 4
+            draw_health_bar(bar_x, bar_y, bar_w, bar_h, f["hp"], f["max_hp"])
+        
+        # Draw friendly projectiles
+        for fp in friendly_projectiles:
+            draw_projectile(fp["rect"], fp["color"], fp["shape"])
 
         for e in enemies:
             pygame.draw.rect(screen, e["color"], e["rect"])

@@ -11,3 +11,5 @@ I have started using Cursor to add additional features to the game, in collabora
 
 EDIT 2:
 I have begun to use the game to develop into a sort of bullet hell game, using cursor. The game is intentionally simple, and is meant to be fun, (even if it was generated using AI, I wouldn't have been able to make the game otherwise)
+
+I'm focusing on mechanics of the games, rather than the nitty gritty of the programming itself
