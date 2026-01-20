@@ -67,6 +67,15 @@ import os
 import pygame
 from datetime import datetime, timezone
 
+# Try to import C extension for performance, fallback to Python if not available
+# Note: game_physics module is built from game_physics.c - see BUILD_INSTRUCTIONS.md
+try:
+    import game_physics  # type: ignore
+    USE_C_EXTENSION = True
+except ImportError:
+    USE_C_EXTENSION = False
+    print("Note: C extension not available, using Python fallback (slower)")
+
 from telemetry import (
     Telemetry,
     EnemySpawnEvent,
@@ -576,10 +585,14 @@ def clamp_rect_to_screen(r: pygame.Rect):
 
 
 def vec_toward(ax, ay, bx, by) -> pygame.Vector2:
-    v = pygame.Vector2(bx - ax, by - ay)
-    if v.length_squared() == 0:
-        return pygame.Vector2(1, 0)
-    return v.normalize()
+    if USE_C_EXTENSION:
+        x, y = game_physics.vec_toward(ax, ay, bx, by)
+        return pygame.Vector2(x, y)
+    else:
+        v = pygame.Vector2(bx - ax, by - ay)
+        if v.length_squared() == 0:
+            return pygame.Vector2(1, 0)
+        return v.normalize()
 
 
 def line_rect_intersection(start: pygame.Vector2, end: pygame.Vector2, rect: pygame.Rect) -> pygame.Vector2 | None:
@@ -596,13 +609,18 @@ def line_rect_intersection(start: pygame.Vector2, end: pygame.Vector2, rect: pyg
 
 
 def can_move_rect(rect: pygame.Rect, dx: int, dy: int, other_rects: list[pygame.Rect]) -> bool:
-    test = rect.move(dx, dy)
-    if test.left < 0 or test.right > WIDTH or test.top < 0 or test.bottom > HEIGHT:
-        return False
-    for o in other_rects:
-        if test.colliderect(o):
+    if USE_C_EXTENSION:
+        return game_physics.can_move_rect(
+            rect.x, rect.y, rect.w, rect.h, dx, dy, other_rects, WIDTH, HEIGHT
+        )
+    else:
+        test = rect.move(dx, dy)
+        if test.left < 0 or test.right > WIDTH or test.top < 0 or test.bottom > HEIGHT:
             return False
-    return True
+        for o in other_rects:
+            if test.colliderect(o):
+                return False
+        return True
 
 
 def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict]):
