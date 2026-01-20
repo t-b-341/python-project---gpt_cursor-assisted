@@ -40,6 +40,28 @@
 #--------------------------------------------------------
 #make the map bigger, and add in more geometry, with areas of health recovery, and overshields (extra health bar that can be used to block damage)
 #--------------------------------------------------------
+#add a pickup that increases the player's overshield
+
+
+
+#FUTURE
+#SMALL FEATURES TO ADD; integrate C++ for the physics and collision detection?
+#multiple levels, with different themes and enemies, and pickups, and powerups
+#more weapons; start with basic weapons (weapon 1 = peashooter, weapon 2 = rocket launcher, weapon 3 = triple shot, weapon 4 = bouncing bullets, weapon 5 = giant bullets)
+#pick up weapons as levels progress, and as the player kills enemies, then enemies drop the weapons they use (so there's an enemy that does peashooters, and another that does rocket launchers, etc.)
+#final boss, with a unique weapon that the player has to defeat (combo of all weapons), multiple phases, and a unique weapon for each phase
+#add a special pickup that adds a laser beam weapon that the player can use to destroy enemies from a distance, that's a long ray, but doesn't cut through solid blocks, but breaks temporary barriers
+#continue? after game is done, to add an endurance mode for postgame
+#add a score counter and survival wave amount/time survived
+#add a difficulty selector, so the player can choose the difficulty of the game, which impacts enemy spawns (more, harder enemies, fewer pickups?)
+#by end of game it's a bullet hell with the player having all their tools
+#add space bar to jump in direction of movement?
+
+
+#--------------------------------------------------------
+
+
+
 
 import math
 import random
