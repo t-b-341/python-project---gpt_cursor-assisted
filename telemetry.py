@@ -65,6 +65,48 @@ class PlayerDeathEvent:
     lives_left: int
 
 
+@dataclass
+class WaveEvent:
+    t: float
+    wave_number: int
+    event_type: str  # "start" or "end"
+    enemies_spawned: int
+    hp_scale: float
+    speed_scale: float
+
+
+@dataclass
+class EnemyPositionEvent:
+    t: float
+    enemy_type: str
+    x: int
+    y: int
+    speed: float
+    vel_x: float
+    vel_y: float
+
+
+@dataclass
+class PlayerVelocityEvent:
+    t: float
+    x: int
+    y: int
+    vel_x: float
+    vel_y: float
+    speed: float
+
+
+@dataclass
+class BulletMetadataEvent:
+    t: float
+    bullet_type: str  # "player" or "enemy"
+    shape: str
+    color_r: int
+    color_g: int
+    color_b: int
+    source_enemy_type: Optional[str] = None
+
+
 class Telemetry:
     """
     Buffered SQLite telemetry writer.
@@ -94,6 +136,12 @@ class Telemetry:
         self._enemy_hit_buf: list[tuple] = []
         self._player_damage_buf: list[tuple] = []
         self._player_death_buf: list[tuple] = []
+        
+        # New buffers
+        self._wave_buf: list[tuple] = []
+        self._enemy_pos_buf: list[tuple] = []
+        self._player_velocity_buf: list[tuple] = []
+        self._bullet_metadata_buf: list[tuple] = []
 
     # ----------------------------
     # Schema helpers
@@ -143,6 +191,13 @@ class Telemetry:
         self.conn.commit()
         self._add_column_if_missing("runs", "damage_dealt", "damage_dealt INTEGER NOT NULL DEFAULT 0")
         self._add_column_if_missing("runs", "deaths", "deaths INTEGER NOT NULL DEFAULT 0")
+        self._add_column_if_missing("runs", "max_wave", "max_wave INTEGER")
+        
+        # Add bullet metadata columns to shots table
+        self._add_column_if_missing("shots", "shape", "shape TEXT")
+        self._add_column_if_missing("shots", "color_r", "color_r INTEGER")
+        self._add_column_if_missing("shots", "color_g", "color_g INTEGER")
+        self._add_column_if_missing("shots", "color_b", "color_b INTEGER")
 
         # Existing tables (safe to CREATE IF NOT EXISTS)
         cur.execute("""
@@ -229,6 +284,65 @@ class Telemetry:
         );
         """)
 
+        # New tables for enhanced telemetry
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS waves (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            wave_number INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            enemies_spawned INTEGER NOT NULL,
+            hp_scale REAL NOT NULL,
+            speed_scale REAL NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS enemy_positions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            enemy_type TEXT NOT NULL,
+            x INTEGER NOT NULL,
+            y INTEGER NOT NULL,
+            speed REAL NOT NULL,
+            vel_x REAL NOT NULL,
+            vel_y REAL NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS player_velocities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            x INTEGER NOT NULL,
+            y INTEGER NOT NULL,
+            vel_x REAL NOT NULL,
+            vel_y REAL NOT NULL,
+            speed REAL NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS bullet_metadata (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            bullet_type TEXT NOT NULL,
+            shape TEXT NOT NULL,
+            color_r INTEGER NOT NULL,
+            color_g INTEGER NOT NULL,
+            color_b INTEGER NOT NULL,
+            source_enemy_type TEXT,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
         self.conn.commit()
 
     # ----------------------------
@@ -256,41 +370,79 @@ class Telemetry:
         enemies_spawned: int,
         enemies_killed: int,
         deaths: int,
+        max_wave: Optional[int] = None,
     ) -> None:
         if self.run_id is None:
             return
 
         self.flush(force=True)
 
-        self.conn.execute(
-            """
-            UPDATE runs
-            SET ended_at = ?,
-                seconds_survived = ?,
-                player_hp_end = ?,
-                shots_fired = ?,
-                hits = ?,
-                damage_taken = ?,
-                damage_dealt = ?,
-                enemies_spawned = ?,
-                enemies_killed = ?,
-                deaths = ?
-            WHERE id = ?;
-            """,
-            (
-                ended_at_iso,
-                float(seconds_survived),
-                int(player_hp_end),
-                int(shots_fired),
-                int(hits),
-                int(damage_taken),
-                int(damage_dealt),
-                int(enemies_spawned),
-                int(enemies_killed),
-                int(deaths),
-                int(self.run_id),
-            ),
-        )
+        # Build update query dynamically based on whether max_wave column exists
+        cols = self._columns("runs")
+        has_max_wave = "max_wave" in cols
+        
+        if has_max_wave and max_wave is not None:
+            self.conn.execute(
+                """
+                UPDATE runs
+                SET ended_at = ?,
+                    seconds_survived = ?,
+                    player_hp_end = ?,
+                    shots_fired = ?,
+                    hits = ?,
+                    damage_taken = ?,
+                    damage_dealt = ?,
+                    enemies_spawned = ?,
+                    enemies_killed = ?,
+                    deaths = ?,
+                    max_wave = ?
+                WHERE id = ?;
+                """,
+                (
+                    ended_at_iso,
+                    float(seconds_survived),
+                    int(player_hp_end),
+                    int(shots_fired),
+                    int(hits),
+                    int(damage_taken),
+                    int(damage_dealt),
+                    int(enemies_spawned),
+                    int(enemies_killed),
+                    int(deaths),
+                    int(max_wave),
+                    int(self.run_id),
+                ),
+            )
+        else:
+            self.conn.execute(
+                """
+                UPDATE runs
+                SET ended_at = ?,
+                    seconds_survived = ?,
+                    player_hp_end = ?,
+                    shots_fired = ?,
+                    hits = ?,
+                    damage_taken = ?,
+                    damage_dealt = ?,
+                    enemies_spawned = ?,
+                    enemies_killed = ?,
+                    deaths = ?
+                WHERE id = ?;
+                """,
+                (
+                    ended_at_iso,
+                    float(seconds_survived),
+                    int(player_hp_end),
+                    int(shots_fired),
+                    int(hits),
+                    int(damage_taken),
+                    int(damage_dealt),
+                    int(enemies_spawned),
+                    int(enemies_killed),
+                    int(deaths),
+                    int(self.run_id),
+                ),
+            )
         self.conn.commit()
 
     # ----------------------------
@@ -308,9 +460,13 @@ class Telemetry:
             return
         self._pos_buf.append((self.run_id, event.t, event.x, event.y))
 
-    def log_shot(self, event: ShotEvent) -> None:
+    def log_shot(self, event: ShotEvent, shape: Optional[str] = None, color: Optional[tuple[int, int, int]] = None) -> None:
         if self.run_id is None:
             return
+        # Store shape and color if provided (for backward compatibility)
+        if shape and color:
+            # Update shots table with metadata if columns exist
+            pass  # Will be handled separately via bullet_metadata table
         self._shot_buf.append(
             (self.run_id, event.t, event.origin_x, event.origin_y, event.target_x, event.target_y, event.dir_x, event.dir_y)
         )
@@ -354,6 +510,68 @@ class Telemetry:
             (self.run_id, float(event.t), int(event.player_x), int(event.player_y), int(event.lives_left))
         )
 
+    def log_wave(self, event: WaveEvent) -> None:
+        if self.run_id is None:
+            return
+        self._wave_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                int(event.wave_number),
+                event.event_type,
+                int(event.enemies_spawned),
+                float(event.hp_scale),
+                float(event.speed_scale),
+            )
+        )
+
+    def log_enemy_position(self, event: EnemyPositionEvent) -> None:
+        if self.run_id is None:
+            return
+        self._enemy_pos_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                event.enemy_type,
+                int(event.x),
+                int(event.y),
+                float(event.speed),
+                float(event.vel_x),
+                float(event.vel_y),
+            )
+        )
+
+    def log_player_velocity(self, event: PlayerVelocityEvent) -> None:
+        if self.run_id is None:
+            return
+        self._player_velocity_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                int(event.x),
+                int(event.y),
+                float(event.vel_x),
+                float(event.vel_y),
+                float(event.speed),
+            )
+        )
+
+    def log_bullet_metadata(self, event: BulletMetadataEvent) -> None:
+        if self.run_id is None:
+            return
+        self._bullet_metadata_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                event.bullet_type,
+                event.shape,
+                int(event.color_r),
+                int(event.color_g),
+                int(event.color_b),
+                event.source_enemy_type,
+            )
+        )
+
     # ----------------------------
     # Flush / tick / close
     # ----------------------------
@@ -369,6 +587,10 @@ class Telemetry:
             + len(self._enemy_hit_buf)
             + len(self._player_damage_buf)
             + len(self._player_death_buf)
+            + len(self._wave_buf)
+            + len(self._enemy_pos_buf)
+            + len(self._player_velocity_buf)
+            + len(self._bullet_metadata_buf)
         ) >= self.max_buffer:
             self.flush()
 
@@ -443,6 +665,50 @@ class Telemetry:
                 self._player_death_buf,
             )
             self._player_death_buf.clear()
+            wrote_any = True
+
+        if self._wave_buf:
+            cur.executemany(
+                """
+                INSERT INTO waves (run_id, t, wave_number, event_type, enemies_spawned, hp_scale, speed_scale)
+                VALUES (?, ?, ?, ?, ?, ?, ?);
+                """,
+                self._wave_buf,
+            )
+            self._wave_buf.clear()
+            wrote_any = True
+
+        if self._enemy_pos_buf:
+            cur.executemany(
+                """
+                INSERT INTO enemy_positions (run_id, t, enemy_type, x, y, speed, vel_x, vel_y)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                self._enemy_pos_buf,
+            )
+            self._enemy_pos_buf.clear()
+            wrote_any = True
+
+        if self._player_velocity_buf:
+            cur.executemany(
+                """
+                INSERT INTO player_velocities (run_id, t, x, y, vel_x, vel_y, speed)
+                VALUES (?, ?, ?, ?, ?, ?, ?);
+                """,
+                self._player_velocity_buf,
+            )
+            self._player_velocity_buf.clear()
+            wrote_any = True
+
+        if self._bullet_metadata_buf:
+            cur.executemany(
+                """
+                INSERT INTO bullet_metadata (run_id, t, bullet_type, shape, color_r, color_g, color_b, source_enemy_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                self._bullet_metadata_buf,
+            )
+            self._bullet_metadata_buf.clear()
             wrote_any = True
 
         if wrote_any:

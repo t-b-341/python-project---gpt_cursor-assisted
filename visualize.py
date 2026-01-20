@@ -11,6 +11,7 @@ from typing import Callable, Optional, List, Tuple
 
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 DB_PATH = "game_telemetry.db"
@@ -98,11 +99,15 @@ def draw_movement_path(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> b
 
     df["x"] = safe_numeric(df["x"], fill=0.0)
     df["y"] = safe_numeric(df["y"], fill=0.0)
+    df["t"] = safe_numeric(df["t"], fill=0.0)
 
-    ax.plot(df["x"], df["y"])
+    # Enhanced: color by time progression
+    scatter = ax.scatter(df["x"], df["y"], c=df["t"], cmap="plasma", s=5, alpha=0.6, edgecolors="none")
+    ax.plot(df["x"], df["y"], "k-", alpha=0.2, linewidth=0.5)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_aspect("equal", adjustable="datalim")
+    plt.colorbar(scatter, ax=ax, label="Time (s)")
     return True
 
 
@@ -144,7 +149,7 @@ def draw_shots_scatter(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> b
     df = read_df(
         conn,
         """
-        SELECT target_x, target_y
+        SELECT target_x, target_y, t
         FROM shots
         WHERE run_id = ?
         ORDER BY t ASC;
@@ -157,11 +162,14 @@ def draw_shots_scatter(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> b
 
     df["target_x"] = safe_numeric(df["target_x"], fill=0.0)
     df["target_y"] = safe_numeric(df["target_y"], fill=0.0)
+    df["t"] = safe_numeric(df["t"], fill=0.0)
 
-    ax.scatter(df["target_x"], df["target_y"], s=8)
-    ax.set_xlabel("target_x")
-    ax.set_ylabel("target_y")
+    # Enhanced: color by time, use hexbin for density
+    scatter = ax.scatter(df["target_x"], df["target_y"], c=df["t"], cmap="coolwarm", s=10, alpha=0.5, edgecolors="none")
+    ax.set_xlabel("Target X")
+    ax.set_ylabel("Target Y")
     ax.set_aspect("equal", adjustable="datalim")
+    plt.colorbar(scatter, ax=ax, label="Time (s)")
     return True
 
 
@@ -188,9 +196,12 @@ def draw_damage_taken_timeline(ax: plt.Axes, conn: sqlite3.Connection, run_id: i
     df["amount"] = safe_numeric(df["amount"], fill=0.0)
     df["cum_damage"] = df["amount"].cumsum()
 
-    ax.plot(df["t"], df["cum_damage"])
-    ax.set_xlabel("t (s)")
-    ax.set_ylabel("cumulative damage")
+    # Enhanced: area chart instead of line
+    ax.fill_between(df["t"], df["cum_damage"], alpha=0.6, color="red")
+    ax.plot(df["t"], df["cum_damage"], linewidth=2, color="darkred")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Cumulative Damage")
+    ax.grid(True, alpha=0.3)
     return True
 
 
@@ -217,10 +228,12 @@ def draw_damage_taken_by_enemy(ax: plt.Axes, conn: sqlite3.Connection, run_id: i
 
     df["total_damage"] = safe_numeric(df["total_damage"], fill=0.0)
 
-    ax.bar(df["enemy_type"], df["total_damage"])
-    ax.set_xlabel("enemy_type")
-    ax.set_ylabel("total damage")
-    ax.tick_params(axis="x", rotation=30)
+    # Enhanced: horizontal bar chart with gradient colors
+    colors = plt.cm.Reds(np.linspace(0.4, 0.9, len(df)))
+    bars = ax.barh(df["enemy_type"], df["total_damage"], color=colors)
+    ax.set_xlabel("Total Damage")
+    ax.set_ylabel("Enemy Type")
+    ax.grid(True, alpha=0.3, axis="x")
     return True
 
 
@@ -313,6 +326,337 @@ def draw_accuracy_over_runs(ax: plt.Axes, conn: sqlite3.Connection, run_id: int)
     ax.set_xlabel("run_id")
     ax.set_ylabel("accuracy (%)")
     ax.set_ylim(0, 100)
+    return True
+
+
+def draw_wave_progression(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Wave progression timeline with start/end markers."""
+    if not table_exists(conn, "waves"):
+        no_data(ax, "waves table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT t, wave_number, event_type, enemies_spawned, hp_scale, speed_scale
+        FROM waves
+        WHERE run_id = ?
+        ORDER BY t ASC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No wave data for this run")
+        return False
+
+    df["t"] = safe_numeric(df["t"], fill=0.0)
+    df["wave_number"] = safe_numeric(df["wave_number"], fill=0).astype(int)
+
+    starts = df[df["event_type"] == "start"]
+    ends = df[df["event_type"] == "end"]
+
+    if not starts.empty:
+        ax.scatter(starts["t"], starts["wave_number"], c="green", marker="^", s=100, label="Wave Start", zorder=3)
+    if not ends.empty:
+        ax.scatter(ends["t"], ends["wave_number"], c="red", marker="v", s=100, label="Wave End", zorder=3)
+    
+    # Draw lines connecting wave numbers
+    if not starts.empty:
+        ax.plot(starts["t"], starts["wave_number"], "b-", alpha=0.3, linewidth=2, label="Wave Progression")
+    
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Wave Number")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    return True
+
+
+def draw_wave_difficulty_scaling(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """HP and speed scaling over waves."""
+    if not table_exists(conn, "waves"):
+        no_data(ax, "waves table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT wave_number, hp_scale, speed_scale
+        FROM waves
+        WHERE run_id = ? AND event_type = 'start'
+        ORDER BY wave_number ASC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No wave start data")
+        return False
+
+    df["wave_number"] = safe_numeric(df["wave_number"], fill=0).astype(int)
+    df["hp_scale"] = safe_numeric(df["hp_scale"], fill=1.0)
+    df["speed_scale"] = safe_numeric(df["speed_scale"], fill=1.0)
+
+    ax.plot(df["wave_number"], df["hp_scale"], "o-", label="HP Scale", linewidth=2, markersize=8)
+    ax.plot(df["wave_number"], df["speed_scale"], "s-", label="Speed Scale", linewidth=2, markersize=8)
+    ax.set_xlabel("Wave Number")
+    ax.set_ylabel("Scale Factor")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    return True
+
+
+def draw_player_velocity_over_time(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Player speed over time."""
+    if not table_exists(conn, "player_velocities"):
+        no_data(ax, "player_velocities table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT t, speed
+        FROM player_velocities
+        WHERE run_id = ?
+        ORDER BY t ASC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No velocity data")
+        return False
+
+    df["t"] = safe_numeric(df["t"], fill=0.0)
+    df["speed"] = safe_numeric(df["speed"], fill=0.0)
+
+    ax.plot(df["t"], df["speed"], linewidth=1.5, alpha=0.7)
+    ax.fill_between(df["t"], df["speed"], alpha=0.3)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Speed (px/s)")
+    ax.grid(True, alpha=0.3)
+    return True
+
+
+def draw_movement_path_with_velocity(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Movement path colored by velocity."""
+    if not table_exists(conn, "player_velocities"):
+        no_data(ax, "player_velocities table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT x, y, speed
+        FROM player_velocities
+        WHERE run_id = ?
+        ORDER BY t ASC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No velocity data")
+        return False
+
+    df["x"] = safe_numeric(df["x"], fill=0.0)
+    df["y"] = safe_numeric(df["y"], fill=0.0)
+    df["speed"] = safe_numeric(df["speed"], fill=0.0)
+
+    scatter = ax.scatter(df["x"], df["y"], c=df["speed"], cmap="viridis", s=10, alpha=0.6)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_aspect("equal", adjustable="datalim")
+    plt.colorbar(scatter, ax=ax, label="Speed (px/s)")
+    return True
+
+
+def draw_bullet_shape_distribution(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Pie chart of bullet shapes used."""
+    if not table_exists(conn, "bullet_metadata"):
+        no_data(ax, "bullet_metadata table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT shape, COUNT(*) AS count
+        FROM bullet_metadata
+        WHERE run_id = ?
+        GROUP BY shape
+        ORDER BY count DESC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No bullet metadata")
+        return False
+
+    df["count"] = safe_numeric(df["count"], fill=0).astype(int)
+
+    ax.pie(df["count"], labels=df["shape"], autopct="%1.1f%%", startangle=90)
+    ax.set_title("Bullet Shape Distribution")
+    return True
+
+
+def draw_bullet_color_usage(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Bar chart showing bullet color frequency."""
+    if not table_exists(conn, "bullet_metadata"):
+        no_data(ax, "bullet_metadata table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT color_r, color_g, color_b, COUNT(*) AS count
+        FROM bullet_metadata
+        WHERE run_id = ?
+        GROUP BY color_r, color_g, color_b
+        ORDER BY count DESC
+        LIMIT 10;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No bullet metadata")
+        return False
+
+    df["count"] = safe_numeric(df["count"], fill=0).astype(int)
+    df["color_label"] = df.apply(lambda row: f"RGB({row['color_r']},{row['color_g']},{row['color_b']})", axis=1)
+
+    colors = [tuple(row[["color_r", "color_g", "color_b"]].astype(int) / 255.0) for _, row in df.iterrows()]
+    bars = ax.barh(df["color_label"], df["count"], color=colors)
+    ax.set_xlabel("Usage Count")
+    ax.set_ylabel("Color (RGB)")
+    return True
+
+
+def draw_enemy_movement_paths(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Enemy movement paths colored by type."""
+    if not table_exists(conn, "enemy_positions"):
+        no_data(ax, "enemy_positions table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT enemy_type, x, y, t
+        FROM enemy_positions
+        WHERE run_id = ?
+        ORDER BY enemy_type, t ASC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No enemy position data")
+        return False
+
+    df["x"] = safe_numeric(df["x"], fill=0.0)
+    df["y"] = safe_numeric(df["y"], fill=0.0)
+
+    for enemy_type in df["enemy_type"].unique():
+        type_df = df[df["enemy_type"] == enemy_type]
+        ax.plot(type_df["x"], type_df["y"], alpha=0.4, linewidth=1, label=enemy_type)
+
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_aspect("equal", adjustable="datalim")
+    ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    return True
+
+
+def draw_enemy_density_heatmap(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Heatmap of where enemies spend time."""
+    if not table_exists(conn, "enemy_positions"):
+        no_data(ax, "enemy_positions table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT x, y
+        FROM enemy_positions
+        WHERE run_id = ?;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No enemy position data")
+        return False
+
+    df["x"] = safe_numeric(df["x"], fill=0.0)
+    df["y"] = safe_numeric(df["y"], fill=0.0)
+
+    hb = ax.hexbin(df["x"], df["y"], gridsize=30, cmap="Reds")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_aspect("equal", adjustable="datalim")
+    plt.colorbar(hb, ax=ax, label="Density")
+    return True
+
+
+def draw_damage_heatmap_by_wave(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Heatmap of damage locations, colored by wave."""
+    if not table_exists(conn, "player_damage") or not table_exists(conn, "waves"):
+        no_data(ax, "Required tables missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT pd.player_x AS x, pd.player_y AS y, pd.t,
+               (SELECT MAX(wave_number) FROM waves w 
+                WHERE w.run_id = pd.run_id AND w.t <= pd.t AND w.event_type = 'start') AS wave
+        FROM player_damage pd
+        WHERE pd.run_id = ?;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No damage data")
+        return False
+
+    df["x"] = safe_numeric(df["x"], fill=0.0)
+    df["y"] = safe_numeric(df["y"], fill=0.0)
+    df["wave"] = safe_numeric(df["wave"], fill=1).astype(int)
+
+    scatter = ax.scatter(df["x"], df["y"], c=df["wave"], cmap="hot", s=20, alpha=0.6)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_aspect("equal", adjustable="datalim")
+    plt.colorbar(scatter, ax=ax, label="Wave Number")
+    return True
+
+
+def draw_survival_time_per_wave(ax: plt.Axes, conn: sqlite3.Connection, run_id: int) -> bool:
+    """Bar chart showing survival time per wave."""
+    if not table_exists(conn, "waves"):
+        no_data(ax, "waves table missing")
+        return False
+
+    df = read_df(
+        conn,
+        """
+        SELECT wave_number, 
+               MIN(CASE WHEN event_type = 'start' THEN t END) AS start_t,
+               MIN(CASE WHEN event_type = 'end' THEN t END) AS end_t
+        FROM waves
+        WHERE run_id = ?
+        GROUP BY wave_number
+        ORDER BY wave_number ASC;
+        """,
+        (run_id,),
+    )
+    if df.empty:
+        no_data(ax, "No wave data")
+        return False
+
+    df["wave_number"] = safe_numeric(df["wave_number"], fill=0).astype(int)
+    df["start_t"] = safe_numeric(df["start_t"], fill=0.0)
+    df["end_t"] = safe_numeric(df["end_t"], fill=0.0)
+    df["duration"] = df["end_t"] - df["start_t"]
+    df["duration"] = df["duration"].fillna(0.0)
+
+    ax.bar(df["wave_number"], df["duration"], alpha=0.7)
+    ax.set_xlabel("Wave Number")
+    ax.set_ylabel("Survival Time (s)")
+    ax.grid(True, alpha=0.3, axis="y")
     return True
 
 
@@ -506,11 +850,21 @@ def main():
     pages: List[Page] = [
         Page("Movement path", "movement_path.png", draw_movement_path),
         Page("Movement heatmap", "movement_heatmap.png", draw_movement_heatmap),
+        Page("Movement path with velocity", "movement_path_velocity.png", draw_movement_path_with_velocity),
+        Page("Player velocity over time", "player_velocity.png", draw_player_velocity_over_time),
         Page("Shots scatter", "shots_scatter.png", draw_shots_scatter),
         Page("Damage taken timeline", "damage_taken_timeline.png", draw_damage_taken_timeline),
         Page("Damage taken by enemy type", "damage_taken_by_enemy.png", draw_damage_taken_by_enemy),
         Page("Damage dealt by enemy type", "damage_dealt_by_enemy.png", draw_damage_dealt_by_enemy),
+        Page("Damage heatmap by wave", "damage_heatmap_wave.png", draw_damage_heatmap_by_wave),
         Page("Death locations", "death_locations.png", draw_death_locations),
+        Page("Wave progression", "wave_progression.png", draw_wave_progression),
+        Page("Wave difficulty scaling", "wave_difficulty.png", draw_wave_difficulty_scaling),
+        Page("Survival time per wave", "survival_per_wave.png", draw_survival_time_per_wave),
+        Page("Enemy movement paths", "enemy_movement.png", draw_enemy_movement_paths),
+        Page("Enemy density heatmap", "enemy_density.png", draw_enemy_density_heatmap),
+        Page("Bullet shape distribution", "bullet_shapes.png", draw_bullet_shape_distribution),
+        Page("Bullet color usage", "bullet_colors.png", draw_bullet_color_usage),
         Page("Accuracy over runs", "accuracy_over_runs.png", draw_accuracy_over_runs),
         Page("Damage totals over runs", "damage_totals_over_runs.png", draw_damage_totals_over_runs),
     ]

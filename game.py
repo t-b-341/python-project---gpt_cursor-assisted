@@ -9,6 +9,8 @@
 #player path prediction
 #different shapes for shots (circle, squares, etc., like 2hu)
 #------
+#add boost mechanic, and slow down mechanic
+
 
 import math
 import random
@@ -24,6 +26,10 @@ from telemetry import (
     EnemyHitEvent,
     PlayerDamageEvent,
     PlayerDeathEvent,
+    WaveEvent,
+    EnemyPositionEvent,
+    PlayerVelocityEvent,
+    BulletMetadataEvent,
 )
 
 pygame.init()
@@ -353,6 +359,18 @@ def start_wave(wave_num: int):
     enemies.extend(spawned)
     log_enemy_spawns(spawned)
     wave_active = True
+    
+    # Log wave start event
+    telemetry.log_wave(
+        WaveEvent(
+            t=run_time,
+            wave_number=wave_num,
+            event_type="start",
+            enemies_spawned=count,
+            hp_scale=hp_scale,
+            speed_scale=speed_scale,
+        )
+    )
 
 
 def draw_health_bar(x, y, w, h, hp, max_hp):
@@ -411,6 +429,18 @@ def spawn_player_bullet_and_log():
             dir_y=float(d.y),
         )
     )
+    
+    # Log bullet metadata
+    telemetry.log_bullet_metadata(
+        BulletMetadataEvent(
+            t=run_time,
+            bullet_type="player",
+            shape=shape,
+            color_r=player_bullets_color[0],
+            color_g=player_bullets_color[1],
+            color_b=player_bullets_color[2],
+        )
+    )
 
 
 def spawn_enemy_projectile(enemy: dict):
@@ -421,14 +451,29 @@ def spawn_enemy_projectile(enemy: dict):
         enemy_projectile_size[0],
         enemy_projectile_size[1],
     )
+    proj_color = enemy.get("projectile_color", enemy_projectiles_color)
+    proj_shape = enemy.get("projectile_shape", "circle")
     enemy_projectiles.append(
         {
             "rect": r,
             "vel": d * enemy["projectile_speed"],
             "enemy_type": enemy["type"],  # attribute damage source
-            "color": enemy.get("projectile_color", enemy_projectiles_color),
-            "shape": enemy.get("projectile_shape", "circle"),
+            "color": proj_color,
+            "shape": proj_shape,
         }
+    )
+    
+    # Log enemy projectile metadata
+    telemetry.log_bullet_metadata(
+        BulletMetadataEvent(
+            t=run_time,
+            bullet_type="enemy",
+            shape=proj_shape,
+            color_r=proj_color[0],
+            color_g=proj_color[1],
+            color_b=proj_color[2],
+            source_enemy_type=enemy["type"],
+        )
     )
 
 
@@ -546,6 +591,17 @@ try:
             if not enemies and wave_active:
                 wave_active = False
                 time_to_next_wave = wave_respawn_delay
+                # Log wave end event
+                telemetry.log_wave(
+                    WaveEvent(
+                        t=run_time,
+                        wave_number=wave_number,
+                        event_type="end",
+                        enemies_spawned=0,
+                        hp_scale=1.0 + 0.15 * (wave_number - 1),
+                        speed_scale=1.0 + 0.05 * (wave_number - 1),
+                    )
+                )
 
             if not wave_active:
                 time_to_next_wave = max(0.0, time_to_next_wave - dt)
@@ -618,6 +674,34 @@ try:
             if pos_timer >= POS_SAMPLE_INTERVAL:
                 pos_timer -= POS_SAMPLE_INTERVAL
                 telemetry.log_player_position(PlayerPosEvent(t=run_time, x=player.x, y=player.y))
+                
+                # Log player velocity
+                telemetry.log_player_velocity(
+                    PlayerVelocityEvent(
+                        t=run_time,
+                        x=player.x,
+                        y=player.y,
+                        vel_x=float(last_move_velocity.x),
+                        vel_y=float(last_move_velocity.y),
+                        speed=float(last_move_velocity.length()),
+                    )
+                )
+                
+                # Log enemy positions
+                for e in enemies:
+                    dir_vec = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
+                    vel_vec = dir_vec * e["speed"]
+                    telemetry.log_enemy_position(
+                        EnemyPositionEvent(
+                            t=run_time,
+                            enemy_type=e["type"],
+                            x=e["rect"].x,
+                            y=e["rect"].y,
+                            speed=float(e["speed"]),
+                            vel_x=float(vel_vec.x),
+                            vel_y=float(vel_vec.y),
+                        )
+                    )
 
             # Enemy shooting
             for e in enemies:
@@ -852,6 +936,7 @@ finally:
         enemies_spawned=enemies_spawned,
         enemies_killed=enemies_killed,
         deaths=deaths,
+        max_wave=wave_number,
     )
     telemetry.close()
     pygame.quit()
