@@ -1,7 +1,8 @@
 # python project - gpt, cursor assisted
 
 ***
-requires libraries: matplotlib, pygame, and pandas
+requires libraries: matplotlib, pygame, and pandas; 
+pygame will likely not run on 3.14 python, but has been verified to run on 3.12, and will likely run on 3.13
 ***
 
 this is a project I had gpt generate to learn sql
