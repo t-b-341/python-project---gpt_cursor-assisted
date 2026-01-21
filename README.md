@@ -1,8 +1,11 @@
-# python project - gpt assisted
+# python project - gpt, cursor assisted
+
+***
+requires libraries: matplotlib, pygame, and pandas
+***
+
 this is a project I had gpt generate to learn sql
 start with game.py, which references telemetry.py to collect data, then use sqlite3 to explore the db generated data, and modify visualize.py to see different data, using sql script
-
-requires matplotlib, pygame, and pandas
 
 download of sql database is unnecessary, it will be generated with the running of game.py, which runs telemetry.py, which generates game_telemetry.db, which can be visualized with visualize.py
 
@@ -14,6 +17,6 @@ I have begun to use the game to develop into a sort of bullet hell game, using c
 
 I'm focusing on mechanics of the games, rather than the nitty gritty of the programming itself
 
-Adding in some C/C++ to analyze later
+POSSIBLE KNOWN ISSUES:
+generated some C/C++ to help with run optimizing, but doesn't necessarily work on all machines (still need to figure out why)
 
-Already did :D
