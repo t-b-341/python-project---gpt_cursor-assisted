@@ -15,3 +15,5 @@ I have begun to use the game to develop into a sort of bullet hell game, using c
 I'm focusing on mechanics of the games, rather than the nitty gritty of the programming itself
 
 Adding in some C/C++ to analyze later
+
+Already did :D
