@@ -116,6 +116,7 @@
 # - visualize.py: ✅ IMPLEMENTED - GPU support added for data processing operations (when CUDA available)
 # ✅ CUDA 12.9 CONFIGURED - GPU acceleration is active (RTX 4080 SUPER detected)
 #    Falls back to CPU JIT (2-5x speedup) if CUDA becomes unavailable.
+#--------------------------------------------------------
 
 
 
