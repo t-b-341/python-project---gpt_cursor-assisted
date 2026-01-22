@@ -67,6 +67,20 @@
 #add a shield for use with left alt key that lasts 2 seconds, and takes 10-15 seconds to recharge
 #--------------------------------------------------------
 #make the player turn red while the shield is active, and a text displays in the hud SHIELD ACTIVU (spelled like that)
+#--------------------------------------------------------
+#Game; add enemy with shield that is a line across the front of the enemy, which the player must flank to damage; 
+#add one shield enemy with reflective shield, which takes damage done to the shield and fires back at the player; enemy does not fire, enemy turns at speed player can flank 
+#Game; controls; add in arrows for shooting, and an option to choose between mouse and arrow keys
+#Game; classes to play as, custom mod setting to change enemy spawn amount, custom wave builder
+#;enable or disable stats and any UI elements like health; take away health bars for destructible blocks, add in texture that shows block is breakable, give texture to unbreakable blocks; 
+#clean up UI
+#Game.py; change aiming mechanic
+#Arrow keys: Add it as an option in the menu to use either mouse or arrow aiming
+#Game.py; large shapes that bounce around the map, destroying what's in their path, and the enemies avoid them
+#--------------------------------------------------------
+#add a health bar for the player
+#make the metrics optional in the menu
+#--------------------------------------------------------
 
 
 import math
@@ -189,8 +203,12 @@ STATE_CONTINUE = "CONTINUE"
 STATE_ENDURANCE = "ENDURANCE"
 STATE_GAME_OVER = "GAME_OVER"
 STATE_VICTORY = "VICTORY"  # Game completed - all levels cleared
+STATE_MODS = "MODS"  # Mod settings menu
+STATE_WAVE_BUILDER = "WAVE_BUILDER"  # Custom wave builder
 
 state = STATE_MENU
+menu_section = 0  # 0 = difficulty, 1 = aiming, 2 = class, 3 = options, 4 = start
+ui_show_metrics_selected = 0  # 0 = Show, 1 = Hide
 
 # Level system - 3 levels, each with 3 waves (boss on wave 3)
 current_level = 1
@@ -211,6 +229,37 @@ DIFFICULTY_HARD = "HARD"
 difficulty = DIFFICULTY_NORMAL
 difficulty_selected = 1  # 0 = Easy, 1 = Normal, 2 = Hard
 difficulty_options = [DIFFICULTY_EASY, DIFFICULTY_NORMAL, DIFFICULTY_HARD]
+
+# Aiming mode selection
+AIM_MOUSE = "MOUSE"
+AIM_ARROWS = "ARROWS"
+aiming_mode = AIM_MOUSE
+aiming_mode_selected = 0  # 0 = Mouse, 1 = Arrows
+
+# Player classes
+PLAYER_CLASS_TANK = "TANK"
+PLAYER_CLASS_SPEEDSTER = "SPEEDSTER"
+PLAYER_CLASS_SNIPER = "SNIPER"
+PLAYER_CLASS_BALANCED = "BALANCED"
+player_class = PLAYER_CLASS_BALANCED
+player_class_selected = 0  # 0 = Balanced, 1 = Tank, 2 = Speedster, 3 = Sniper
+player_class_options = [PLAYER_CLASS_BALANCED, PLAYER_CLASS_TANK, PLAYER_CLASS_SPEEDSTER, PLAYER_CLASS_SNIPER]
+
+# Mod settings
+mod_enemy_spawn_multiplier = 1.0  # Custom enemy spawn multiplier
+mod_custom_waves_enabled = False
+custom_waves: list[dict] = []  # Custom wave definitions
+
+# UI customization settings
+ui_show_health_bars = True
+ui_show_stats = True
+ui_show_all_ui = True
+ui_show_block_health_bars = False  # Health bars for destructible blocks
+ui_show_player_health_bar = True  # Health bar above player character
+ui_show_metrics = True  # Show metrics/stats in HUD
+
+# Alternative aiming mechanics
+aiming_mechanic = "mouse"  # "mouse", "lockon", "predictive", "directional", "hybrid"
 
 # Difficulty multipliers
 difficulty_multipliers = {
@@ -233,9 +282,17 @@ controls_rebinding = False
 # Player
 # ----------------------------
 player = pygame.Rect((WIDTH - 25) // 2, (HEIGHT - 25) // 2, 25, 25)
-player_speed = 300  # px/s
-player_max_hp = 100
+player_speed = 300  # px/s (base speed, modified by class)
+player_max_hp = 100  # base HP (modified by class)
 player_hp = player_max_hp
+
+# Player class stat modifiers
+player_class_stats = {
+    PLAYER_CLASS_BALANCED: {"hp_mult": 1.0, "speed_mult": 1.0, "damage_mult": 1.0, "firerate_mult": 1.0},
+    PLAYER_CLASS_TANK: {"hp_mult": 2.0, "speed_mult": 0.7, "damage_mult": 1.2, "firerate_mult": 0.8},
+    PLAYER_CLASS_SPEEDSTER: {"hp_mult": 0.7, "speed_mult": 1.5, "damage_mult": 0.9, "firerate_mult": 1.3},
+    PLAYER_CLASS_SNIPER: {"hp_mult": 0.8, "speed_mult": 0.9, "damage_mult": 1.5, "firerate_mult": 0.7},
+}
 overshield_max = 50  # Maximum overshield capacity
 overshield = 0  # Current overshield amount
 pygame.mouse.set_visible(True)
@@ -318,18 +375,18 @@ blocks = [
 
 # Add more destructible blocks (scattered across larger map)
 destructible_blocks = [
-    {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 50, "max_hp": 50},
-    {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 40, "max_hp": 40},
-    {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 60, "max_hp": 60},
-    {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 45, "max_hp": 45},
-    {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 55, "max_hp": 55},
-    {"rect": pygame.Rect(1100, 300, 90, 90), "color": (180, 120, 180), "hp": 55, "max_hp": 55},
-    {"rect": pygame.Rect(1300, 500, 70, 70), "color": (120, 180, 120), "hp": 45, "max_hp": 45},
-    {"rect": pygame.Rect(1000, 800, 80, 60), "color": (200, 120, 100), "hp": 50, "max_hp": 50},
-    {"rect": pygame.Rect(400, 1000, 100, 50), "color": (150, 150, 220), "hp": 60, "max_hp": 60},
-    {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "hp": 45, "max_hp": 45},
-    {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "hp": 55, "max_hp": 55},
-    {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "hp": 40, "max_hp": 40},
+    {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 50, "max_hp": 50, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 60, "max_hp": 60, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1100, 300, 90, 90), "color": (180, 120, 180), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1300, 500, 70, 70), "color": (120, 180, 120), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1000, 800, 80, 60), "color": (200, 120, 100), "hp": 50, "max_hp": 50, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(400, 1000, 100, 50), "color": (150, 150, 220), "hp": 60, "max_hp": 60, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0},
 ]
 
 # Health recovery zones (areas where player regenerates health)
@@ -342,6 +399,9 @@ health_recovery_zones = [
 
 # Track which zones player is currently in (for telemetry)
 player_current_zones = set()  # Set of zone names player is in
+
+# Bouncing destructor shapes (line 79)
+destructor_shapes: list[dict] = []  # Large shapes that bounce around destroying things
 
 # ----------------------------
 # Player bullets
@@ -444,6 +504,38 @@ enemy_templates: list[dict] = [
         "projectile_shape": "square",
         "speed": 85,
         "bouncing_projectiles": True,  # shoots bouncing projectiles
+    },
+    {
+        "type": "shielded",
+        "rect": pygame.Rect(300, 300, 32, 32),
+        "color": (100, 150, 200),
+        "hp": 100,
+        "max_hp": 100,
+        "shoot_cooldown": 1.0,
+        "projectile_speed": 300,
+        "projectile_color": (150, 200, 255),
+        "projectile_shape": "circle",
+        "speed": 60,
+        "has_shield": True,  # Has directional shield
+        "shield_angle": 0.0,  # Direction shield is facing (radians)
+        "shield_length": 50,  # Length of shield line
+    },
+    {
+        "type": "reflector",
+        "rect": pygame.Rect(400, 400, 36, 36),
+        "color": (200, 150, 100),
+        "hp": 150,
+        "max_hp": 150,
+        "shoot_cooldown": 999.0,  # Doesn't shoot
+        "projectile_speed": 0,
+        "projectile_color": (255, 200, 100),
+        "projectile_shape": "circle",
+        "speed": 40,  # Slow turn speed
+        "has_reflective_shield": True,  # Has reflective shield
+        "shield_angle": 0.0,  # Direction shield is facing (radians)
+        "shield_length": 60,  # Length of shield
+        "shield_hp": 0,  # Damage absorbed by shield (fires back)
+        "turn_speed": 0.5,  # Radians per second turn speed
     },
 
 ]
@@ -566,7 +658,7 @@ deaths = 0
 score = 0
 survival_time = 0.0  # Total time survived in seconds
 
-POS_SAMPLE_INTERVAL = 0.10
+POS_SAMPLE_INTERVAL = 0.25  # Reduced frequency for better performance (was 0.10)
 pos_timer = 0.0
 
 # Waves / progression
@@ -709,7 +801,7 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
 
 def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
     hp = int(t["hp"] * hp_scale)
-    return {
+    enemy = {
         "type": t["type"],
         "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
         "color": t["color"],
@@ -722,6 +814,18 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> di
         "projectile_shape": t.get("projectile_shape", "circle"),
         "speed": t.get("speed", 80) * speed_scale,
     }
+    # Add shield properties if present
+    if t.get("has_shield"):
+        enemy["has_shield"] = True
+        enemy["shield_angle"] = random.uniform(0, 2 * math.pi)
+        enemy["shield_length"] = t.get("shield_length", 50)
+    if t.get("has_reflective_shield"):
+        enemy["has_reflective_shield"] = True
+        enemy["shield_angle"] = random.uniform(0, 2 * math.pi)
+        enemy["shield_length"] = t.get("shield_length", 60)
+        enemy["shield_hp"] = 0
+        enemy["turn_speed"] = t.get("turn_speed", 0.5)
+    return enemy
 
 
 def log_enemy_spawns(new_enemies: list[dict]):
@@ -1152,8 +1256,38 @@ def draw_projectile(rect: pygame.Rect, color: tuple[int, int, int], shape: str):
 def spawn_player_bullet_and_log():
     global shots_fired, player_bullet_shape_index
 
-    mx, my = pygame.mouse.get_pos()
-    base_dir = vec_toward(player.centerx, player.centery, mx, my)
+    # Determine aiming direction based on aiming mode
+    if aiming_mode == AIM_ARROWS:
+        # Arrow key aiming
+        keys = pygame.key.get_pressed()
+        dx = 0
+        dy = 0
+        if keys[pygame.K_LEFT]:
+            dx = -1
+        if keys[pygame.K_RIGHT]:
+            dx = 1
+        if keys[pygame.K_UP]:
+            dy = -1
+        if keys[pygame.K_DOWN]:
+            dy = 1
+        
+        if dx == 0 and dy == 0:
+            # No arrow keys pressed, use last movement direction or default
+            if last_move_velocity.length_squared() > 0:
+                base_dir = last_move_velocity.normalize()
+            else:
+                base_dir = pygame.Vector2(1, 0)  # Default right
+        else:
+            base_dir = pygame.Vector2(dx, dy).normalize()
+        
+        # Calculate target position for telemetry (extend direction from player)
+        target_dist = 100  # Distance to calculate target point
+        mx = int(player.centerx + base_dir.x * target_dist)
+        my = int(player.centery + base_dir.y * target_dist)
+    else:
+        # Mouse aiming (default)
+        mx, my = pygame.mouse.get_pos()
+        base_dir = vec_toward(player.centerx, player.centery, mx, my)
 
     shape = player_bullet_shapes[player_bullet_shape_index % len(player_bullet_shapes)]
     player_bullet_shape_index = (player_bullet_shape_index + 1) % len(player_bullet_shapes)
@@ -1273,7 +1407,7 @@ def spawn_enemy_projectile(enemy: dict):
     # Log enemy projectile metadata
     telemetry.log_bullet_metadata(
         BulletMetadataEvent(
-            t=run_time,
+                t=run_time,
             bullet_type="enemy",
             shape=proj_shape,
             color_r=proj_color[0],
@@ -1517,8 +1651,10 @@ run_id = None  # Will be set when game starts
 # ----------------------------
 try:
     while running:
-        dt_real = clock.tick(60) / 1000.0
-        dt = dt_real if state == STATE_PLAYING else 0.0
+        # Allow uncapped FPS for better performance, or cap at 60
+        dt_real = clock.tick(0) / 1000.0  # 0 = uncapped, use 60 for capped
+        # Cap dt to prevent large jumps
+        dt = min(dt_real if state == STATE_PLAYING else 0.0, 0.033)  # Max 30ms = ~30 FPS minimum
 
         if state == STATE_PLAYING:
             run_time += dt
@@ -1596,16 +1732,59 @@ try:
 
                 # Menu navigation
                 if state == STATE_MENU:
-                    if event.key == pygame.K_UP or event.key == pygame.K_w:
-                        difficulty_selected = (difficulty_selected - 1) % len(difficulty_options)
-                    elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                        difficulty_selected = (difficulty_selected + 1) % len(difficulty_options)
-                    elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                        # Start game with selected difficulty
-                        difficulty = difficulty_options[difficulty_selected]
-                        state = STATE_PLAYING
-                        run_id = telemetry.start_run(run_started_at, player_max_hp)
-                        start_wave(wave_number)
+                    if menu_section == 0:
+                        if event.key == pygame.K_UP or event.key == pygame.K_w:
+                            difficulty_selected = (difficulty_selected - 1) % len(difficulty_options)
+                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                            difficulty_selected = (difficulty_selected + 1) % len(difficulty_options)
+                        elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            menu_section = 1
+                    elif menu_section == 1:
+                        if event.key == pygame.K_UP or event.key == pygame.K_w:
+                            aiming_mode_selected = (aiming_mode_selected - 1) % 2
+                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                            aiming_mode_selected = (aiming_mode_selected + 1) % 2
+                        elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            menu_section = 2
+                        elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                            menu_section = 0
+                    elif menu_section == 2:
+                        if event.key == pygame.K_UP or event.key == pygame.K_w:
+                            player_class_selected = (player_class_selected - 1) % len(player_class_options)
+                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                            player_class_selected = (player_class_selected + 1) % len(player_class_options)
+                        elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            menu_section = 3
+                        elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                            menu_section = 1
+                    elif menu_section == 3:
+                        if event.key == pygame.K_UP or event.key == pygame.K_w:
+                            ui_show_metrics_selected = (ui_show_metrics_selected - 1) % 2
+                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                            ui_show_metrics_selected = (ui_show_metrics_selected + 1) % 2
+                        elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            menu_section = 4
+                        elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                            menu_section = 2
+                    elif menu_section == 4:
+                        if event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            # Start game with selected settings
+                            difficulty = difficulty_options[difficulty_selected]
+                            aiming_mode = AIM_MOUSE if aiming_mode_selected == 0 else AIM_ARROWS
+                            player_class = player_class_options[player_class_selected]
+                            ui_show_metrics = ui_show_metrics_selected == 0
+                            # Apply class stats
+                            stats = player_class_stats[player_class]
+                            player_max_hp = int(100 * stats["hp_mult"])
+                            player_hp = player_max_hp
+                            player_speed = int(300 * stats["speed_mult"])
+                            player_bullet_damage = int(20 * stats["damage_mult"])
+                            player_shoot_cooldown = 0.12 / stats["firerate_mult"]
+                            state = STATE_PLAYING
+                            run_id = telemetry.start_run(run_started_at, player_max_hp)
+                            start_wave(wave_number)
+                        elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                            menu_section = 3
                 
                 if event.key == pygame.K_ESCAPE:
                     if state == STATE_PLAYING:
@@ -1682,7 +1861,7 @@ try:
                         lives = 999  # Infinite lives in endurance mode
                         wave_number += 1  # Continue from next wave
                         start_wave(wave_number)
-                
+
                 # Continue screen
                 if state == STATE_CONTINUE:
                     if event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
@@ -1922,10 +2101,65 @@ try:
                 # Rocket launcher has slower fire rate
                 rocket_mult = 3.5 if current_weapon_mode == "rocket" else 1.0
                 effective_cooldown = player_shoot_cooldown * temp_mult * perm_mult * rocket_mult
-                if pygame.mouse.get_pressed(3)[0] and player_time_since_shot >= effective_cooldown:
+                
+                # Check for shooting input based on aiming mode
+                should_shoot = False
+                if aiming_mode == AIM_ARROWS:
+                    # Arrow key aiming: shoot with spacebar or any arrow key held
+                    keys = pygame.key.get_pressed()
+                    should_shoot = (keys[pygame.K_SPACE] or 
+                                   keys[pygame.K_LEFT] or keys[pygame.K_RIGHT] or 
+                                   keys[pygame.K_UP] or keys[pygame.K_DOWN])
+                else:
+                    # Mouse aiming: shoot with mouse button
+                    should_shoot = pygame.mouse.get_pressed(3)[0]
+                
+                if should_shoot and player_time_since_shot >= effective_cooldown:
                     spawn_player_bullet_and_log()
                     player_time_since_shot = 0.0
                 player_time_since_shot += dt
+
+            # Update bouncing destructor shapes
+            for ds in destructor_shapes[:]:
+                ds["vel"].x += int(ds["vel"].x * dt)
+                ds["vel"].y += int(ds["vel"].y * dt)
+                ds["rect"].x += int(ds["vel"].x * dt)
+                ds["rect"].y += int(ds["vel"].y * dt)
+                
+                # Bounce off walls
+                if ds["rect"].left < 0 or ds["rect"].right > WIDTH:
+                    ds["vel"].x = -ds["vel"].x
+                if ds["rect"].top < 0 or ds["rect"].bottom > HEIGHT:
+                    ds["vel"].y = -ds["vel"].y
+                
+                # Clamp to screen
+                ds["rect"].x = max(0, min(ds["rect"].x, WIDTH - ds["rect"].w))
+                ds["rect"].y = max(0, min(ds["rect"].y, HEIGHT - ds["rect"].h))
+                
+                # Check collision with destructible blocks
+                for db in destructible_blocks[:]:
+                    if ds["rect"].colliderect(db["rect"]):
+                        db["hp"] -= ds.get("damage", 50) * dt * 60
+                        if db["hp"] <= 0:
+                            destructible_blocks.remove(db)
+                
+                # Check collision with enemies
+                for e in enemies[:]:
+                    if ds["rect"].colliderect(e["rect"]):
+                        e["hp"] -= ds.get("damage", 50) * dt * 60
+                        if e["hp"] <= 0:
+                            kill_enemy(e)
+                
+                # Check collision with player
+                if ds["rect"].colliderect(player):
+                    player_hp -= ds.get("damage", 50) * dt * 60
+                    if player_hp <= 0:
+                        deaths += 1
+                        lives -= 1
+                        if lives > 0:
+                            state = STATE_CONTINUE
+                        else:
+                            state = STATE_GAME_OVER
 
             move_player_with_push(player, move_x, move_y, blocks)
 
@@ -1980,6 +2214,9 @@ try:
             update_pickup_effects(dt)
 
             block_rects = [b["rect"] for b in blocks]
+            # Cache player position to avoid recalculating
+            player_pos_cached = pygame.Vector2(player.center)
+            
             for e in enemies:
                 e_pos = pygame.Vector2(e["rect"].center)
                 
@@ -1996,9 +2233,13 @@ try:
                 else:
                     toward_threat = pygame.Vector2(0, 0)
                 
-                # Check for nearby bullets to dodge
+                # Check for nearby bullets to dodge (only check every other frame for performance)
                 dodge_vector = pygame.Vector2(0, 0)
-                nearby_bullets = find_threats_in_dodge_range(e_pos, dodge_range=250.0)
+                # Only check dodge every other frame to improve performance
+                if len(enemies) % 2 == 0 or enemies.index(e) % 2 == 0:
+                    nearby_bullets = find_threats_in_dodge_range(e_pos, dodge_range=250.0)
+                else:
+                    nearby_bullets = []
                 
                 if nearby_bullets:
                     # Calculate dodge direction (away from nearest bullet)
@@ -2030,6 +2271,30 @@ try:
                 
                 if final_dir.length_squared() > 0:
                     final_dir = final_dir.normalize()
+                
+                # Update shield angle for shield enemies
+                if e.get("has_shield"):
+                    # Shield faces toward threat
+                    if toward_threat.length_squared() > 0:
+                        e["shield_angle"] = math.atan2(toward_threat.y, toward_threat.x)
+                elif e.get("has_reflective_shield"):
+                    # Reflective shield turns slowly toward threat
+                    if toward_threat.length_squared() > 0:
+                        target_angle = math.atan2(toward_threat.y, toward_threat.x)
+                        current_angle = e.get("shield_angle", 0.0)
+                        # Normalize angles
+                        angle_diff = target_angle - current_angle
+                        while angle_diff > math.pi:
+                            angle_diff -= 2 * math.pi
+                        while angle_diff < -math.pi:
+                            angle_diff += 2 * math.pi
+                        # Turn at limited speed
+                        turn_speed = e.get("turn_speed", 0.5)
+                        max_turn = turn_speed * dt
+                        if abs(angle_diff) > max_turn:
+                            e["shield_angle"] = current_angle + (max_turn if angle_diff > 0 else -max_turn)
+                        else:
+                            e["shield_angle"] = target_angle
                 
                 move_vec = final_dir * e["speed"] * dt
                 dx_e = int(move_vec.x)
@@ -2152,49 +2417,48 @@ try:
                     )
                 )
                 
-                # Log enemy positions
-                for e in enemies:
-                    e_pos = pygame.Vector2(e["rect"].center)
-                    # Calculate actual movement direction (toward nearest threat with dodging)
-                    threat_result = find_nearest_threat(e_pos)
-                    if threat_result:
-                        threat_pos, _ = threat_result
-                        dir_vec = vec_toward(e_pos.x, e_pos.y, threat_pos.x, threat_pos.y)
-                    else:
-                        dir_vec = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
-                    vel_vec = dir_vec * e["speed"]
-                    telemetry.log_enemy_position(
-                        EnemyPositionEvent(
-                            t=run_time,
-                            enemy_type=e["type"],
-                            x=e["rect"].x,
-                            y=e["rect"].y,
-                            speed=float(e["speed"]),
-                            vel_x=float(vel_vec.x),
-                            vel_y=float(vel_vec.y),
+                # Log enemy positions (reduced frequency for performance)
+                # Only log every 3rd enemy to reduce telemetry overhead
+                for i, e in enumerate(enemies):
+                    if i % 3 == 0:  # Sample every 3rd enemy
+                        e_pos = pygame.Vector2(e["rect"].center)
+                        # Use cached player position
+                        dir_vec = vec_toward(e["rect"].centerx, e["rect"].centery, player_pos_cached.x, player_pos_cached.y)
+                        vel_vec = dir_vec * e["speed"]
+                        telemetry.log_enemy_position(
+                            EnemyPositionEvent(
+                                t=run_time,
+                                enemy_type=e["type"],
+                                x=e["rect"].x,
+                                y=e["rect"].y,
+                                speed=float(e["speed"]),
+                                vel_x=float(vel_vec.x),
+                                vel_y=float(vel_vec.y),
+                            )
                         )
-                    )
                 
-                # Log friendly AI positions
-                for f in friendly_ai:
-                    if f["target"]:
-                        target_type = f["target"].get("type")
-                        vel_vec = vec_toward(f["rect"].centerx, f["rect"].centery, f["target"]["rect"].centerx, f["target"]["rect"].centery) * f["speed"]
-                    else:
-                        target_type = None
-                        vel_vec = pygame.Vector2(0, 0)
-                    telemetry.log_friendly_position(
-                        FriendlyAIPositionEvent(
-                            t=run_time,
-                            friendly_type=f["type"],
-                            x=f["rect"].x,
-                            y=f["rect"].y,
-                            speed=float(f["speed"]),
-                            vel_x=float(vel_vec.x),
-                            vel_y=float(vel_vec.y),
-                            target_enemy_type=target_type,
+                # Log friendly AI positions (reduced frequency for performance)
+                # Only log every 2nd friendly to reduce telemetry overhead
+                for i, f in enumerate(friendly_ai):
+                    if i % 2 == 0:  # Sample every 2nd friendly
+                        if f["target"]:
+                            target_type = f["target"].get("type")
+                            vel_vec = vec_toward(f["rect"].centerx, f["rect"].centery, f["target"]["rect"].centerx, f["target"]["rect"].centery) * f["speed"]
+                        else:
+                            target_type = None
+                            vel_vec = pygame.Vector2(0, 0)
+                        telemetry.log_friendly_position(
+                            FriendlyAIPositionEvent(
+                                t=run_time,
+                                friendly_type=f["type"],
+                                x=f["rect"].x,
+                                y=f["rect"].y,
+                                speed=float(f["speed"]),
+                                vel_x=float(vel_vec.x),
+                                vel_y=float(vel_vec.y),
+                                target_enemy_type=target_type,
+                            )
                         )
-                    )
 
             # Friendly AI shooting
             for f in friendly_ai:
@@ -2261,8 +2525,10 @@ try:
                                 spawn_boss_projectile(e, dir_vec)
                         e["time_since_shot"] = 0.0
                 elif e["time_since_shot"] >= e["shoot_cooldown"]:
-                    spawn_enemy_projectile(e)
-                    e["time_since_shot"] = 0.0
+                    # Reflective shield enemies don't shoot
+                    if not e.get("has_reflective_shield", False):
+                        spawn_enemy_projectile(e)
+                        e["time_since_shot"] = 0.0
 
             # Pickup spawning (affected by difficulty)
             if state == STATE_PLAYING or state == STATE_ENDURANCE:
@@ -2434,11 +2700,90 @@ try:
                 if hit_enemy_index is not None:
                     hits += 1
                     e = enemies[hit_enemy_index]
-
-                    # apply damage (use bullet's stored damage value)
                     bullet_damage = b.get("damage", player_bullet_damage)
-                    e["hp"] -= bullet_damage
-                    damage_dealt += bullet_damage
+                    
+                    # Check for shield enemies
+                    if e.get("has_shield"):
+                        # Check if bullet hit the shield (front-facing line)
+                        shield_angle = e.get("shield_angle", 0.0)
+                        shield_length = e.get("shield_length", 50)
+                        enemy_center = pygame.Vector2(e["rect"].center)
+                        bullet_pos = pygame.Vector2(r.center)
+                        
+                        # Calculate shield line endpoints
+                        shield_dir = pygame.Vector2(math.cos(shield_angle), math.sin(shield_angle))
+                        shield_start = enemy_center + shield_dir * (e["rect"].w // 2)
+                        shield_end = enemy_center + shield_dir * (e["rect"].w // 2 + shield_length)
+                        
+                        # Check if bullet is in front of enemy (shield side)
+                        to_bullet = bullet_pos - enemy_center
+                        dot_product = to_bullet.dot(shield_dir)
+                        
+                        if dot_product > 0:  # Bullet is in front
+                            # Check distance to shield line
+                            line_vec = shield_end - shield_start
+                            if line_vec.length_squared() > 0:
+                                t = max(0, min(1, (bullet_pos - shield_start).dot(line_vec) / line_vec.length_squared()))
+                                closest_point = shield_start + line_vec * t
+                                dist_to_shield = (bullet_pos - closest_point).length()
+                                
+                                if dist_to_shield < 15:  # Bullet hit shield
+                                    # Shield blocks damage, remove bullet
+                                    player_bullets.remove(b)
+                                    continue
+                        
+                        # Bullet hit from behind/side, apply damage normally
+                        e["hp"] -= bullet_damage
+                        damage_dealt += bullet_damage
+                    elif e.get("has_reflective_shield"):
+                        # Reflective shield - check if hit shield
+                        shield_angle = e.get("shield_angle", 0.0)
+                        shield_length = e.get("shield_length", 60)
+                        enemy_center = pygame.Vector2(e["rect"].center)
+                        bullet_pos = pygame.Vector2(r.center)
+                        
+                        shield_dir = pygame.Vector2(math.cos(shield_angle), math.sin(shield_angle))
+                        shield_start = enemy_center + shield_dir * (e["rect"].w // 2)
+                        shield_end = enemy_center + shield_dir * (e["rect"].w // 2 + shield_length)
+                        
+                        to_bullet = bullet_pos - enemy_center
+                        dot_product = to_bullet.dot(shield_dir)
+                        
+                        if dot_product > 0:  # Bullet is in front
+                            line_vec = shield_end - shield_start
+                            if line_vec.length_squared() > 0:
+                                t = max(0, min(1, (bullet_pos - shield_start).dot(line_vec) / line_vec.length_squared()))
+                                closest_point = shield_start + line_vec * t
+                                dist_to_shield = (bullet_pos - closest_point).length()
+                                
+                                if dist_to_shield < 20:  # Bullet hit reflective shield
+                                    # Reflect bullet back at player
+                                    e["shield_hp"] += bullet_damage
+                                    # Calculate reflection direction
+                                    normal = -shield_dir  # Normal to shield
+                                    incoming = b["vel"].normalize()
+                                    reflected = incoming - 2 * incoming.dot(normal) * normal
+                                    
+                                    # Spawn reflected projectile
+                                    reflected_proj = {
+                                        "rect": pygame.Rect(r.x, r.y, r.w, r.h),
+                                        "vel": reflected * b["vel"].length(),
+                                        "enemy_type": "reflector",
+                                        "color": (255, 200, 100),
+                                        "shape": "circle",
+                                        "bounces": 0,
+                                    }
+                                    enemy_projectiles.append(reflected_proj)
+                                    player_bullets.remove(b)
+                                    continue
+                        
+                        # Bullet hit from behind/side, apply damage normally
+                        e["hp"] -= bullet_damage
+                        damage_dealt += bullet_damage
+                    else:
+                        # Normal enemy, apply damage
+                        e["hp"] -= bullet_damage
+                        damage_dealt += bullet_damage
 
                     # Apply knockback if available
                     knockback = b.get("knockback", 0.0)
@@ -2521,7 +2866,7 @@ try:
                             b["bounces"] = b.get("bounces", 0) - 1
                         else:
                             player_bullets.remove(b)
-                        break
+                            break
                 
                 # Player bullets can destroy destructible blocks
                 for db in destructible_blocks[:]:
@@ -2715,31 +3060,61 @@ try:
         
         # Menu screen
         if state == STATE_MENU:
-            draw_centered_text("MOUSE AIM SHOOTER", 200, (255, 255, 255), use_big=True)
-            draw_centered_text("Select Difficulty", 300, (200, 200, 200))
+            draw_centered_text("MOUSE AIM SHOOTER", 150, (255, 255, 255), use_big=True)
             
-            y_start = 400
-            for i, diff_option in enumerate(difficulty_options):
-                color = (255, 255, 100) if i == difficulty_selected else (150, 150, 150)
-                prefix = "> " if i == difficulty_selected else "  "
-                draw_centered_text(f"{prefix}{diff_option}", y_start + i * 60, color)
-            
-            draw_centered_text("Press ENTER to Start", 650, (100, 255, 100))
-            draw_centered_text("Press ESC to Quit", 700, (200, 200, 200))
-            
-            # Show difficulty descriptions
-            diff_descriptions = {
-                DIFFICULTY_EASY: "Easier enemies, more pickups",
-                DIFFICULTY_NORMAL: "Balanced gameplay",
-                DIFFICULTY_HARD: "Harder enemies, fewer pickups",
-            }
-            draw_centered_text(diff_descriptions[difficulty_options[difficulty_selected]], 550, (150, 150, 255))
+            # Menu sections: 0 = difficulty, 1 = aiming, 2 = class, 3 = options, 4 = start
+            if menu_section == 0:
+                draw_centered_text("Select Difficulty", 250, (200, 200, 200))
+                y_start = 350
+                for i, diff_option in enumerate(difficulty_options):
+                    color = (255, 255, 100) if i == difficulty_selected else (150, 150, 150)
+                    prefix = "> " if i == difficulty_selected else "  "
+                    draw_centered_text(f"{prefix}{diff_option}", y_start + i * 50, color)
+                draw_centered_text("Press UP/DOWN to select, RIGHT to continue", 600, (150, 150, 150))
+            elif menu_section == 1:
+                draw_centered_text("Select Aiming Mode", 250, (200, 200, 200))
+                aiming_options = ["Mouse", "Arrow Keys"]
+                y_start = 350
+                for i, aim_option in enumerate(aiming_options):
+                    color = (255, 255, 100) if i == aiming_mode_selected else (150, 150, 150)
+                    prefix = "> " if i == aiming_mode_selected else "  "
+                    draw_centered_text(f"{prefix}{aim_option}", y_start + i * 50, color)
+                draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
+            elif menu_section == 2:
+                draw_centered_text("Select Player Class", 250, (200, 200, 200))
+                class_names = ["Balanced", "Tank", "Speedster", "Sniper"]
+                y_start = 350
+                for i, class_name in enumerate(class_names):
+                    color = (255, 255, 100) if i == player_class_selected else (150, 150, 150)
+                    prefix = "> " if i == player_class_selected else "  "
+                    draw_centered_text(f"{prefix}{class_name}", y_start + i * 50, color)
+                # Show class stats
+                selected_class = player_class_options[player_class_selected]
+                stats = player_class_stats[selected_class]
+                draw_centered_text(f"HP: {stats['hp_mult']:.1f}x | Speed: {stats['speed_mult']:.1f}x | Damage: {stats['damage_mult']:.1f}x | Fire Rate: {stats['firerate_mult']:.1f}x", 550, (150, 150, 255))
+                draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
+            elif menu_section == 3:
+                draw_centered_text("Options", 250, (200, 200, 200))
+                metrics_options = ["Show Metrics", "Hide Metrics"]
+                y_start = 350
+                for i, opt in enumerate(metrics_options):
+                    color = (255, 255, 100) if i == ui_show_metrics_selected else (150, 150, 150)
+                    prefix = "> " if i == ui_show_metrics_selected else "  "
+                    draw_centered_text(f"{prefix}{opt}", y_start + i * 50, color)
+                draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
+            elif menu_section == 4:
+                draw_centered_text("Ready to Start", 300, (100, 255, 100))
+                draw_centered_text(f"Difficulty: {difficulty_options[difficulty_selected]}", 400, (200, 200, 200))
+                draw_centered_text(f"Aiming: {['Mouse', 'Arrow Keys'][aiming_mode_selected]}", 450, (200, 200, 200))
+                draw_centered_text(f"Class: {['Balanced', 'Tank', 'Speedster', 'Sniper'][player_class_selected]}", 500, (200, 200, 200))
+                draw_centered_text(f"Metrics: {['Show', 'Hide'][ui_show_metrics_selected]}", 550, (200, 200, 200))
+                draw_centered_text("Press ENTER to Start", 600, (100, 255, 100))
+                draw_centered_text("Press LEFT to go back, ESC to Quit", 650, (150, 150, 150))
             
             pygame.display.flip()
             continue
 
-        for blk in blocks:
-            pygame.draw.rect(screen, blk["color"], blk["rect"])
+        # Indestructible blocks drawn with destructible blocks (see below)
         
         # Draw health recovery zones (semi-transparent green)
         for zone in health_recovery_zones:
@@ -2749,10 +3124,48 @@ try:
             # Draw border
             pygame.draw.rect(screen, (50, 255, 50), zone["rect"], 2)
         
-        # Draw destructible blocks with health bars
+        # Draw destructible blocks with textures (cracked appearance)
         for db in destructible_blocks:
-            pygame.draw.rect(screen, db["color"], db["rect"])
-            draw_health_bar(db["rect"].x, db["rect"].y - 10, db["rect"].w, 6, db["hp"], db["max_hp"])
+            # Calculate crack level based on HP
+            hp_ratio = db["hp"] / db["max_hp"]
+            if hp_ratio < 0.33:
+                crack_level = 3  # Heavily cracked
+            elif hp_ratio < 0.66:
+                crack_level = 2  # Moderately cracked
+            else:
+                crack_level = 1  # Slightly cracked
+            
+            # Base color with cracks
+            base_color = db["color"]
+            pygame.draw.rect(screen, base_color, db["rect"])
+            
+            # Draw crack texture
+            if crack_level >= 2:
+                # Draw crack lines
+                crack_color = (50, 50, 50)
+                center = db["rect"].center
+                # Random crack pattern
+                for i in range(crack_level):
+                    angle = (i * 2.4) * math.pi / 3
+                    end_x = center[0] + math.cos(angle) * (db["rect"].w // 2)
+                    end_y = center[1] + math.sin(angle) * (db["rect"].h // 2)
+                    pygame.draw.line(screen, crack_color, center, (end_x, end_y), 2)
+            
+            # Health bar only if enabled
+            if ui_show_block_health_bars:
+                draw_health_bar(db["rect"].x, db["rect"].y - 10, db["rect"].w, 6, db["hp"], db["max_hp"])
+        
+        # Draw indestructible blocks with texture (solid appearance)
+        for blk in blocks:
+            # Draw with pattern/texture to show it's indestructible
+            pygame.draw.rect(screen, blk["color"], blk["rect"])
+            # Draw border to indicate indestructible
+            pygame.draw.rect(screen, (255, 255, 255), blk["rect"], 3)
+            # Draw pattern lines
+            for i in range(0, blk["rect"].w, 10):
+                pygame.draw.line(screen, (blk["color"][0] + 20, blk["color"][1] + 20, blk["color"][2] + 20),
+                                (blk["rect"].x + i, blk["rect"].y),
+                                (blk["rect"].x + i, blk["rect"].y + blk["rect"].h), 1)
 
         # Draw pickup particles (glow effect)
         for particle in pickup_particles:
@@ -2805,11 +3218,62 @@ try:
 
         for e in enemies:
             pygame.draw.rect(screen, e["color"], e["rect"])
-            draw_health_bar(e["rect"].x, e["rect"].y - 10, e["rect"].w, 6, e["hp"], e["max_hp"])
+            if ui_show_health_bars:
+                draw_health_bar(e["rect"].x, e["rect"].y - 10, e["rect"].w, 6, e["hp"], e["max_hp"])
 
+            # Draw shield for shielded enemies
+            if e.get("has_shield"):
+                shield_angle = e.get("shield_angle", 0.0)
+                shield_length = e.get("shield_length", 50)
+                enemy_center = pygame.Vector2(e["rect"].center)
+                shield_dir = pygame.Vector2(math.cos(shield_angle), math.sin(shield_angle))
+                shield_start = enemy_center + shield_dir * (e["rect"].w // 2)
+                shield_end = enemy_center + shield_dir * (e["rect"].w // 2 + shield_length)
+                # Draw shield line
+                pygame.draw.line(screen, (100, 200, 255), shield_start, shield_end, 4)
+                # Draw shield indicator
+                pygame.draw.circle(screen, (150, 220, 255), (int(shield_start.x), int(shield_start.y)), 5)
+            
+            # Draw reflective shield for reflector enemies
+            if e.get("has_reflective_shield"):
+                shield_angle = e.get("shield_angle", 0.0)
+                shield_length = e.get("shield_length", 60)
+                enemy_center = pygame.Vector2(e["rect"].center)
+                shield_dir = pygame.Vector2(math.cos(shield_angle), math.sin(shield_angle))
+                shield_start = enemy_center + shield_dir * (e["rect"].w // 2)
+                shield_end = enemy_center + shield_dir * (e["rect"].w // 2 + shield_length)
+                # Draw reflective shield (glowing)
+                shield_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                pygame.draw.line(shield_surf, (255, 200, 100, 200), shield_start, shield_end, 6)
+                pygame.draw.line(shield_surf, (255, 255, 150, 150), shield_start, shield_end, 3)
+                screen.blit(shield_surf, (0, 0))
+                # Draw shield indicator
+                pygame.draw.circle(screen, (255, 220, 100), (int(shield_start.x), int(shield_start.y)), 6)
+                # Show absorbed damage
+                if e.get("shield_hp", 0) > 0:
+                    shield_hp_text = font.render(f"{int(e['shield_hp'])}", True, (255, 255, 100))
+                    screen.blit(shield_hp_text, (e["rect"].x, e["rect"].y - 25))
+
+        # Draw bouncing destructor shapes
+        for ds in destructor_shapes:
+            # Draw with pulsing effect
+            pulse = 0.5 + 0.5 * math.sin(run_time * 3.0)
+            color = tuple(min(255, int(c * (0.8 + pulse * 0.2))) for c in ds.get("color", (200, 100, 100)))
+            pygame.draw.rect(screen, color, ds["rect"])
+            # Draw warning border
+            pygame.draw.rect(screen, (255, 0, 0), ds["rect"], 3)
+        
         # Draw player - red when shield is active, normal color otherwise
         player_color = (255, 50, 50) if shield_active else (200, 60, 60)
         pygame.draw.rect(screen, player_color, player)
+        
+        # Draw health bar above player character
+        if ui_show_player_health_bar:
+            health_bar_width = max(player.w, 40)
+            health_bar_height = 6
+            health_bar_x = player.centerx - health_bar_width // 2
+            health_bar_y = player.y - 12
+            draw_health_bar(health_bar_x, health_bar_y, health_bar_width, health_bar_height, player_hp, player_max_hp)
         
         # Draw shield visual effect when active
         if shield_active:
@@ -2845,7 +3309,7 @@ try:
             glow_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             pygame.draw.line(glow_surf, (*laser["color"], 100), laser["start"], laser["end"], laser["width"] + 4)
             screen.blit(glow_surf, (0, 0))
-        
+
         for b in player_bullets:
             draw_projectile(b["rect"], b.get("color", player_bullets_color), b.get("shape", "square"))
             # Draw explosion radius indicator if bullet has explosion
@@ -2857,103 +3321,106 @@ try:
         for p in enemy_projectiles:
             draw_projectile(p["rect"], p.get("color", enemy_projectiles_color), p.get("shape", "circle"))
 
-        # HUD
-        # Draw overshield bar (above HP bar)
-        hp_bar_y = 10
-        if overshield > 0:
-            overshield_bar_x = 10
-            overshield_bar_y = 10
-            overshield_bar_w = 220
-            overshield_bar_h = 12
-            overshield_ratio = overshield / overshield_max
-            # Background
-            pygame.draw.rect(screen, (40, 40, 40), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h))
-            # Overshield (cyan/blue color)
-            pygame.draw.rect(screen, (100, 200, 255), (overshield_bar_x, overshield_bar_y, int(overshield_bar_w * overshield_ratio), overshield_bar_h))
-            # Border
-            pygame.draw.rect(screen, (150, 220, 255), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h), 2)
-            # Text
-            screen.blit(font.render(f"Shield: {int(overshield)}/{int(overshield_max)}", True, (150, 220, 255)), (overshield_bar_x + 5, overshield_bar_y - 1))
-            hp_bar_y = 28  # Move HP bar down if overshield is shown
-        
-        draw_health_bar(10, hp_bar_y, 220, 18, player_hp, player_max_hp)
-        hp_text_y = hp_bar_y + 24
-        screen.blit(font.render(f"HP: {player_hp}/{player_max_hp}", True, (230, 230, 230)), (12, hp_text_y))
-        lives_y = hp_text_y + 24
-        # Render HUD using helper function
-        y = render_hud_text(f"Lives: {lives}", lives_y)
-        y = render_hud_text(f"Level: {current_level} - {level_themes[current_level]['name']}", y, (255, 200, 100))
-        y = render_hud_text(f"Wave: {wave_number} (Wave {wave_in_level}/3)", y)
-        if wave_active:
-            wave_text = f"Enemies: {len(enemies)}"
-        else:
-            wave_text = f"Next wave in: {time_to_next_wave:.1f}s"
-        y = render_hud_text(wave_text, y)
-        y = render_hud_text(f"Damage dealt: {damage_dealt}", y)
-        y = render_hud_text(f"Damage taken: {damage_taken}", y)
-        y = render_hud_text(f"Score: {score:,}", y, (255, 255, 100))
-        y = render_hud_text(f"Time: {int(survival_time//60)}m {int(survival_time%60)}s", y, (200, 200, 255))
-        if state == STATE_ENDURANCE:
-            y = render_hud_text("ENDURANCE MODE", y, (255, 100, 100))
-        y = render_hud_text(f"Boost: {int(boost_meter)}/{int(boost_meter_max)}", y)
-        # Shield status
-        if shield_active:
-            y = render_hud_text("SHIELD ACTIVU", y, (150, 220, 255))
-        elif shield_cooldown_remaining > 0.0:
-            y = render_hud_text(f"Shield CD: {shield_cooldown_remaining:.1f}s", y, (200, 150, 150))
-        else:
-            y = render_hud_text("Shield: Ready (Left Alt)", y, (100, 255, 100))
-        if fire_rate_buff_t > 0:
-            y = render_hud_text(f"Firerate buff: {fire_rate_buff_t:.1f}s", y, (255, 220, 120))
-        if enemy_spawn_boost_level > 0:
-            y = render_hud_text(f"Enemy spawn boost: +{enemy_spawn_boost_level}", y, (255, 140, 220))
-        
-        # Display permanent stat upgrades
-        y_offset = y
-        if player_stat_multipliers["speed"] > 1.0:
-            y_offset = render_hud_text(f"Speed: +{int((player_stat_multipliers['speed']-1.0)*100)}%", y_offset, (150, 255, 150))
-        if player_stat_multipliers["firerate"] > 1.0:
-            y_offset = render_hud_text(f"Fire Rate: +{int((player_stat_multipliers['firerate']-1.0)*100)}%", y_offset, (150, 255, 150))
-        if player_stat_multipliers["bullet_damage"] > 1.0:
-            y_offset = render_hud_text(f"Damage: +{int((player_stat_multipliers['bullet_damage']-1.0)*100)}%", y_offset, (150, 255, 150))
-        if player_stat_multipliers["bullet_penetration"] > 0:
-            y_offset = render_hud_text(f"Penetration: {int(player_stat_multipliers['bullet_penetration'])}", y_offset, (150, 255, 150))
-        if player_stat_multipliers["bullet_explosion_radius"] > 0:
-            y_offset = render_hud_text(f"Explosion: {int(player_stat_multipliers['bullet_explosion_radius'])}px", y_offset, (150, 255, 150))
-        # Display current weapon mode
-        weapon_names = {
-            "basic": "BASIC FIRE",
-            "rocket": "ROCKET LAUNCHER",
-            "triple": "TRIPLE SHOT",
-            "bouncing": "BOUNCING BULLETS",
-            "giant": "GIANT BULLETS (10x)",
-            "laser": "LASER BEAM"
-        }
-        weapon_colors = {
-            "basic": (200, 200, 200),
-            "rocket": (255, 100, 0),
-            "triple": (100, 200, 255),
-            "bouncing": (100, 255, 100),
-            "giant": (255, 200, 0),
-            "laser": (255, 50, 50)
-        }
-        screen.blit(font.render(f"Weapon: {weapon_names.get(current_weapon_mode, 'UNKNOWN')}", True, weapon_colors.get(current_weapon_mode, (255, 255, 255))), (10, y_offset))
-        y_offset += 22
-        # Show unlocked weapons
-        unlocked_list = sorted(unlocked_weapons)
-        unlocked_str = "Unlocked: " + ", ".join([weapon_names.get(w, w) for w in unlocked_list])
-        screen.blit(font.render(unlocked_str, True, (150, 255, 150)), (10, y_offset))
-        y_offset += 22
-        screen.blit(font.render("Press 1-6 to switch weapons (if unlocked)", True, (150, 150, 150)), (10, y_offset))
-        y_offset += 22
-        
-        screen.blit(
+        # HUD (only if UI is enabled)
+        if ui_show_all_ui:
+            # Draw overshield bar (above HP bar)
+            hp_bar_y = 10
+            if overshield > 0:
+                overshield_bar_x = 10
+                overshield_bar_y = 10
+                overshield_bar_w = 220
+                overshield_bar_h = 12
+                overshield_ratio = overshield / overshield_max
+                # Background
+                pygame.draw.rect(screen, (40, 40, 40), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h))
+                # Overshield (cyan/blue color)
+                pygame.draw.rect(screen, (100, 200, 255), (overshield_bar_x, overshield_bar_y, int(overshield_bar_w * overshield_ratio), overshield_bar_h))
+                # Border
+                pygame.draw.rect(screen, (150, 220, 255), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h), 2)
+                # Text
+                screen.blit(font.render(f"Shield: {int(overshield)}/{int(overshield_max)}", True, (150, 220, 255)), (overshield_bar_x + 5, overshield_bar_y - 1))
+                hp_bar_y = 28  # Move HP bar down if overshield is shown
+            
+            draw_health_bar(10, hp_bar_y, 220, 18, player_hp, player_max_hp)
+            hp_text_y = hp_bar_y + 24
+            screen.blit(font.render(f"HP: {player_hp}/{player_max_hp}", True, (230, 230, 230)), (12, hp_text_y))
+            lives_y = hp_text_y + 24
+            # Render HUD using helper function
+            y = render_hud_text(f"Lives: {lives}", lives_y)
+            y = render_hud_text(f"Level: {current_level} - {level_themes[current_level]['name']}", y, (255, 200, 100))
+            y = render_hud_text(f"Wave: {wave_number} (Wave {wave_in_level}/3)", y)
+            if wave_active:
+                wave_text = f"Enemies: {len(enemies)}"
+            else:
+                wave_text = f"Next wave in: {time_to_next_wave:.1f}s"
+            y = render_hud_text(wave_text, y)
+            y = render_hud_text(f"Damage dealt: {damage_dealt}", y)
+            y = render_hud_text(f"Damage taken: {damage_taken}", y)
+            y = render_hud_text(f"Score: {score:,}", y, (255, 255, 100))
+            y = render_hud_text(f"Time: {int(survival_time//60)}m {int(survival_time%60)}s", y, (200, 200, 255))
+            if state == STATE_ENDURANCE:
+                y = render_hud_text("ENDURANCE MODE", y, (255, 100, 100))
+            y = render_hud_text(f"Boost: {int(boost_meter)}/{int(boost_meter_max)}", y)
+            # Shield status
+            if shield_active:
+                y = render_hud_text("SHIELD ACTIVU", y, (150, 220, 255))
+            elif shield_cooldown_remaining > 0.0:
+                y = render_hud_text(f"Shield CD: {shield_cooldown_remaining:.1f}s", y, (200, 150, 150))
+            else:
+                y = render_hud_text("Shield: Ready (Left Alt)", y, (100, 255, 100))
+            if fire_rate_buff_t > 0:
+                y = render_hud_text(f"Firerate buff: {fire_rate_buff_t:.1f}s", y, (255, 220, 120))
+            if enemy_spawn_boost_level > 0:
+                y = render_hud_text(f"Enemy spawn boost: +{enemy_spawn_boost_level}", y, (255, 140, 220))
+            
+            # Display permanent stat upgrades
+            y_offset = y
+            if player_stat_multipliers["speed"] > 1.0:
+                y_offset = render_hud_text(f"Speed: +{int((player_stat_multipliers['speed']-1.0)*100)}%", y_offset, (150, 255, 150))
+            if player_stat_multipliers["firerate"] > 1.0:
+                y_offset = render_hud_text(f"Fire Rate: +{int((player_stat_multipliers['firerate']-1.0)*100)}%", y_offset, (150, 255, 150))
+            if player_stat_multipliers["bullet_damage"] > 1.0:
+                y_offset = render_hud_text(f"Damage: +{int((player_stat_multipliers['bullet_damage']-1.0)*100)}%", y_offset, (150, 255, 150))
+            if player_stat_multipliers["bullet_penetration"] > 0:
+                y_offset = render_hud_text(f"Penetration: {int(player_stat_multipliers['bullet_penetration'])}", y_offset, (150, 255, 150))
+            if player_stat_multipliers["bullet_explosion_radius"] > 0:
+                y_offset = render_hud_text(f"Explosion: {int(player_stat_multipliers['bullet_explosion_radius'])}px", y_offset, (150, 255, 150))
+            # Display current weapon mode
+            weapon_names = {
+                "basic": "BASIC FIRE",
+                "rocket": "ROCKET LAUNCHER",
+                "triple": "TRIPLE SHOT",
+                "bouncing": "BOUNCING BULLETS",
+                "giant": "GIANT BULLETS (10x)",
+                "laser": "LASER BEAM"
+            }
+            weapon_colors = {
+                "basic": (200, 200, 200),
+                "rocket": (255, 100, 0),
+                "triple": (100, 200, 255),
+                "bouncing": (100, 255, 100),
+                "giant": (255, 200, 0),
+                "laser": (255, 50, 50)
+            }
+            screen.blit(font.render(f"Weapon: {weapon_names.get(current_weapon_mode, 'UNKNOWN')}", True, weapon_colors.get(current_weapon_mode, (255, 255, 255))), (10, y_offset))
+            y_offset += 22
+            # Show unlocked weapons
+            unlocked_list = sorted(unlocked_weapons)
+            unlocked_str = "Unlocked: " + ", ".join([weapon_names.get(w, w) for w in unlocked_list])
+            screen.blit(font.render(unlocked_str, True, (150, 255, 150)), (10, y_offset))
+            y_offset += 22
+            screen.blit(font.render("Press 1-6 to switch weapons (if unlocked)", True, (150, 150, 150)), (10, y_offset))
+            y_offset += 22
+            
+            # Only show metrics if enabled
+            if ui_show_metrics:
+                screen.blit(
             font.render(
                 f"Run: {run_time:.1f}s  Shots: {shots_fired}  Hits: {hits}  Kills: {enemies_killed}  Deaths: {deaths}",
                 True,
                 (230, 230, 230),
             ),
-            (10, 168),
+                    (10, 168),
         )
 
         # Pause overlay
