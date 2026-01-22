@@ -92,6 +92,21 @@
 #add in more moveable blocks
 #add in moveable blocks that can be destroyed by the player's, and enemy's bullets
 #--------------------------------------------------------
+#make only one health area, and have it move around the map, and the player has to move to it to heal
+#add a pickup that increases the player's health regeneration rate
+#add in more geometry (moveable blocks, unmovable blocks, destructible blocks, indestructible blocks) to fill up the map more
+#once there are 5 enemies remaining, have them move towards the player, and the player has to move to avoid them, and the player has to shoot them to kill them
+#--------------------------------------------------------
+#add in trapezoids that hang off the top, bottom, and sides of the screen, that are unmovable, and indestructible
+#--------------------------------------------------------
+#let the enemies move the blocks out of the way as well, to chase the player
+#--------------------------------------------------------
+
+
+
+
+
+
 
 
 import math
@@ -421,18 +436,107 @@ moveable_destructible_blocks = [
     {"rect": pygame.Rect(1250, 900, 80, 40), "color": (100, 150, 200), "hp": 35, "max_hp": 35, "is_destructible": True, "crack_level": 0, "is_moveable": True},
     {"rect": pygame.Rect(550, 1100, 60, 60), "color": (180, 200, 100), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
     {"rect": pygame.Rect(950, 1100, 70, 50), "color": (200, 120, 150), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    # Add more moveable destructible blocks to fill the map
+    {"rect": pygame.Rect(200, 600, 60, 60), "color": (150, 150, 200), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(300, 800, 70, 50), "color": (200, 100, 150), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(700, 900, 60, 60), "color": (100, 200, 150), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(1150, 700, 70, 50), "color": (200, 150, 100), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(1350, 400, 60, 60), "color": (150, 200, 100), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(500, 500, 70, 50), "color": (200, 100, 200), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
 ]
 
-# Health recovery zones (areas where player regenerates health)
-health_recovery_zones = [
-    {"rect": pygame.Rect(200, 200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Northwest Healing Zone", "zone_id": 1},
-    {"rect": pygame.Rect(1250, 250, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Northeast Healing Zone", "zone_id": 2},
-    {"rect": pygame.Rect(600, 1000, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "South-Central Healing Zone", "zone_id": 3},
-    {"rect": pygame.Rect(1400, 1200, 150, 150), "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Southeast Healing Zone", "zone_id": 4},
+# Add more indestructible blocks to fill the map
+blocks.extend([
+    {"rect": pygame.Rect(320, 320, 80, 80), "color": (90, 130, 210), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(480, 480, 60, 60), "color": (40, 40, 50), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(720, 320, 70, 70), "color": (210, 210, 220), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(880, 480, 60, 60), "color": (230, 210, 20), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(1120, 320, 80, 50), "color": (130, 170, 210), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(1280, 480, 60, 60), "color": (190, 190, 210), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(160, 640, 70, 70), "color": (200, 190, 150), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(320, 800, 60, 60), "color": (170, 210, 170), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(480, 960, 80, 50), "color": (220, 170, 130), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(640, 1120, 70, 70), "color": (140, 140, 230), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(800, 1280, 60, 60), "color": (230, 210, 130), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(960, 1120, 80, 50), "color": (200, 160, 210), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(1120, 960, 70, 70), "color": (100, 210, 210), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(1280, 800, 60, 60), "color": (210, 200, 120), "hp": None, "max_hp": None},
+    {"rect": pygame.Rect(1440, 640, 80, 50), "color": (150, 150, 220), "hp": None, "max_hp": None},
+])
+
+# Trapezoids hanging off screen edges (unmovable, indestructible)
+# These use polygon points for drawing but bounding rects for collision
+trapezoid_blocks = [
+    # Top edge - trapezoid hanging down (wider at top, narrower at bottom)
+    {
+        "points": [(0, -60), (WIDTH, -60), (WIDTH - 100, 80), (100, 80)],
+        "bounding_rect": pygame.Rect(0, -60, WIDTH, 140),
+        "color": (100, 120, 180),
+        "hp": None,
+        "max_hp": None,
+        "side": "top"
+    },
+    # Bottom edge - trapezoid hanging up (wider at bottom, narrower at top)
+    {
+        "points": [(100, HEIGHT - 80), (WIDTH - 100, HEIGHT - 80), (WIDTH, HEIGHT + 60), (0, HEIGHT + 60)],
+        "bounding_rect": pygame.Rect(0, HEIGHT - 80, WIDTH, 140),
+        "color": (120, 100, 160),
+        "hp": None,
+        "max_hp": None,
+        "side": "bottom"
+    },
+    # Left edge - trapezoid hanging right (wider at left, narrower at right)
+    {
+        "points": [(-60, 0), (80, 100), (80, HEIGHT - 100), (-60, HEIGHT)],
+        "bounding_rect": pygame.Rect(-60, 0, 140, HEIGHT),
+        "color": (140, 110, 170),
+        "hp": None,
+        "max_hp": None,
+        "side": "left"
+    },
+    # Right edge - trapezoid hanging left (wider at right, narrower at left)
+    {
+        "points": [(WIDTH - 80, 100), (WIDTH + 60, 0), (WIDTH + 60, HEIGHT), (WIDTH - 80, HEIGHT - 100)],
+        "bounding_rect": pygame.Rect(WIDTH - 80, 0, 140, HEIGHT),
+        "color": (110, 130, 190),
+        "hp": None,
+        "max_hp": None,
+        "side": "right"
+    },
 ]
+
+# Add more destructible blocks to fill the map
+destructible_blocks.extend([
+    {"rect": pygame.Rect(240, 360, 70, 70), "color": (160, 110, 210), "hp": 50, "max_hp": 50, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(400, 520, 60, 60), "color": (110, 210, 160), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(560, 680, 80, 50), "color": (210, 160, 110), "hp": 60, "max_hp": 60, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(720, 840, 70, 70), "color": (160, 160, 210), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(880, 1000, 60, 60), "color": (210, 210, 110), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1040, 1160, 80, 50), "color": (190, 130, 190), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1200, 1320, 70, 70), "color": (130, 190, 130), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1360, 1160, 60, 60), "color": (210, 130, 110), "hp": 50, "max_hp": 50, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1520, 1000, 80, 50), "color": (160, 160, 230), "hp": 60, "max_hp": 60, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1680, 840, 70, 70), "color": (230, 210, 130), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1840, 680, 60, 60), "color": (200, 160, 210), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(200, 840, 80, 50), "color": (110, 210, 210), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0},
+])
+
+# Single moving health recovery zone
+moving_health_zone = {
+    "rect": pygame.Rect(WIDTH // 2 - 75, HEIGHT // 2 - 75, 150, 150),
+    "heal_rate": 20.0,
+    "color": (100, 255, 100, 80),
+    "name": "Moving Healing Zone",
+    "zone_id": 1,
+    "velocity": 30.0,  # Movement speed in pixels per second (scalar)
+    "target": None,  # Target position to move towards
+}
 
 # Track which zones player is currently in (for telemetry)
 player_current_zones = set()  # Set of zone names player is in
+
+# Player health regeneration rate (can be increased by pickups)
+player_health_regen_rate = 0.0  # Base regeneration rate (0 = no regen)
 
 # Bouncing destructor shapes (line 79)
 destructor_shapes: list[dict] = []  # Large shapes that bounce around destroying things
@@ -769,18 +873,22 @@ def can_move_rect(rect: pygame.Rect, dx: int, dy: int, other_rects: list[pygame.
             rect.x, rect.y, rect.w, rect.h, dx, dy, other_rects, WIDTH, HEIGHT
         )
     else:
-    test = rect.move(dx, dy)
-    if test.left < 0 or test.right > WIDTH or test.top < 0 or test.bottom > HEIGHT:
-        return False
-    for o in other_rects:
-        if test.colliderect(o):
+        test = rect.move(dx, dy)
+        if test.left < 0 or test.right > WIDTH or test.top < 0 or test.bottom > HEIGHT:
             return False
-    return True
+        for o in other_rects:
+            if test.colliderect(o):
+                return False
+        return True
 
 
 def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict]):
     """Solid collision + pushing blocks (single block push; no chain pushing)."""
     block_rects = [b["rect"] for b in block_list]
+    # Also include moveable destructible blocks and trapezoid bounding rects
+    moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
+    trapezoid_rects = [tb["bounding_rect"] for tb in trapezoid_blocks]
+    all_collision_rects = block_rects + moveable_destructible_rects + trapezoid_rects
 
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -790,16 +898,37 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
         player_rect.y += axis_dy
 
         hit_block = None
+        hit_is_trapezoid = False
+        # Check regular blocks first
         for b in block_list:
             if player_rect.colliderect(b["rect"]):
                 hit_block = b
                 break
+        # Check moveable destructible blocks
+        if hit_block is None:
+            for b in moveable_destructible_blocks:
+                if player_rect.colliderect(b["rect"]):
+                    hit_block = b
+                    break
+        # Check trapezoid blocks (unmovable, so player can't push them)
+        if hit_block is None:
+            for tb in trapezoid_blocks:
+                if player_rect.colliderect(tb["bounding_rect"]):
+                    hit_block = tb
+                    hit_is_trapezoid = True
+                    break
 
         if hit_block is None:
             continue
 
+        # Trapezoids are unmovable, so just block player movement
+        if hit_is_trapezoid:
+            player_rect.x -= axis_dx
+            player_rect.y -= axis_dy
+            continue
+
         hit_rect = hit_block["rect"]
-        other_rects = [r for r in block_rects if r is not hit_rect]
+        other_rects = [r for r in all_collision_rects if r is not hit_rect]
 
         if can_move_rect(hit_rect, axis_dx, axis_dy, other_rects):
             hit_rect.x += axis_dx
@@ -809,6 +938,69 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
             player_rect.y -= axis_dy
 
     clamp_rect_to_screen(player_rect)
+
+
+def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict]):
+    """Enemy movement with block pushing (similar to player, but enemies can push blocks to chase player)."""
+    block_rects = [b["rect"] for b in block_list]
+    # Also include moveable destructible blocks (enemies can push these too)
+    moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
+    # Trapezoids are unmovable, so enemies can't push them
+    trapezoid_rects = [tb["bounding_rect"] for tb in trapezoid_blocks]
+    all_collision_rects = block_rects + moveable_destructible_rects + trapezoid_rects
+
+    for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
+        if axis_dx == 0 and axis_dy == 0:
+            continue
+
+        enemy_rect.x += axis_dx
+        enemy_rect.y += axis_dy
+
+        hit_block = None
+        hit_is_trapezoid = False
+        hit_is_moveable_destructible = False
+        # Check regular blocks first
+        for b in block_list:
+            if enemy_rect.colliderect(b["rect"]):
+                hit_block = b
+                break
+        # Check moveable destructible blocks
+        if hit_block is None:
+            for b in moveable_destructible_blocks:
+                if enemy_rect.colliderect(b["rect"]):
+                    hit_block = b
+                    hit_is_moveable_destructible = True
+                    break
+        # Check trapezoid blocks (unmovable, so enemy can't push them)
+        if hit_block is None:
+            for tb in trapezoid_blocks:
+                if enemy_rect.colliderect(tb["bounding_rect"]):
+                    hit_block = tb
+                    hit_is_trapezoid = True
+                    break
+
+        if hit_block is None:
+            continue
+
+        # Trapezoids are unmovable, so just block enemy movement
+        if hit_is_trapezoid:
+            enemy_rect.x -= axis_dx
+            enemy_rect.y -= axis_dy
+            continue
+
+        hit_rect = hit_block["rect"]
+        other_rects = [r for r in all_collision_rects if r is not hit_rect]
+
+        # Try to push the block
+        if can_move_rect(hit_rect, axis_dx, axis_dy, other_rects):
+            hit_rect.x += axis_dx
+            hit_rect.y += axis_dy
+        else:
+            # Block can't be pushed, so enemy can't move
+            enemy_rect.x -= axis_dx
+            enemy_rect.y -= axis_dy
+
+    clamp_rect_to_screen(enemy_rect)
 
 
 def rect_offscreen(r: pygame.Rect) -> bool:
@@ -827,6 +1019,8 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
         if any(candidate.colliderect(b["rect"]) for b in blocks):
             continue
         if any(candidate.colliderect(b["rect"]) for b in moveable_destructible_blocks):
+            continue
+        if any(candidate.colliderect(tb["bounding_rect"]) for tb in trapezoid_blocks):
             continue
         if any(candidate.colliderect(p["rect"]) for p in pickups):
             continue
@@ -1347,7 +1541,7 @@ def spawn_player_bullet_and_log():
         my = int(player.centery + base_dir.y * target_dist)
     else:
         # Mouse aiming (default)
-    mx, my = pygame.mouse.get_pos()
+        mx, my = pygame.mouse.get_pos()
         base_dir = vec_toward(player.centerx, player.centery, mx, my)
 
     shape = player_bullet_shapes[player_bullet_shape_index % len(player_bullet_shapes)]
@@ -1389,7 +1583,7 @@ def spawn_player_bullet_and_log():
             effective_damage = base_damage
             rocket_explosion = 0.0
 
-    r = pygame.Rect(
+        r = pygame.Rect(
             player.centerx - effective_size[0] // 2,
             player.centery - effective_size[1] // 2,
             effective_size[0],
@@ -1444,7 +1638,7 @@ def spawn_enemy_projectile(enemy: dict):
         d = vec_toward(e_pos.x, e_pos.y, threat_pos.x, threat_pos.y)
     else:
         # Fallback to player if no threats
-    d = vec_toward(enemy["rect"].centerx, enemy["rect"].centery, player.centerx, player.centery)
+        d = vec_toward(enemy["rect"].centerx, enemy["rect"].centery, player.centerx, player.centery)
     r = pygame.Rect(
         enemy["rect"].centerx - enemy_projectile_size[0] // 2,
         enemy["rect"].centery - enemy_projectile_size[1] // 2,
@@ -1563,6 +1757,10 @@ def apply_pickup_effect(pickup_type: str):
         player_stat_multipliers["bullet_penetration"] += 1
     elif pickup_type == "bullet_explosion":
         player_stat_multipliers["bullet_explosion_radius"] += 25.0
+    elif pickup_type == "health_regen":
+        # Increase player health regeneration rate
+        global player_health_regen_rate
+        player_health_regen_rate += 5.0  # Add 5 HP per second regeneration
     # Weapon pickups - unlock and switch to weapon
     elif pickup_type in ["giant_bullets", "giant"]:
         unlocked_weapons.add("giant")
@@ -1661,8 +1859,13 @@ def reset_after_death():
     global jump_cooldown_timer, jump_timer, is_jumping, jump_velocity
     global laser_beams, laser_time_since_shot
     global shield_active, shield_duration_remaining, shield_cooldown_remaining
+    global player_health_regen_rate, moving_health_zone
 
     player_hp = player_max_hp
+    player_health_regen_rate = 0.0  # Reset health regeneration rate
+    # Reset moving health zone to center
+    moving_health_zone["rect"].center = (WIDTH // 2, HEIGHT // 2)
+    moving_health_zone["target"] = None
     overshield = 0  # Reset overshield
     player_time_since_shot = 999.0
     laser_time_since_shot = 999.0
@@ -2112,6 +2315,16 @@ try:
                                     closest_hit = hit
                                     laser_end = hit
                         
+                        # Check collision with trapezoid blocks
+                        for tb in trapezoid_blocks:
+                            hit = line_rect_intersection(player_center, laser_end, tb["bounding_rect"])
+                            if hit:
+                                dist = (hit - player_center).length()
+                                if dist < closest_dist:
+                                    closest_dist = dist
+                                    closest_hit = hit
+                                    laser_end = hit
+                        
                         # Check collision with destructible blocks (can damage them)
                         for db in destructible_blocks[:]:
                             hit = line_rect_intersection(player_center, laser_end, db["rect"])
@@ -2190,8 +2403,8 @@ try:
                     should_shoot = pygame.mouse.get_pressed(3)[0]
                 
                 if should_shoot and player_time_since_shot >= effective_cooldown:
-                spawn_player_bullet_and_log()
-                player_time_since_shot = 0.0
+                    spawn_player_bullet_and_log()
+                    player_time_since_shot = 0.0
                 player_time_since_shot += dt
 
             # Update bouncing destructor shapes
@@ -2245,48 +2458,67 @@ try:
 
             move_player_with_push(player, move_x, move_y, blocks)
 
-            # Health recovery zones - heal player when inside
-            # Health recovery zones and zone visit tracking
-            current_frame_zones = set()
-            for zone in health_recovery_zones:
-                if player.colliderect(zone["rect"]):
-                    # Track zone entry
-                    # Zone name is guaranteed to exist (optimized)
-                    zone_name = zone["name"]
-                    current_frame_zones.add(zone_name)
-                    
-                    # Log zone entry if just entered
-                    if zone_name not in player_current_zones:
-                        telemetry.log_zone_visit(ZoneVisitEvent(
-                            t=run_time,
-                            zone_id=zone.get("zone_id"),
-                            zone_name=zone_name,
-                            zone_type="health_recovery",
-                            event_type="enter",
-                            x=player.centerx,
-                            y=player.centery
-                        ))
-                    
-                    heal_amount = zone["heal_rate"] * dt
-                    player_hp = min(player_max_hp, player_hp + heal_amount)
+            # Update moving health zone position
+            zone = moving_health_zone
+            if zone["target"] is None or (pygame.Vector2(zone["rect"].center) - zone["target"]).length() < 10:
+                # Pick a new random target position
+                zone["target"] = pygame.Vector2(
+                    random.randint(100, WIDTH - 100),
+                    random.randint(100, HEIGHT - 100)
+                )
             
-            # Log zone exits
-            for zone_name in player_current_zones - current_frame_zones:
-                # Find the zone to get its info
-                zone_info = next((z for z in health_recovery_zones if z.get("name") == zone_name), None)
-                if zone_info:
+            # Move zone towards target
+            zone_center = pygame.Vector2(zone["rect"].center)
+            direction = (zone["target"] - zone_center)
+            if direction.length() > 0:
+                direction = direction.normalize()
+                move_amount = zone["velocity"] * dt  # velocity is a scalar (float)
+                move_vector = direction * move_amount  # direction is Vector2, move_amount is float, result is Vector2
+                new_center = zone_center + move_vector
+                zone["rect"].centerx = int(new_center.x)
+                zone["rect"].centery = int(new_center.y)
+                # Keep zone on screen
+                zone["rect"].left = max(0, min(zone["rect"].left, WIDTH - zone["rect"].w))
+                zone["rect"].top = max(0, min(zone["rect"].top, HEIGHT - zone["rect"].h))
+            
+            # Health recovery zone - heal player when inside
+            current_frame_zones = set()
+            if player.colliderect(zone["rect"]):
+                zone_name = zone["name"]
+                current_frame_zones.add(zone_name)
+                
+                # Log zone entry if just entered
+                if zone_name not in player_current_zones:
                     telemetry.log_zone_visit(ZoneVisitEvent(
                         t=run_time,
-                        zone_id=zone_info.get("zone_id"),
+                        zone_id=zone.get("zone_id"),
                         zone_name=zone_name,
                         zone_type="health_recovery",
-                        event_type="exit",
+                        event_type="enter",
                         x=player.centerx,
                         y=player.centery
                     ))
+                
+                heal_amount = zone["heal_rate"] * dt
+                player_hp = min(player_max_hp, player_hp + heal_amount)
             
-            # Update current zones
+            # Log zone exits
+            for zone_name in player_current_zones - current_frame_zones:
+                telemetry.log_zone_visit(ZoneVisitEvent(
+                    t=run_time,
+                    zone_id=zone.get("zone_id"),
+                    zone_name=zone_name,
+                    zone_type="health_recovery",
+                    event_type="exit",
+                    x=player.centerx,
+                    y=player.centery
+                ))
             player_current_zones = current_frame_zones
+            
+            # Apply passive health regeneration (from pickups)
+            if player_health_regen_rate > 0:
+                regen_amount = player_health_regen_rate * dt
+                player_hp = min(player_max_hp, player_hp + regen_amount)
 
             # Update timed buffs
             if fire_rate_buff_t > 0:
@@ -2295,25 +2527,34 @@ try:
             # Update pickup visual effects
             update_pickup_effects(dt)
 
-            block_rects = [b["rect"] for b in blocks] + [b["rect"] for b in moveable_destructible_blocks]
+            block_rects = [b["rect"] for b in blocks] + [b["rect"] for b in moveable_destructible_blocks] + [tb["bounding_rect"] for tb in trapezoid_blocks]
             # Cache player position to avoid recalculating
             player_pos_cached = pygame.Vector2(player.center)
             
             for e in enemies:
                 e_pos = pygame.Vector2(e["rect"].center)
                 
-                # Find nearest threat (player or friendly AI)
-                threat_result = find_nearest_threat(e_pos)
-                if not threat_result:
-                    continue
-                threat_pos, threat_type = threat_result
-                
-                # Base movement toward threat
-                toward_threat = (threat_pos - e_pos)
-                if toward_threat.length_squared() > 0:
-                    toward_threat = toward_threat.normalize()
+                # When 5 or fewer enemies remain, they move directly towards player
+                if len(enemies) <= 5:
+                    # Direct movement towards player (aggressive pursuit)
+                    toward_threat = (pygame.Vector2(player.center) - e_pos)
+                    if toward_threat.length_squared() > 0:
+                        toward_threat = toward_threat.normalize()
+                    else:
+                        toward_threat = pygame.Vector2(0, 0)
                 else:
-                    toward_threat = pygame.Vector2(0, 0)
+                    # Find nearest threat (player or friendly AI)
+                    threat_result = find_nearest_threat(e_pos)
+                    if not threat_result:
+                        continue
+                    threat_pos, threat_type = threat_result
+                    
+                    # Base movement toward threat
+                    toward_threat = (threat_pos - e_pos)
+                    if toward_threat.length_squared() > 0:
+                        toward_threat = toward_threat.normalize()
+                    else:
+                        toward_threat = pygame.Vector2(0, 0)
                 
                 # Check for nearby bullets to dodge (only check every other frame for performance)
                 dodge_vector = pygame.Vector2(0, 0)
@@ -2383,20 +2624,8 @@ try:
                 dy_e = int(move_vec.y)
                 
                 if dx_e or dy_e:
-                    moved = False
-                    if can_move_rect(e["rect"], dx_e, dy_e, block_rects):
-                        e["rect"].x += dx_e
-                        e["rect"].y += dy_e
-                        moved = True
-                    else:
-                        if dx_e and can_move_rect(e["rect"], dx_e, 0, block_rects):
-                            e["rect"].x += dx_e
-                            moved = True
-                        if dy_e and can_move_rect(e["rect"], 0, dy_e, block_rects):
-                            e["rect"].y += dy_e
-                            moved = True
-                    if moved:
-                        clamp_rect_to_screen(e["rect"])
+                    # Enemies can push blocks out of the way to chase the player
+                    move_enemy_with_push(e["rect"], dx_e, dy_e, blocks)
 
             # Friendly AI movement and behavior
             # Reuse block_rects from enemy movement (already computed above)
@@ -2577,7 +2806,7 @@ try:
                         e["color"] = (255, 0, 255)  # Magenta
                     
                     # Boss shooting patterns based on phase
-                if e["time_since_shot"] >= e["shoot_cooldown"]:
+                    if e["time_since_shot"] >= e["shoot_cooldown"]:
                         if e["phase"] == 1:
                             # Phase 1: Single shots
                             spawn_enemy_projectile(e)
@@ -2631,6 +2860,7 @@ try:
                     "firerate",  # temporary fire rate buff
                     "spawn_boost",  # enemy can grab, player can shoot
                     "max_health",  # permanent max HP increase
+                    "health_regen",  # increases health regeneration rate
                     "speed",  # permanent speed increase
                     "firerate_permanent",  # permanent fire rate increase
                     "bullet_size",  # permanent bullet size increase
@@ -2724,6 +2954,12 @@ try:
                         friendly_projectiles.remove(fp)
                         break
                 
+                # Check collision with trapezoid blocks
+                for tb in trapezoid_blocks:
+                    if fp["rect"].colliderect(tb["bounding_rect"]):
+                        friendly_projectiles.remove(fp)
+                        break
+                
                 # Check collision with moveable destructible blocks
                 for mdb in moveable_destructible_blocks:
                     if fp["rect"].colliderect(mdb["rect"]):
@@ -2761,7 +2997,8 @@ try:
                         r.y = max(0, min(r.y, HEIGHT - r.h))
 
                 if rect_offscreen(r) and bounces_left == 0:
-                    player_bullets.remove(b)
+                    if b in player_bullets:
+                        player_bullets.remove(b)
                     continue
 
                 # bullets can destroy spawn_boost pickups
@@ -2775,7 +3012,8 @@ try:
                         pickups.remove(hit_pickup)
                     except ValueError:
                         pass
-                    player_bullets.remove(b)
+                    if b in player_bullets:
+                        player_bullets.remove(b)
                     continue
 
                 # bullet hits enemy
@@ -2817,7 +3055,8 @@ try:
                                 
                                 if dist_to_shield < 15:  # Bullet hit shield
                                     # Shield blocks damage, remove bullet
-                                    player_bullets.remove(b)
+                                    if b in player_bullets:
+                                        player_bullets.remove(b)
                                     continue
                         
                         # Bullet hit from behind/side, apply damage normally
@@ -2862,7 +3101,8 @@ try:
                                         "bounces": 0,
                                     }
                                     enemy_projectiles.append(reflected_proj)
-                                    player_bullets.remove(b)
+                                    if b in player_bullets:
+                                        player_bullets.remove(b)
                                     continue
                         
                         # Bullet hit from behind/side, apply damage normally
@@ -2935,14 +3175,15 @@ try:
                             continue
                     else:
                         # No penetration left, remove bullet
-                    player_bullets.remove(b)
+                        if b in player_bullets:
+                            player_bullets.remove(b)
 
                     if killed:
                         kill_enemy(e)
 
                     # If bullet was removed, continue to next bullet
                     if b not in player_bullets:
-                    continue
+                        continue
 
                 # bullets interact with indestructible blocks
                 for blk in blocks:
@@ -2953,8 +3194,22 @@ try:
                             b["vel"] = -b["vel"]
                             b["bounces"] = b.get("bounces", 0) - 1
                         else:
-                        player_bullets.remove(b)
-                        break
+                            if b in player_bullets:
+                                player_bullets.remove(b)
+                            break
+                
+                # Bullets interact with trapezoid blocks
+                for tb in trapezoid_blocks:
+                    if r.colliderect(tb["bounding_rect"]):
+                        # Bouncing bullets can bounce off trapezoids too
+                        if b.get("bounces", 0) > 0:
+                            # Simple bounce: reverse velocity
+                            b["vel"] = -b["vel"]
+                            b["bounces"] = b.get("bounces", 0) - 1
+                        else:
+                            if b in player_bullets:
+                                player_bullets.remove(b)
+                            break
                 
                 # Player bullets can destroy destructible blocks
                 for db in destructible_blocks[:]:
@@ -2964,7 +3219,7 @@ try:
                         if db["hp"] <= 0:
                             destructible_blocks.remove(db)
                         # Remove bullet unless it has penetration
-                        if b.get("penetration", 0) == 0:
+                        if b.get("penetration", 0) == 0 and b in player_bullets:
                             player_bullets.remove(b)
                         break
                 
@@ -2976,7 +3231,7 @@ try:
                         if mdb["hp"] <= 0:
                             moveable_destructible_blocks.remove(mdb)
                         # Remove bullet unless it has penetration
-                        if b.get("penetration", 0) == 0:
+                        if b.get("penetration", 0) == 0 and b in player_bullets:
                             player_bullets.remove(b)
                         break
                 if b not in player_bullets:
@@ -3128,15 +3383,24 @@ try:
                 # projectiles collide with blocks
                 for blk in blocks:
                     if r.colliderect(blk["rect"]):
-                        enemy_projectiles.remove(p)
+                        if p in enemy_projectiles:
+                            enemy_projectiles.remove(p)
+                        break
+                
+                # Enemy projectiles collide with trapezoid blocks
+                for tb in trapezoid_blocks:
+                    if r.colliderect(tb["bounding_rect"]):
+                        if p in enemy_projectiles:
+                            enemy_projectiles.remove(p)
                         break
                 
                 # Enemy projectiles also collide with moveable destructible blocks (non-bouncing only)
                 if bounces_left == 0:
                     for mdb in moveable_destructible_blocks:
                         if r.colliderect(mdb["rect"]):
-                        enemy_projectiles.remove(p)
-                        break
+                            if p in enemy_projectiles:
+                                enemy_projectiles.remove(p)
+                            break
 
             telemetry.tick(dt)
 
@@ -3232,15 +3496,32 @@ try:
             pygame.display.flip()
             continue
 
+        # Draw trapezoid blocks hanging off screen edges (draw first so they appear behind other blocks)
+        for tb in trapezoid_blocks:
+            # Draw trapezoid as polygon
+            pygame.draw.polygon(screen, tb["color"], tb["points"])
+            # Draw border to indicate indestructible
+            pygame.draw.polygon(screen, (255, 255, 255), tb["points"], 3)
+            # Draw pattern lines on visible portion (only draw lines within screen bounds)
+            visible_points = [(x, y) for x, y in tb["points"] if 0 <= x <= WIDTH and 0 <= y <= HEIGHT]
+            if len(visible_points) >= 2:
+                # Draw some pattern lines on the visible portion
+                for i in range(0, len(visible_points) - 1):
+                    pygame.draw.line(screen, (tb["color"][0] + 20, tb["color"][1] + 20, tb["color"][2] + 20),
+                                    visible_points[i], visible_points[i + 1], 2)
+        
         # Indestructible blocks drawn with destructible blocks (see below)
         
-        # Draw health recovery zones (semi-transparent green)
-        for zone in health_recovery_zones:
-            zone_surf = pygame.Surface((zone["rect"].w, zone["rect"].h), pygame.SRCALPHA)
-            pygame.draw.rect(zone_surf, zone["color"], (0, 0, zone["rect"].w, zone["rect"].h))
-            screen.blit(zone_surf, zone["rect"].topleft)
-            # Draw border
-            pygame.draw.rect(screen, (50, 255, 50), zone["rect"], 2)
+        # Draw moving health recovery zone (semi-transparent green)
+        zone = moving_health_zone
+        zone_surf = pygame.Surface((zone["rect"].w, zone["rect"].h), pygame.SRCALPHA)
+        pygame.draw.rect(zone_surf, zone["color"], (0, 0, zone["rect"].w, zone["rect"].h))
+        screen.blit(zone_surf, zone["rect"].topleft)
+        # Draw border with pulsing effect
+        pulse = 0.5 + 0.5 * math.sin(run_time * 3.0)
+        border_alpha = int(150 + 100 * pulse)
+        border_color = (50, 255, 50)
+        pygame.draw.rect(screen, border_color, zone["rect"], 3)
         
         # Draw destructible blocks with textures (cracked appearance)
         for db in destructible_blocks:
@@ -3378,7 +3659,7 @@ try:
         for e in enemies:
             pygame.draw.rect(screen, e["color"], e["rect"])
             if ui_show_health_bars:
-            draw_health_bar(e["rect"].x, e["rect"].y - 10, e["rect"].w, 6, e["hp"], e["max_hp"])
+                draw_health_bar(e["rect"].x, e["rect"].y - 10, e["rect"].w, 6, e["hp"], e["max_hp"])
 
             # Draw shield for shielded enemies
             if e.get("has_shield"):
@@ -3584,14 +3865,14 @@ try:
             
             # Only show metrics if enabled
             if ui_show_metrics:
-        screen.blit(
-            font.render(
-                f"Run: {run_time:.1f}s  Shots: {shots_fired}  Hits: {hits}  Kills: {enemies_killed}  Deaths: {deaths}",
-                True,
-                (230, 230, 230),
-            ),
+                screen.blit(
+                    font.render(
+                        f"Run: {run_time:.1f}s  Shots: {shots_fired}  Hits: {hits}  Kills: {enemies_killed}  Deaths: {deaths}",
+                        True,
+                        (230, 230, 230),
+                    ),
                     (10, 168),
-        )
+                )
 
         # Pause overlay
         if state == STATE_PAUSED:
