@@ -114,8 +114,8 @@
 # - game.py: ✅ IMPLEMENTED - Uses GPU for bullet updates (50+ bullets) via gpu_physics module
 # - telemetry.py: ✅ IMPLEMENTED - GPU support added for batch event processing (when CUDA available)
 # - visualize.py: ✅ IMPLEMENTED - GPU support added for data processing operations (when CUDA available)
-# Note: GPU acceleration requires CUDA Toolkit installation. Run setup_cuda_windows.ps1 to configure.
-#       Falls back to CPU JIT (2-5x speedup) when CUDA unavailable.
+# ✅ CUDA 12.9 CONFIGURED - GPU acceleration is active (RTX 4080 SUPER detected)
+#    Falls back to CPU JIT (2-5x speedup) if CUDA becomes unavailable.
 
 
 
@@ -2719,6 +2719,12 @@ try:
                     # Enemies can push blocks out of the way to chase the player
                     move_enemy_with_push(e["rect"], dx_e, dy_e, blocks)
 
+            # Cleanup: Remove any enemies that somehow got stuck with HP <= 0
+            # This is a safety check to prevent enemies from getting stuck alive
+            for e in enemies[:]:
+                if e.get("hp", 1) <= 0:
+                    kill_enemy(e)
+
             # Friendly AI movement and behavior
             # Reuse block_rects from enemy movement (already computed above)
             for f in friendly_ai[:]:
@@ -3179,254 +3185,254 @@ try:
                             player_bullets.remove(b)
                         continue
 
-                # bullets can destroy spawn_boost pickups
-                hit_pickup = None
-                for p in pickups:
-                    if p["type"] == "spawn_boost" and r.colliderect(p["rect"]):
-                        hit_pickup = p
-                        break
-                if hit_pickup is not None:
-                    try:
-                        pickups.remove(hit_pickup)
-                    except ValueError:
-                        pass
-                    if b in player_bullets:
-                        player_bullets.remove(b)
-                    continue
-
-                # bullet hits enemy
-                hit_enemy_index = None
-                for i, e in enumerate(enemies):
-                    if r.colliderect(e["rect"]):
-                        hit_enemy_index = i
-                        break
-
-                if hit_enemy_index is not None:
-                    hits += 1
-                    e = enemies[hit_enemy_index]
-                    bullet_damage = b.get("damage", player_bullet_damage)
-                    
-                    # Check for shield enemies
-                    if e.get("has_shield"):
-                        # Check if bullet hit the shield (front-facing line)
-                        shield_angle = e.get("shield_angle", 0.0)
-                        shield_length = e.get("shield_length", 50)
-                        enemy_center = pygame.Vector2(e["rect"].center)
-                        bullet_pos = pygame.Vector2(r.center)
-                        
-                        # Calculate shield line endpoints
-                        shield_dir = pygame.Vector2(math.cos(shield_angle), math.sin(shield_angle))
-                        shield_start = enemy_center + shield_dir * (e["rect"].w // 2)
-                        shield_end = enemy_center + shield_dir * (e["rect"].w // 2 + shield_length)
-                        
-                        # Check if bullet is in front of enemy (shield side)
-                        to_bullet = bullet_pos - enemy_center
-                        dot_product = to_bullet.dot(shield_dir)
-                        
-                        if dot_product > 0:  # Bullet is in front
-                            # Check distance to shield line
-                            line_vec = shield_end - shield_start
-                            if line_vec.length_squared() > 0:
-                                t = max(0, min(1, (bullet_pos - shield_start).dot(line_vec) / line_vec.length_squared()))
-                                closest_point = shield_start + line_vec * t
-                                dist_to_shield = (bullet_pos - closest_point).length()
-                                
-                                if dist_to_shield < 15:  # Bullet hit shield
-                                    # Shield blocks damage, remove bullet
-                                    if b in player_bullets:
-                                        player_bullets.remove(b)
-                                    continue
-                        
-                        # Bullet hit from behind/side, apply damage normally
-                        e["hp"] -= bullet_damage
-                        damage_dealt += bullet_damage
-                    elif e.get("has_reflective_shield"):
-                        # Reflective shield - check if hit shield
-                        shield_angle = e.get("shield_angle", 0.0)
-                        shield_length = e.get("shield_length", 60)
-                        enemy_center = pygame.Vector2(e["rect"].center)
-                        bullet_pos = pygame.Vector2(r.center)
-                        
-                        shield_dir = pygame.Vector2(math.cos(shield_angle), math.sin(shield_angle))
-                        shield_start = enemy_center + shield_dir * (e["rect"].w // 2)
-                        shield_end = enemy_center + shield_dir * (e["rect"].w // 2 + shield_length)
-                        
-                        to_bullet = bullet_pos - enemy_center
-                        dot_product = to_bullet.dot(shield_dir)
-                        
-                        if dot_product > 0:  # Bullet is in front
-                            line_vec = shield_end - shield_start
-                            if line_vec.length_squared() > 0:
-                                t = max(0, min(1, (bullet_pos - shield_start).dot(line_vec) / line_vec.length_squared()))
-                                closest_point = shield_start + line_vec * t
-                                dist_to_shield = (bullet_pos - closest_point).length()
-                                
-                                if dist_to_shield < 20:  # Bullet hit reflective shield
-                                    # Reflect bullet back at player
-                                    e["shield_hp"] += bullet_damage
-                                    # Calculate reflection direction
-                                    normal = -shield_dir  # Normal to shield
-                                    incoming = b["vel"].normalize()
-                                    reflected = incoming - 2 * incoming.dot(normal) * normal
-                                    
-                                    # Spawn reflected projectile
-                                    reflected_proj = {
-                                        "rect": pygame.Rect(r.x, r.y, r.w, r.h),
-                                        "vel": reflected * b["vel"].length(),
-                                        "enemy_type": "reflector",
-                                        "color": (255, 200, 100),
-                                        "shape": "circle",
-                                        "bounces": 0,
-                                    }
-                                    enemy_projectiles.append(reflected_proj)
-                                    if b in player_bullets:
-                                        player_bullets.remove(b)
-                                    continue
-                        
-                        # Bullet hit from behind/side, apply damage normally
-                        e["hp"] -= bullet_damage
-                        damage_dealt += bullet_damage
-                    else:
-                        # Normal enemy, apply damage
-                        e["hp"] -= bullet_damage
-                        damage_dealt += bullet_damage
-
-                    # Apply knockback if available
-                    knockback = b.get("knockback", 0.0)
-                    if knockback > 0.0:
-                        knockback_vec = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
-                        e["rect"].x += int(knockback_vec.x * knockback * 5)
-                        e["rect"].y += int(knockback_vec.y * knockback * 5)
-                        clamp_rect_to_screen(e["rect"])
-
-                    # Handle explosion if available
-                    explosion_radius = b.get("explosion_radius", 0.0)
-                    if explosion_radius > 0.0:
-                        exp_center = pygame.Vector2(b["rect"].center)
-                        for other_e in enemies:
-                            if other_e is e:
-                                continue
-                            dist = pygame.Vector2(other_e["rect"].center).distance_to(exp_center)
-                            if dist <= explosion_radius:
-                                # Damage falls off with distance
-                                exp_damage = int(bullet_damage * (1.0 - dist / explosion_radius) * 0.6)
-                                if exp_damage > 0:
-                                    other_e["hp"] -= exp_damage
-                                    damage_dealt += exp_damage
-                                    # Log explosion hit
-                                    telemetry.log_enemy_hit(
-                                        EnemyHitEvent(
-                                            t=run_time,
-                                            enemy_type=other_e["type"],
-                                            enemy_x=other_e["rect"].x,
-                                            enemy_y=other_e["rect"].y,
-                                            damage=exp_damage,
-                                            enemy_hp_after=max(0, other_e["hp"]),
-                                            killed=other_e["hp"] <= 0,
-                                        )
-                                    )
-                                    if other_e["hp"] <= 0:
-                                        kill_enemy(other_e)
-
-                    killed = e["hp"] <= 0
-                    hp_after = max(0, e["hp"])
-
-                    telemetry.log_enemy_hit(
-                        EnemyHitEvent(
-                            t=run_time,
-                            enemy_type=e["type"],
-                            enemy_x=e["rect"].x,
-                            enemy_y=e["rect"].y,
-                            damage=bullet_damage,
-                            enemy_hp_after=hp_after,
-                            killed=killed,
-                        )
-                    )
-
-                    # Handle penetration
-                    penetration = b.get("penetration", 0)
-                    if penetration > 0:
-                        # Bullet can pierce through
-                        b["penetration"] = penetration - 1
-                        # Continue to next enemy if penetration remains
-                        if b["penetration"] > 0:
-                            continue
-                    else:
-                        # No penetration left, remove bullet
+                    # bullets can destroy spawn_boost pickups
+                    hit_pickup = None
+                    for p in pickups:
+                        if p["type"] == "spawn_boost" and r.colliderect(p["rect"]):
+                            hit_pickup = p
+                            break
+                    if hit_pickup is not None:
+                        try:
+                            pickups.remove(hit_pickup)
+                        except ValueError:
+                            pass
                         if b in player_bullets:
                             player_bullets.remove(b)
-
-                    if killed:
-                        kill_enemy(e)
-
-                    # If bullet was removed, continue to next bullet
-                    if b not in player_bullets:
                         continue
 
-                # bullets interact with indestructible blocks
-                for blk in blocks:
-                    if r.colliderect(blk["rect"]):
-                        # Bouncing bullets can bounce off blocks too
-                        if b.get("bounces", 0) > 0:
-                            # Simple bounce: reverse velocity
-                            b["vel"] = -b["vel"]
-                            b["bounces"] = b.get("bounces", 0) - 1
-                        else:
-                            if b in player_bullets:
-                                player_bullets.remove(b)
+                    # bullet hits enemy
+                    hit_enemy_index = None
+                    for i, e in enumerate(enemies):
+                        if r.colliderect(e["rect"]):
+                            hit_enemy_index = i
                             break
-                
-                # Bullets interact with trapezoid blocks
-                for tb in trapezoid_blocks:
-                    if r.colliderect(tb["bounding_rect"]):
-                        # Bouncing bullets can bounce off trapezoids too
-                        if b.get("bounces", 0) > 0:
-                            # Simple bounce: reverse velocity
-                            b["vel"] = -b["vel"]
-                            b["bounces"] = b.get("bounces", 0) - 1
-                        else:
-                            if b in player_bullets:
-                                player_bullets.remove(b)
-                            break
-                
-                # Bullets interact with triangle blocks
-                for tr in triangle_blocks:
-                    if r.colliderect(tr["bounding_rect"]):
-                        # Bouncing bullets can bounce off triangles too
-                        if b.get("bounces", 0) > 0:
-                            # Simple bounce: reverse velocity
-                            b["vel"] = -b["vel"]
-                            b["bounces"] = b.get("bounces", 0) - 1
-                        else:
-                            if b in player_bullets:
-                                player_bullets.remove(b)
-                            break
-                
-                # Player bullets can destroy destructible blocks
-                for db in destructible_blocks[:]:
-                    if r.colliderect(db["rect"]):
+
+                    if hit_enemy_index is not None:
+                        hits += 1
+                        e = enemies[hit_enemy_index]
                         bullet_damage = b.get("damage", player_bullet_damage)
-                        db["hp"] -= bullet_damage
-                        if db["hp"] <= 0:
-                            destructible_blocks.remove(db)
-                        # Remove bullet unless it has penetration
-                        if b.get("penetration", 0) == 0 and b in player_bullets:
-                            player_bullets.remove(b)
-                        break
-                
-                # Player bullets can destroy moveable destructible blocks
-                for mdb in moveable_destructible_blocks[:]:
-                    if r.colliderect(mdb["rect"]):
-                        bullet_damage = b.get("damage", player_bullet_damage)
-                        mdb["hp"] -= bullet_damage
-                        if mdb["hp"] <= 0:
-                            moveable_destructible_blocks.remove(mdb)
-                        # Remove bullet unless it has penetration
-                        if b.get("penetration", 0) == 0 and b in player_bullets:
-                            player_bullets.remove(b)
-                        break
-                if b not in player_bullets:
-                    continue
+                        
+                        # Check for shield enemies
+                        if e.get("has_shield"):
+                            # Check if bullet hit the shield (front-facing line)
+                            shield_angle = e.get("shield_angle", 0.0)
+                            shield_length = e.get("shield_length", 50)
+                            enemy_center = pygame.Vector2(e["rect"].center)
+                            bullet_pos = pygame.Vector2(r.center)
+                            
+                            # Calculate shield line endpoints
+                            shield_dir = pygame.Vector2(math.cos(shield_angle), math.sin(shield_angle))
+                            shield_start = enemy_center + shield_dir * (e["rect"].w // 2)
+                            shield_end = enemy_center + shield_dir * (e["rect"].w // 2 + shield_length)
+                            
+                            # Check if bullet is in front of enemy (shield side)
+                            to_bullet = bullet_pos - enemy_center
+                            dot_product = to_bullet.dot(shield_dir)
+                            
+                            if dot_product > 0:  # Bullet is in front
+                                # Check distance to shield line
+                                line_vec = shield_end - shield_start
+                                if line_vec.length_squared() > 0:
+                                    t = max(0, min(1, (bullet_pos - shield_start).dot(line_vec) / line_vec.length_squared()))
+                                    closest_point = shield_start + line_vec * t
+                                    dist_to_shield = (bullet_pos - closest_point).length()
+                                    
+                                    if dist_to_shield < 15:  # Bullet hit shield
+                                        # Shield blocks damage, remove bullet
+                                        if b in player_bullets:
+                                            player_bullets.remove(b)
+                                        continue
+                            
+                            # Bullet hit from behind/side, apply damage normally
+                            e["hp"] -= bullet_damage
+                            damage_dealt += bullet_damage
+                        elif e.get("has_reflective_shield"):
+                            # Reflective shield - check if hit shield
+                            shield_angle = e.get("shield_angle", 0.0)
+                            shield_length = e.get("shield_length", 60)
+                            enemy_center = pygame.Vector2(e["rect"].center)
+                            bullet_pos = pygame.Vector2(r.center)
+                            
+                            shield_dir = pygame.Vector2(math.cos(shield_angle), math.sin(shield_angle))
+                            shield_start = enemy_center + shield_dir * (e["rect"].w // 2)
+                            shield_end = enemy_center + shield_dir * (e["rect"].w // 2 + shield_length)
+                            
+                            to_bullet = bullet_pos - enemy_center
+                            dot_product = to_bullet.dot(shield_dir)
+                            
+                            if dot_product > 0:  # Bullet is in front
+                                line_vec = shield_end - shield_start
+                                if line_vec.length_squared() > 0:
+                                    t = max(0, min(1, (bullet_pos - shield_start).dot(line_vec) / line_vec.length_squared()))
+                                    closest_point = shield_start + line_vec * t
+                                    dist_to_shield = (bullet_pos - closest_point).length()
+                                    
+                                    if dist_to_shield < 20:  # Bullet hit reflective shield
+                                        # Reflect bullet back at player
+                                        e["shield_hp"] += bullet_damage
+                                        # Calculate reflection direction
+                                        normal = -shield_dir  # Normal to shield
+                                        incoming = b["vel"].normalize()
+                                        reflected = incoming - 2 * incoming.dot(normal) * normal
+                                        
+                                        # Spawn reflected projectile
+                                        reflected_proj = {
+                                            "rect": pygame.Rect(r.x, r.y, r.w, r.h),
+                                            "vel": reflected * b["vel"].length(),
+                                            "enemy_type": "reflector",
+                                            "color": (255, 200, 100),
+                                            "shape": "circle",
+                                            "bounces": 0,
+                                        }
+                                        enemy_projectiles.append(reflected_proj)
+                                        if b in player_bullets:
+                                            player_bullets.remove(b)
+                                        continue
+                            
+                            # Bullet hit from behind/side, apply damage normally
+                            e["hp"] -= bullet_damage
+                            damage_dealt += bullet_damage
+                        else:
+                            # Normal enemy, apply damage
+                            e["hp"] -= bullet_damage
+                            damage_dealt += bullet_damage
+
+                        # Apply knockback if available
+                        knockback = b.get("knockback", 0.0)
+                        if knockback > 0.0:
+                            knockback_vec = vec_toward(e["rect"].centerx, e["rect"].centery, player.centerx, player.centery)
+                            e["rect"].x += int(knockback_vec.x * knockback * 5)
+                            e["rect"].y += int(knockback_vec.y * knockback * 5)
+                            clamp_rect_to_screen(e["rect"])
+
+                        # Handle explosion if available
+                        explosion_radius = b.get("explosion_radius", 0.0)
+                        if explosion_radius > 0.0:
+                            exp_center = pygame.Vector2(b["rect"].center)
+                            for other_e in enemies:
+                                if other_e is e:
+                                    continue
+                                dist = pygame.Vector2(other_e["rect"].center).distance_to(exp_center)
+                                if dist <= explosion_radius:
+                                    # Damage falls off with distance
+                                    exp_damage = int(bullet_damage * (1.0 - dist / explosion_radius) * 0.6)
+                                    if exp_damage > 0:
+                                        other_e["hp"] -= exp_damage
+                                        damage_dealt += exp_damage
+                                        # Log explosion hit
+                                        telemetry.log_enemy_hit(
+                                            EnemyHitEvent(
+                                                t=run_time,
+                                                enemy_type=other_e["type"],
+                                                enemy_x=other_e["rect"].x,
+                                                enemy_y=other_e["rect"].y,
+                                                damage=exp_damage,
+                                                enemy_hp_after=max(0, other_e["hp"]),
+                                                killed=other_e["hp"] <= 0,
+                                            )
+                                        )
+                                        if other_e["hp"] <= 0:
+                                            kill_enemy(other_e)
+
+                        killed = e["hp"] <= 0
+                        hp_after = max(0, e["hp"])
+
+                        telemetry.log_enemy_hit(
+                            EnemyHitEvent(
+                                t=run_time,
+                                enemy_type=e["type"],
+                                enemy_x=e["rect"].x,
+                                enemy_y=e["rect"].y,
+                                damage=bullet_damage,
+                                enemy_hp_after=hp_after,
+                                killed=killed,
+                            )
+                        )
+
+                        # Handle penetration
+                        penetration = b.get("penetration", 0)
+                        if penetration > 0:
+                            # Bullet can pierce through
+                            b["penetration"] = penetration - 1
+                            # Continue to next enemy if penetration remains
+                            if b["penetration"] > 0:
+                                continue
+                        else:
+                            # No penetration left, remove bullet
+                            if b in player_bullets:
+                                player_bullets.remove(b)
+
+                        if killed:
+                            kill_enemy(e)
+
+                        # If bullet was removed, continue to next bullet
+                        if b not in player_bullets:
+                            continue
+
+                    # bullets interact with indestructible blocks
+                    for blk in blocks:
+                        if r.colliderect(blk["rect"]):
+                            # Bouncing bullets can bounce off blocks too
+                            if b.get("bounces", 0) > 0:
+                                # Simple bounce: reverse velocity
+                                b["vel"] = -b["vel"]
+                                b["bounces"] = b.get("bounces", 0) - 1
+                            else:
+                                if b in player_bullets:
+                                    player_bullets.remove(b)
+                                break
+                    
+                    # Bullets interact with trapezoid blocks
+                    for tb in trapezoid_blocks:
+                        if r.colliderect(tb["bounding_rect"]):
+                            # Bouncing bullets can bounce off trapezoids too
+                            if b.get("bounces", 0) > 0:
+                                # Simple bounce: reverse velocity
+                                b["vel"] = -b["vel"]
+                                b["bounces"] = b.get("bounces", 0) - 1
+                            else:
+                                if b in player_bullets:
+                                    player_bullets.remove(b)
+                                break
+                    
+                    # Bullets interact with triangle blocks
+                    for tr in triangle_blocks:
+                        if r.colliderect(tr["bounding_rect"]):
+                            # Bouncing bullets can bounce off triangles too
+                            if b.get("bounces", 0) > 0:
+                                # Simple bounce: reverse velocity
+                                b["vel"] = -b["vel"]
+                                b["bounces"] = b.get("bounces", 0) - 1
+                            else:
+                                if b in player_bullets:
+                                    player_bullets.remove(b)
+                                break
+                    
+                    # Player bullets can destroy destructible blocks
+                    for db in destructible_blocks[:]:
+                        if r.colliderect(db["rect"]):
+                            bullet_damage = b.get("damage", player_bullet_damage)
+                            db["hp"] -= bullet_damage
+                            if db["hp"] <= 0:
+                                destructible_blocks.remove(db)
+                            # Remove bullet unless it has penetration
+                            if b.get("penetration", 0) == 0 and b in player_bullets:
+                                player_bullets.remove(b)
+                            break
+                    
+                    # Player bullets can destroy moveable destructible blocks
+                    for mdb in moveable_destructible_blocks[:]:
+                        if r.colliderect(mdb["rect"]):
+                            bullet_damage = b.get("damage", player_bullet_damage)
+                            mdb["hp"] -= bullet_damage
+                            if mdb["hp"] <= 0:
+                                moveable_destructible_blocks.remove(mdb)
+                            # Remove bullet unless it has penetration
+                            if b.get("penetration", 0) == 0 and b in player_bullets:
+                                player_bullets.remove(b)
+                            break
+                    if b not in player_bullets:
+                        continue
 
             # Enemy projectiles update
             for p in enemy_projectiles[:]:
