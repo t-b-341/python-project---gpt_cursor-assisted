@@ -101,10 +101,16 @@
 #--------------------------------------------------------
 #let the enemies move the blocks out of the way as well, to chase the player
 #--------------------------------------------------------
-
-
-
-
+#take the moveable, indestructible geometry, and leave only the destructible, movable geometry, and the unmovable, destructible, and unmovable, destructible geometry. 
+#outside/border: create spaces between trapezoids, creating 3 total on left side, 2 on right, next to each other, with 5 trapezoids with 2 triangles each on top of them on top, and then a line of triangles across the bottom
+#
+#read the supporting files of game_physics, and optimize them with game.py, telemetry.py, and visualize.py, and then optimize game.py, telemetry.py, and visualize.py amongst each other, given the new updates in game.py
+#--------------------------------------------------------
+#is there a way to utilize the GPU for processing as well?
+#--------------------------------------------------------
+#I have an NVIDIA GPU, a 4080 super, so CUDA cores should be available; 
+#--------------------------------------------------------
+#I set up the GPU acceleration in game.py, telemetry.py, and visualize.py?; use the GPU acceleration in game.py, telemetry.py, and visualize.py
 
 
 
@@ -130,6 +136,18 @@ try:
 except ImportError:
     USE_C_EXTENSION = False
     print("Note: C extension not available, using Python fallback (slower)")
+
+# GPU acceleration (optional - falls back to CPU if unavailable)
+try:
+    from gpu_physics import update_bullets_batch, check_collisions_batch, CUDA_AVAILABLE
+    USE_GPU = CUDA_AVAILABLE
+    if USE_GPU:
+        print("GPU acceleration enabled (CUDA)")
+    else:
+        print("GPU acceleration available but CUDA not detected (using CPU fallback)")
+except ImportError:
+    USE_GPU = False
+    print("Note: GPU acceleration not available. Install with: pip install numba")
 
 from telemetry import (
     Telemetry,
@@ -396,21 +414,15 @@ laser_time_since_shot = 999.0
 # ----------------------------
 # World blocks
 # ----------------------------
-blocks = [
-    {"rect": pygame.Rect(100, 100, 100, 100), "color": (80, 140, 220), "hp": None, "max_hp": None},  # indestructible
-    {"rect": pygame.Rect(180, 180, 60, 30), "color": (30, 30, 30), "hp": None, "max_hp": None},  # indestructible
-    {"rect": pygame.Rect(550, 420, 70, 70), "color": (200, 200, 200), "hp": None, "max_hp": None},  # indestructible
-    {"rect": pygame.Rect(700, 420, 70, 70), "color": (220, 200, 10), "hp": None, "max_hp": None},  # indestructible
-    # Add more moveable blocks
-    {"rect": pygame.Rect(250, 300, 80, 80), "color": (120, 160, 200), "hp": None, "max_hp": None},  # indestructible, moveable
-    {"rect": pygame.Rect(900, 200, 60, 60), "color": (180, 180, 200), "hp": None, "max_hp": None},  # indestructible, moveable
-    {"rect": pygame.Rect(600, 700, 90, 50), "color": (200, 180, 140), "hp": None, "max_hp": None},  # indestructible, moveable
-    {"rect": pygame.Rect(1150, 400, 70, 70), "color": (160, 200, 160), "hp": None, "max_hp": None},  # indestructible, moveable
-    {"rect": pygame.Rect(500, 900, 50, 50), "color": (220, 160, 120), "hp": None, "max_hp": None},  # indestructible, moveable
-    {"rect": pygame.Rect(1350, 800, 80, 40), "color": (140, 140, 220), "hp": None, "max_hp": None},  # indestructible, moveable
-]
+# Removed all moveable indestructible blocks - keeping only:
+# - moveable_destructible_blocks (destructible, movable)
+# - destructible_blocks (unmovable, destructible)
+# - trapezoid_blocks (unmovable, indestructible) - new border layout
+# - triangle_blocks (unmovable, indestructible) - decorative border elements
 
-# Add more destructible blocks (scattered across larger map)
+blocks = []  # Empty - no moveable indestructible blocks
+
+# Destructible blocks (unmovable, destructible)
 destructible_blocks = [
     {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 50, "max_hp": 50, "is_destructible": True, "crack_level": 0},
     {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0},
@@ -445,65 +457,112 @@ moveable_destructible_blocks = [
     {"rect": pygame.Rect(500, 500, 70, 50), "color": (200, 100, 200), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
 ]
 
-# Add more indestructible blocks to fill the map
-blocks.extend([
-    {"rect": pygame.Rect(320, 320, 80, 80), "color": (90, 130, 210), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(480, 480, 60, 60), "color": (40, 40, 50), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(720, 320, 70, 70), "color": (210, 210, 220), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(880, 480, 60, 60), "color": (230, 210, 20), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(1120, 320, 80, 50), "color": (130, 170, 210), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(1280, 480, 60, 60), "color": (190, 190, 210), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(160, 640, 70, 70), "color": (200, 190, 150), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(320, 800, 60, 60), "color": (170, 210, 170), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(480, 960, 80, 50), "color": (220, 170, 130), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(640, 1120, 70, 70), "color": (140, 140, 230), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(800, 1280, 60, 60), "color": (230, 210, 130), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(960, 1120, 80, 50), "color": (200, 160, 210), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(1120, 960, 70, 70), "color": (100, 210, 210), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(1280, 800, 60, 60), "color": (210, 200, 120), "hp": None, "max_hp": None},
-    {"rect": pygame.Rect(1440, 640, 80, 50), "color": (150, 150, 220), "hp": None, "max_hp": None},
-])
+# Border geometry: trapezoids and triangles (unmovable, indestructible)
+# Layout: 3 trapezoids left (spaced), 2 trapezoids right (adjacent), 
+#         5 trapezoids with 2 triangles each on top, line of triangles on bottom
+trapezoid_blocks = []
+triangle_blocks = []  # New: triangles for decorative border elements
 
-# Trapezoids hanging off screen edges (unmovable, indestructible)
-# These use polygon points for drawing but bounding rects for collision
-trapezoid_blocks = [
-    # Top edge - trapezoid hanging down (wider at top, narrower at bottom)
-    {
-        "points": [(0, -60), (WIDTH, -60), (WIDTH - 100, 80), (100, 80)],
-        "bounding_rect": pygame.Rect(0, -60, WIDTH, 140),
-        "color": (100, 120, 180),
-        "hp": None,
-        "max_hp": None,
-        "side": "top"
-    },
-    # Bottom edge - trapezoid hanging up (wider at bottom, narrower at top)
-    {
-        "points": [(100, HEIGHT - 80), (WIDTH - 100, HEIGHT - 80), (WIDTH, HEIGHT + 60), (0, HEIGHT + 60)],
-        "bounding_rect": pygame.Rect(0, HEIGHT - 80, WIDTH, 140),
-        "color": (120, 100, 160),
-        "hp": None,
-        "max_hp": None,
-        "side": "bottom"
-    },
-    # Left edge - trapezoid hanging right (wider at left, narrower at right)
-    {
-        "points": [(-60, 0), (80, 100), (80, HEIGHT - 100), (-60, HEIGHT)],
-        "bounding_rect": pygame.Rect(-60, 0, 140, HEIGHT),
+# Calculate spacing for left side (3 trapezoids with gaps)
+left_trap_height = HEIGHT // 4  # Each trapezoid takes 1/4 of screen height
+left_gap = 50  # Gap between trapezoids
+left_trap_width = 100  # Width of trapezoid hanging into screen
+
+# Left side: 3 trapezoids with spaces
+for i in range(3):
+    y_start = i * (left_trap_height + left_gap)
+    y_end = y_start + left_trap_height
+    trapezoid_blocks.append({
+        "points": [(-60, y_start), (left_trap_width, y_start + 20), (left_trap_width, y_end - 20), (-60, y_end)],
+        "bounding_rect": pygame.Rect(-60, y_start, left_trap_width + 60, y_end - y_start),
         "color": (140, 110, 170),
         "hp": None,
         "max_hp": None,
         "side": "left"
-    },
-    # Right edge - trapezoid hanging left (wider at right, narrower at left)
-    {
-        "points": [(WIDTH - 80, 100), (WIDTH + 60, 0), (WIDTH + 60, HEIGHT), (WIDTH - 80, HEIGHT - 100)],
-        "bounding_rect": pygame.Rect(WIDTH - 80, 0, 140, HEIGHT),
-        "color": (110, 130, 190),
+    })
+
+# Right side: 2 trapezoids next to each other
+right_trap_height = HEIGHT // 2.5
+right_trap_width = 100
+right_y1 = 0
+right_y2 = right_trap_height + 20  # Small gap
+
+trapezoid_blocks.append({
+    "points": [(WIDTH - right_trap_width, right_y1 + 20), (WIDTH + 60, right_y1), (WIDTH + 60, right_y1 + right_trap_height), (WIDTH - right_trap_width, right_y1 + right_trap_height - 20)],
+    "bounding_rect": pygame.Rect(WIDTH - right_trap_width, right_y1, right_trap_width + 60, right_trap_height),
+    "color": (110, 130, 190),
+    "hp": None,
+    "max_hp": None,
+    "side": "right"
+})
+
+trapezoid_blocks.append({
+    "points": [(WIDTH - right_trap_width, right_y2 + 20), (WIDTH + 60, right_y2), (WIDTH + 60, right_y2 + right_trap_height), (WIDTH - right_trap_width, right_y2 + right_trap_height - 20)],
+    "bounding_rect": pygame.Rect(WIDTH - right_trap_width, right_y2, right_trap_width + 60, right_trap_height),
+    "color": (110, 130, 190),
+    "hp": None,
+    "max_hp": None,
+    "side": "right"
+})
+
+# Top: 5 trapezoids with 2 triangles each on top
+top_trap_width = WIDTH // 5.5
+top_trap_height = 80
+top_trap_spacing = (WIDTH - 5 * top_trap_width) / 6  # Even spacing
+
+for i in range(5):
+    x_start = top_trap_spacing + i * (top_trap_width + top_trap_spacing)
+    x_end = x_start + top_trap_width
+    
+    # Trapezoid hanging down
+    trapezoid_blocks.append({
+        "points": [(x_start, -60), (x_end, -60), (x_end - 20, top_trap_height), (x_start + 20, top_trap_height)],
+        "bounding_rect": pygame.Rect(x_start, -60, x_end - x_start, top_trap_height + 60),
+        "color": (100, 120, 180),
         "hp": None,
         "max_hp": None,
-        "side": "right"
-    },
-]
+        "side": "top"
+    })
+    
+    # 2 triangles on top of each trapezoid
+    triangle_center_x = (x_start + x_end) // 2
+    triangle_size = 30
+    
+    # Triangle 1 (left)
+    triangle_blocks.append({
+        "points": [(triangle_center_x - triangle_size, -60), (triangle_center_x, -100), (triangle_center_x - triangle_size // 2, -60)],
+        "bounding_rect": pygame.Rect(triangle_center_x - triangle_size, -100, triangle_size, 40),
+        "color": (120, 140, 200),
+        "hp": None,
+        "max_hp": None,
+        "side": "top"
+    })
+    
+    # Triangle 2 (right)
+    triangle_blocks.append({
+        "points": [(triangle_center_x + triangle_size // 2, -60), (triangle_center_x, -100), (triangle_center_x + triangle_size, -60)],
+        "bounding_rect": pygame.Rect(triangle_center_x, -100, triangle_size, 40),
+        "color": (120, 140, 200),
+        "hp": None,
+        "max_hp": None,
+        "side": "top"
+    })
+
+# Bottom: Line of triangles across the bottom
+bottom_triangle_count = 10
+bottom_triangle_width = WIDTH // bottom_triangle_count
+bottom_triangle_height = 40
+
+for i in range(bottom_triangle_count):
+    x_center = i * bottom_triangle_width + bottom_triangle_width // 2
+    triangle_blocks.append({
+        "points": [(x_center - bottom_triangle_width // 2, HEIGHT), (x_center, HEIGHT + bottom_triangle_height), (x_center + bottom_triangle_width // 2, HEIGHT)],
+        "bounding_rect": pygame.Rect(x_center - bottom_triangle_width // 2, HEIGHT, bottom_triangle_width, bottom_triangle_height),
+        "color": (120, 100, 160),
+        "hp": None,
+        "max_hp": None,
+        "side": "bottom"
+    })
 
 # Add more destructible blocks to fill the map
 destructible_blocks.extend([
@@ -885,10 +944,11 @@ def can_move_rect(rect: pygame.Rect, dx: int, dy: int, other_rects: list[pygame.
 def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict]):
     """Solid collision + pushing blocks (single block push; no chain pushing)."""
     block_rects = [b["rect"] for b in block_list]
-    # Also include moveable destructible blocks and trapezoid bounding rects
+    # Also include moveable destructible blocks, trapezoid and triangle bounding rects
     moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
     trapezoid_rects = [tb["bounding_rect"] for tb in trapezoid_blocks]
-    all_collision_rects = block_rects + moveable_destructible_rects + trapezoid_rects
+    triangle_rects = [tr["bounding_rect"] for tr in triangle_blocks]
+    all_collision_rects = block_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects
 
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -915,6 +975,13 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
             for tb in trapezoid_blocks:
                 if player_rect.colliderect(tb["bounding_rect"]):
                     hit_block = tb
+                    hit_is_trapezoid = True
+                    break
+        # Check triangle blocks (unmovable, so player can't push them)
+        if hit_block is None:
+            for tr in triangle_blocks:
+                if player_rect.colliderect(tr["bounding_rect"]):
+                    hit_block = tr
                     hit_is_trapezoid = True
                     break
 
@@ -945,9 +1012,10 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
     block_rects = [b["rect"] for b in block_list]
     # Also include moveable destructible blocks (enemies can push these too)
     moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
-    # Trapezoids are unmovable, so enemies can't push them
+    # Trapezoids and triangles are unmovable, so enemies can't push them
     trapezoid_rects = [tb["bounding_rect"] for tb in trapezoid_blocks]
-    all_collision_rects = block_rects + moveable_destructible_rects + trapezoid_rects
+    triangle_rects = [tr["bounding_rect"] for tr in triangle_blocks]
+    all_collision_rects = block_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects
 
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -976,6 +1044,13 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
             for tb in trapezoid_blocks:
                 if enemy_rect.colliderect(tb["bounding_rect"]):
                     hit_block = tb
+                    hit_is_trapezoid = True
+                    break
+        # Check triangle blocks (unmovable, so enemy can't push them)
+        if hit_block is None:
+            for tr in triangle_blocks:
+                if enemy_rect.colliderect(tr["bounding_rect"]):
+                    hit_block = tr
                     hit_is_trapezoid = True
                     break
 
@@ -1021,6 +1096,8 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
         if any(candidate.colliderect(b["rect"]) for b in moveable_destructible_blocks):
             continue
         if any(candidate.colliderect(tb["bounding_rect"]) for tb in trapezoid_blocks):
+            continue
+        if any(candidate.colliderect(tr["bounding_rect"]) for tr in triangle_blocks):
             continue
         if any(candidate.colliderect(p["rect"]) for p in pickups):
             continue
@@ -2325,6 +2402,16 @@ try:
                                     closest_hit = hit
                                     laser_end = hit
                         
+                        # Check collision with triangle blocks
+                        for tr in triangle_blocks:
+                            hit = line_rect_intersection(player_center, laser_end, tr["bounding_rect"])
+                            if hit:
+                                dist = (hit - player_center).length()
+                                if dist < closest_dist:
+                                    closest_dist = dist
+                                    closest_hit = hit
+                                    laser_end = hit
+                        
                         # Check collision with destructible blocks (can damage them)
                         for db in destructible_blocks[:]:
                             hit = line_rect_intersection(player_center, laser_end, db["rect"])
@@ -2527,7 +2614,7 @@ try:
             # Update pickup visual effects
             update_pickup_effects(dt)
 
-            block_rects = [b["rect"] for b in blocks] + [b["rect"] for b in moveable_destructible_blocks] + [tb["bounding_rect"] for tb in trapezoid_blocks]
+            block_rects = [b["rect"] for b in blocks] + [b["rect"] for b in moveable_destructible_blocks] + [tb["bounding_rect"] for tb in trapezoid_blocks] + [tr["bounding_rect"] for tr in triangle_blocks]
             # Cache player position to avoid recalculating
             player_pos_cached = pygame.Vector2(player.center)
             
@@ -2960,6 +3047,12 @@ try:
                         friendly_projectiles.remove(fp)
                         break
                 
+                # Check collision with triangle blocks
+                for tr in triangle_blocks:
+                    if fp["rect"].colliderect(tr["bounding_rect"]):
+                        friendly_projectiles.remove(fp)
+                        break
+                
                 # Check collision with moveable destructible blocks
                 for mdb in moveable_destructible_blocks:
                     if fp["rect"].colliderect(mdb["rect"]):
@@ -2967,39 +3060,119 @@ try:
                         break
 
             # Player bullets update
-            for b in player_bullets[:]:
-                r = b["rect"]
-                v = b["vel"]
-                r.x += int(v.x * dt)
-                r.y += int(v.y * dt)
+            # Use GPU acceleration for large batches (50+ bullets), CPU for smaller batches or complex logic
+            use_gpu_bullets = USE_GPU and len(player_bullets) > 50
+            
+            if use_gpu_bullets:
+                # GPU-accelerated position updates for simple bullets (no bouncing)
+                simple_bullets = []
+                complex_bullets = []
+                
+                # Separate bullets into simple (no bouncing) and complex (bouncing)
+                for b in player_bullets:
+                    if b.get("bounces", 0) == 0:
+                        simple_bullets.append(b)
+                    else:
+                        complex_bullets.append(b)
+                
+                # Update simple bullets on GPU
+                if simple_bullets:
+                    bullets_data = []
+                    bullet_indices = []
+                    for i, b in enumerate(simple_bullets):
+                        bullets_data.append({
+                            'x': float(b["rect"].x),
+                            'y': float(b["rect"].y),
+                            'vx': float(b["vel"].x),
+                            'vy': float(b["vel"].y),
+                            'w': b["rect"].w,
+                            'h': b["rect"].h
+                        })
+                        bullet_indices.append(i)
+                    
+                    # Update on GPU
+                    keep_indices = update_bullets_batch(bullets_data, dt, WIDTH, HEIGHT)
+                    
+                    # Update bullet rects
+                    new_simple_bullets = []
+                    for idx in keep_indices:
+                        if idx < len(simple_bullets):
+                            b = simple_bullets[idx]
+                            b["rect"].x = int(bullets_data[idx]['x'])
+                            b["rect"].y = int(bullets_data[idx]['y'])
+                            new_simple_bullets.append(b)
+                    simple_bullets = new_simple_bullets
+                
+                # Update complex bullets (with bouncing) on CPU
+                for b in complex_bullets[:]:
+                    r = b["rect"]
+                    v = b["vel"]
+                    r.x += int(v.x * dt)
+                    r.y += int(v.y * dt)
 
-                # Handle bouncing bullets
-                bounces_left = b.get("bounces", 0)
-                if bounces_left > 0:
-                    bounced = False
-                    if r.left < 0:
-                        v.x = abs(v.x)
-                        bounced = True
-                    elif r.right > WIDTH:
-                        v.x = -abs(v.x)
-                        bounced = True
-                    if r.top < 0:
-                        v.y = abs(v.y)
-                        bounced = True
-                    elif r.bottom > HEIGHT:
-                        v.y = -abs(v.y)
-                        bounced = True
-                    if bounced:
-                        b["bounces"] = bounces_left - 1
-                        b["vel"] = v
-                        # Keep bullet on screen
-                        r.x = max(0, min(r.x, WIDTH - r.w))
-                        r.y = max(0, min(r.y, HEIGHT - r.h))
+                    # Handle bouncing bullets
+                    bounces_left = b.get("bounces", 0)
+                    if bounces_left > 0:
+                        bounced = False
+                        if r.left < 0:
+                            v.x = abs(v.x)
+                            bounced = True
+                        elif r.right > WIDTH:
+                            v.x = -abs(v.x)
+                            bounced = True
+                        if r.top < 0:
+                            v.y = abs(v.y)
+                            bounced = True
+                        elif r.bottom > HEIGHT:
+                            v.y = -abs(v.y)
+                            bounced = True
+                        if bounced:
+                            b["bounces"] = bounces_left - 1
+                            b["vel"] = v
+                            # Keep bullet on screen
+                            r.x = max(0, min(r.x, WIDTH - r.w))
+                            r.y = max(0, min(r.y, HEIGHT - r.h))
 
-                if rect_offscreen(r) and bounces_left == 0:
-                    if b in player_bullets:
-                        player_bullets.remove(b)
-                    continue
+                    if rect_offscreen(r) and bounces_left == 0:
+                        complex_bullets.remove(b)
+                
+                # Combine simple and complex bullets
+                player_bullets[:] = simple_bullets + complex_bullets
+            else:
+                # CPU fallback for small batches or when GPU unavailable
+                for b in player_bullets[:]:
+                    r = b["rect"]
+                    v = b["vel"]
+                    r.x += int(v.x * dt)
+                    r.y += int(v.y * dt)
+
+                    # Handle bouncing bullets
+                    bounces_left = b.get("bounces", 0)
+                    if bounces_left > 0:
+                        bounced = False
+                        if r.left < 0:
+                            v.x = abs(v.x)
+                            bounced = True
+                        elif r.right > WIDTH:
+                            v.x = -abs(v.x)
+                            bounced = True
+                        if r.top < 0:
+                            v.y = abs(v.y)
+                            bounced = True
+                        elif r.bottom > HEIGHT:
+                            v.y = -abs(v.y)
+                            bounced = True
+                        if bounced:
+                            b["bounces"] = bounces_left - 1
+                            b["vel"] = v
+                            # Keep bullet on screen
+                            r.x = max(0, min(r.x, WIDTH - r.w))
+                            r.y = max(0, min(r.y, HEIGHT - r.h))
+
+                    if rect_offscreen(r) and bounces_left == 0:
+                        if b in player_bullets:
+                            player_bullets.remove(b)
+                        continue
 
                 # bullets can destroy spawn_boost pickups
                 hit_pickup = None
@@ -3211,6 +3384,19 @@ try:
                                 player_bullets.remove(b)
                             break
                 
+                # Bullets interact with triangle blocks
+                for tr in triangle_blocks:
+                    if r.colliderect(tr["bounding_rect"]):
+                        # Bouncing bullets can bounce off triangles too
+                        if b.get("bounces", 0) > 0:
+                            # Simple bounce: reverse velocity
+                            b["vel"] = -b["vel"]
+                            b["bounces"] = b.get("bounces", 0) - 1
+                        else:
+                            if b in player_bullets:
+                                player_bullets.remove(b)
+                            break
+                
                 # Player bullets can destroy destructible blocks
                 for db in destructible_blocks[:]:
                     if r.colliderect(db["rect"]):
@@ -3268,7 +3454,8 @@ try:
                         r.y = max(0, min(r.y, HEIGHT - r.h))
 
                 if rect_offscreen(r) and bounces_left == 0:
-                    enemy_projectiles.remove(p)
+                    if p in enemy_projectiles:
+                        enemy_projectiles.remove(p)
                     continue
 
                 # Enemy projectiles can damage destructible blocks
@@ -3277,7 +3464,8 @@ try:
                         db["hp"] -= enemy_projectile_damage
                         if db["hp"] <= 0:
                             destructible_blocks.remove(db)
-                        enemy_projectiles.remove(p)
+                        if p in enemy_projectiles:
+                            enemy_projectiles.remove(p)
                         break
                 if p not in enemy_projectiles:
                     continue
@@ -3288,7 +3476,8 @@ try:
                         mdb["hp"] -= enemy_projectile_damage
                         if mdb["hp"] <= 0:
                             moveable_destructible_blocks.remove(mdb)
-                        enemy_projectiles.remove(p)
+                        if p in enemy_projectiles:
+                            enemy_projectiles.remove(p)
                         break
                 if p not in enemy_projectiles:
                     continue
@@ -3314,14 +3503,16 @@ try:
                             )
                         )
                         friendly_ai.remove(hit_friendly)
-                    enemy_projectiles.remove(p)
+                    if p in enemy_projectiles:
+                        enemy_projectiles.remove(p)
                     continue
 
                 if r.colliderect(player):
                     # Check if shield is active - shield blocks all damage
                     if shield_active:
                         # Shield blocks the projectile
-                        enemy_projectiles.remove(p)
+                        if p in enemy_projectiles:
+                            enemy_projectiles.remove(p)
                         continue
                     
                     # apply damage - overshield absorbs damage first
@@ -3354,7 +3545,8 @@ try:
                         )
                     )
 
-                    enemy_projectiles.remove(p)
+                    if p in enemy_projectiles:
+                        enemy_projectiles.remove(p)
 
                     # death handling
                     if player_hp <= 0:
@@ -3390,6 +3582,13 @@ try:
                 # Enemy projectiles collide with trapezoid blocks
                 for tb in trapezoid_blocks:
                     if r.colliderect(tb["bounding_rect"]):
+                        if p in enemy_projectiles:
+                            enemy_projectiles.remove(p)
+                        break
+                
+                # Enemy projectiles collide with triangle blocks
+                for tr in triangle_blocks:
+                    if r.colliderect(tr["bounding_rect"]):
                         if p in enemy_projectiles:
                             enemy_projectiles.remove(p)
                         break
@@ -3509,6 +3708,13 @@ try:
                 for i in range(0, len(visible_points) - 1):
                     pygame.draw.line(screen, (tb["color"][0] + 20, tb["color"][1] + 20, tb["color"][2] + 20),
                                     visible_points[i], visible_points[i + 1], 2)
+        
+        # Draw triangle blocks (decorative border elements)
+        for tr in triangle_blocks:
+            # Draw triangle as polygon
+            pygame.draw.polygon(screen, tr["color"], tr["points"])
+            # Draw border to indicate indestructible
+            pygame.draw.polygon(screen, (255, 255, 255), tr["points"], 2)
         
         # Indestructible blocks drawn with destructible blocks (see below)
         
