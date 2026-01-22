@@ -76,6 +76,14 @@ class WaveEvent:
 
 
 @dataclass
+class WaveEnemyTypeEvent:
+    t: float
+    wave_number: int
+    enemy_type: str
+    count: int  # How many of this type spawned in this wave
+
+
+@dataclass
 class EnemyPositionEvent:
     t: float
     enemy_type: str
@@ -267,10 +275,7 @@ class Telemetry:
         self._friendly_position_buf: list[tuple] = []
         self._friendly_shot_buf: list[tuple] = []
         self._friendly_death_buf: list[tuple] = []
-        self._friendly_spawn_buf: list[tuple] = []
-        self._friendly_position_buf: list[tuple] = []
-        self._friendly_shot_buf: list[tuple] = []
-        self._friendly_death_buf: list[tuple] = []
+        self._wave_enemy_types_buf: list[tuple] = []  # Track enemy types per wave
 
     # ----------------------------
     # Schema helpers
@@ -718,6 +723,19 @@ class Telemetry:
         );
         """)
 
+        # Wave enemy types table - tracks which enemy types spawned in each wave
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS wave_enemy_types (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            wave_number INTEGER NOT NULL,
+            enemy_type TEXT NOT NULL,
+            count INTEGER NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+        """)
+
         # Ensure new columns exist (migration) - MUST happen after all tables are created
         # Note: SQLite doesn't support ADD COLUMN IF NOT EXISTS, so we check via PRAGMA table_info.
         self.conn.commit()
@@ -752,6 +770,8 @@ class Telemetry:
         self._create_index_if_missing("friendly_ai_positions", "idx_friendly_pos_run_t", "run_id, t")
         self._create_index_if_missing("friendly_ai_shots", "idx_friendly_shots_run_t", "run_id, t")
         self._create_index_if_missing("friendly_ai_deaths", "idx_friendly_deaths_run_t", "run_id, t")
+        self._create_index_if_missing("wave_enemy_types", "idx_wave_enemy_types_run_wave", "run_id, wave_number")
+        self._create_index_if_missing("wave_enemy_types", "idx_wave_enemy_types_type", "enemy_type")
         self.conn.commit()
         
         # Create views for common queries
@@ -1125,6 +1145,20 @@ class Telemetry:
             )
         )
 
+    def log_wave_enemy_types(self, event: WaveEnemyTypeEvent) -> None:
+        """Log which enemy types spawned in a wave."""
+        if self.run_id is None:
+            return
+        self._wave_enemy_types_buf.append(
+            (
+                self.run_id,
+                float(event.t),
+                int(event.wave_number),
+                event.enemy_type,
+                int(event.count),
+            )
+        )
+
     # ----------------------------
     # Flush / tick / close
     # ----------------------------
@@ -1140,7 +1174,7 @@ class Telemetry:
             + len(self._wave_buf) + len(self._enemy_pos_buf) + len(self._player_velocity_buf)
             + len(self._bullet_metadata_buf) + len(self._score_buf) + len(self._level_buf)
             + len(self._boss_buf) + len(self._weapon_switch_buf) + len(self._pickup_buf)
-            + len(self._overshield_buf)
+            + len(self._overshield_buf) + len(self._wave_enemy_types_buf)
         )
         if total_buf_size >= self.max_buffer:
             self.flush()
@@ -1392,6 +1426,17 @@ class Telemetry:
                 self._friendly_death_buf,
             )
             self._friendly_death_buf.clear()
+            wrote_any = True
+
+        if self._wave_enemy_types_buf:
+            cur.executemany(
+                """
+                INSERT INTO wave_enemy_types (run_id, t, wave_number, enemy_type, count)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                self._wave_enemy_types_buf,
+            )
+            self._wave_enemy_types_buf.clear()
             wrote_any = True
 
         if wrote_any:

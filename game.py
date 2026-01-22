@@ -81,6 +81,17 @@
 #add a health bar for the player
 #make the metrics optional in the menu
 #--------------------------------------------------------
+#put the health bar on the bottom of the screen
+#--------------------------------------------------------
+#start game fullscreen
+#--------------------------------------------------------
+#in telemetry.py, track the player's position and velocity, and the enemy's position and velocity, and which enemy types spawned that wave; do the wave's tracking for the enemies as its own table
+#--------------------------------------------------------
+#add more enemies, and friendly ai, and give the ai more health (50-100), with their bar being full and green at the beginning of the waves
+#--------------------------------------------------------
+#add in more moveable blocks
+#add in moveable blocks that can be destroyed by the player's, and enemy's bullets
+#--------------------------------------------------------
 
 
 import math
@@ -114,6 +125,7 @@ from telemetry import (
     PlayerDamageEvent,
     PlayerDeathEvent,
     WaveEvent,
+    WaveEnemyTypeEvent,
     EnemyPositionEvent,
     PlayerVelocityEvent,
     BulletMetadataEvent,
@@ -179,8 +191,11 @@ controls = load_controls()
 # ----------------------------
 # Window / timing
 # ----------------------------
-WIDTH, HEIGHT = 1600, 1600
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+# Start in fullscreen mode
+pygame.display.init()
+screen_info = pygame.display.Info()
+WIDTH, HEIGHT = screen_info.current_w, screen_info.current_h
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
 pygame.display.set_caption("Mouse Aim Shooter + Telemetry (SQLite)")
 
 clock = pygame.time.Clock()
@@ -371,6 +386,13 @@ blocks = [
     {"rect": pygame.Rect(180, 180, 60, 30), "color": (30, 30, 30), "hp": None, "max_hp": None},  # indestructible
     {"rect": pygame.Rect(550, 420, 70, 70), "color": (200, 200, 200), "hp": None, "max_hp": None},  # indestructible
     {"rect": pygame.Rect(700, 420, 70, 70), "color": (220, 200, 10), "hp": None, "max_hp": None},  # indestructible
+    # Add more moveable blocks
+    {"rect": pygame.Rect(250, 300, 80, 80), "color": (120, 160, 200), "hp": None, "max_hp": None},  # indestructible, moveable
+    {"rect": pygame.Rect(900, 200, 60, 60), "color": (180, 180, 200), "hp": None, "max_hp": None},  # indestructible, moveable
+    {"rect": pygame.Rect(600, 700, 90, 50), "color": (200, 180, 140), "hp": None, "max_hp": None},  # indestructible, moveable
+    {"rect": pygame.Rect(1150, 400, 70, 70), "color": (160, 200, 160), "hp": None, "max_hp": None},  # indestructible, moveable
+    {"rect": pygame.Rect(500, 900, 50, 50), "color": (220, 160, 120), "hp": None, "max_hp": None},  # indestructible, moveable
+    {"rect": pygame.Rect(1350, 800, 80, 40), "color": (140, 140, 220), "hp": None, "max_hp": None},  # indestructible, moveable
 ]
 
 # Add more destructible blocks (scattered across larger map)
@@ -387,6 +409,18 @@ destructible_blocks = [
     {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
     {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
     {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0},
+]
+
+# Moveable destructible blocks (can be pushed by player AND destroyed by player/enemy bullets)
+moveable_destructible_blocks = [
+    {"rect": pygame.Rect(350, 400, 70, 70), "color": (200, 100, 100), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(850, 500, 60, 60), "color": (100, 200, 100), "hp": 35, "max_hp": 35, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(650, 300, 80, 50), "color": (200, 150, 100), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(1050, 600, 60, 60), "color": (150, 100, 200), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(450, 800, 70, 50), "color": (200, 180, 120), "hp": 50, "max_hp": 50, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(1250, 900, 80, 40), "color": (100, 150, 200), "hp": 35, "max_hp": 35, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(550, 1100, 60, 60), "color": (180, 200, 100), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(950, 1100, 70, 50), "color": (200, 120, 150), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
 ]
 
 # Health recovery zones (areas where player regenerates health)
@@ -667,8 +701,8 @@ wave_in_level = 1  # Wave within current level (1, 2, or 3)
 wave_respawn_delay = 2.5  # seconds between waves
 time_to_next_wave = 0.0
 wave_active = True
-base_enemies_per_wave = 6  # Increased by 1.5x (was 4)
-max_enemies_per_wave = 36  # Increased by 1.5x (was 24)
+base_enemies_per_wave = 9  # Increased for more enemies (was 6)
+max_enemies_per_wave = 54  # Increased for more enemies (was 36)
 boss_active = False
 
 # Pickups
@@ -735,13 +769,13 @@ def can_move_rect(rect: pygame.Rect, dx: int, dy: int, other_rects: list[pygame.
             rect.x, rect.y, rect.w, rect.h, dx, dy, other_rects, WIDTH, HEIGHT
         )
     else:
-        test = rect.move(dx, dy)
-        if test.left < 0 or test.right > WIDTH or test.top < 0 or test.bottom > HEIGHT:
+    test = rect.move(dx, dy)
+    if test.left < 0 or test.right > WIDTH or test.top < 0 or test.bottom > HEIGHT:
+        return False
+    for o in other_rects:
+        if test.colliderect(o):
             return False
-        for o in other_rects:
-            if test.colliderect(o):
-                return False
-        return True
+    return True
 
 
 def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict]):
@@ -791,6 +825,8 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
         if candidate.colliderect(player):
             continue
         if any(candidate.colliderect(b["rect"]) for b in blocks):
+            continue
+        if any(candidate.colliderect(b["rect"]) for b in moveable_destructible_blocks):
             continue
         if any(candidate.colliderect(p["rect"]) for p in pickups):
             continue
@@ -847,16 +883,15 @@ def log_enemy_spawns(new_enemies: list[dict]):
 
 def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
     """Create a friendly AI unit from a template."""
-    base_hp = t.get("hp", 40)  # Use template HP
-    base_max_hp = t.get("max_hp", base_hp)  # Use template max_hp
-    hp = max(1, int(base_hp * hp_scale))  # Ensure at least 1 HP
-    max_hp = max(1, int(base_max_hp * hp_scale))  # Ensure at least 1 max HP
+    # Set HP to random 50-100 instead of using hp_scale
+    hp = random.randint(50, 100)
+    max_hp = hp  # Full health at wave start
     return {
         "type": t["type"],
         "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
         "color": t["color"],
         "hp": hp,
-        "max_hp": max_hp,  # Use calculated max_hp
+        "max_hp": max_hp,  # Full health, green bar at wave start
         "shoot_cooldown": t["shoot_cooldown"],
         "time_since_shot": random.uniform(0.0, t["shoot_cooldown"]),
         "projectile_speed": t["projectile_speed"],
@@ -1034,6 +1069,15 @@ def start_wave(wave_num: int):
         enemies.append(boss)
         boss_active = True
         log_enemy_spawns([boss])
+        # Log boss as enemy type for this wave
+        telemetry.log_wave_enemy_types(
+            WaveEnemyTypeEvent(
+                t=run_time,
+                wave_number=wave_num,
+                enemy_type=boss["type"],
+                count=1,
+            )
+        )
         wave_active = True
         return
     
@@ -1047,21 +1091,38 @@ def start_wave(wave_num: int):
     speed_scale = (1.0 + 0.05 * (wave_num - 1)) * diff_mult["enemy_speed"] * level_mult * wave_in_level_mult
     # Apply difficulty to enemy count
     base_count = base_enemies_per_wave + enemy_spawn_boost_level + 2 * (wave_num - 1)
-    count = min(int(base_count * diff_mult["enemy_spawn"] * 1.5), max_enemies_per_wave)  # 1.5x multiplier for more enemies
+    count = min(int(base_count * diff_mult["enemy_spawn"] * 2.0), max_enemies_per_wave)  # 2.0x multiplier for more enemies
 
     spawned: list[dict] = []
+    # Track enemy types for this wave
+    enemy_type_counts: dict[str, int] = {}
+    
     for _ in range(count):
         tmpl = random.choice(enemy_templates)
         enemy = make_enemy_from_template(tmpl, hp_scale, speed_scale)
         enemy["rect"] = random_spawn_position((enemy["rect"].w, enemy["rect"].h))
         spawned.append(enemy)
+        # Count enemy types
+        enemy_type = enemy["type"]
+        enemy_type_counts[enemy_type] = enemy_type_counts.get(enemy_type, 0) + 1
 
     enemies.extend(spawned)
     log_enemy_spawns(spawned)
     
-    # Spawn friendly AI: 1-2 per every 3-5 enemies
-    # Calculate friendly AI count based on enemy count
-    friendly_count = max(1, min(2, (count + 2) // 3))  # 1-2 friendly per 3-5 enemies
+    # Log enemy types for this wave
+    for enemy_type, type_count in enemy_type_counts.items():
+        telemetry.log_wave_enemy_types(
+            WaveEnemyTypeEvent(
+                t=run_time,
+                wave_number=wave_num,
+                enemy_type=enemy_type,
+                count=type_count,
+            )
+        )
+    
+    # Spawn friendly AI: 2-4 per wave (increased from 1-2)
+    # Calculate friendly AI count based on enemy count - more friendly AI
+    friendly_count = max(2, min(4, (count + 1) // 2))  # 2-4 friendly per wave
     spawn_friendly_ai(friendly_count, hp_scale, speed_scale)
     
     wave_active = True
@@ -1286,7 +1347,7 @@ def spawn_player_bullet_and_log():
         my = int(player.centery + base_dir.y * target_dist)
     else:
         # Mouse aiming (default)
-        mx, my = pygame.mouse.get_pos()
+    mx, my = pygame.mouse.get_pos()
         base_dir = vec_toward(player.centerx, player.centery, mx, my)
 
     shape = player_bullet_shapes[player_bullet_shape_index % len(player_bullet_shapes)]
@@ -1328,7 +1389,7 @@ def spawn_player_bullet_and_log():
             effective_damage = base_damage
             rocket_explosion = 0.0
 
-        r = pygame.Rect(
+    r = pygame.Rect(
             player.centerx - effective_size[0] // 2,
             player.centery - effective_size[1] // 2,
             effective_size[0],
@@ -1383,7 +1444,7 @@ def spawn_enemy_projectile(enemy: dict):
         d = vec_toward(e_pos.x, e_pos.y, threat_pos.x, threat_pos.y)
     else:
         # Fallback to player if no threats
-        d = vec_toward(enemy["rect"].centerx, enemy["rect"].centery, player.centerx, player.centery)
+    d = vec_toward(enemy["rect"].centerx, enemy["rect"].centery, player.centerx, player.centery)
     r = pygame.Rect(
         enemy["rect"].centerx - enemy_projectile_size[0] // 2,
         enemy["rect"].centery - enemy_projectile_size[1] // 2,
@@ -2065,6 +2126,20 @@ try:
                                 if db["hp"] <= 0:
                                     destructible_blocks.remove(db)
                         
+                        # Check collision with moveable destructible blocks (can damage them)
+                        for mdb in moveable_destructible_blocks[:]:
+                            hit = line_rect_intersection(player_center, laser_end, mdb["rect"])
+                            if hit:
+                                dist = (hit - player_center).length()
+                                if dist < closest_dist:
+                                    closest_dist = dist
+                                    closest_hit = hit
+                                    laser_end = hit
+                                # Damage moveable destructible block
+                                mdb["hp"] -= laser_damage * dt * 60  # Damage per second
+                                if mdb["hp"] <= 0:
+                                    moveable_destructible_blocks.remove(mdb)
+                        
                         # Check collision with enemies (can damage them)
                         for e in enemies[:]:
                             hit = line_rect_intersection(player_center, laser_end, e["rect"])
@@ -2115,8 +2190,8 @@ try:
                     should_shoot = pygame.mouse.get_pressed(3)[0]
                 
                 if should_shoot and player_time_since_shot >= effective_cooldown:
-                    spawn_player_bullet_and_log()
-                    player_time_since_shot = 0.0
+                spawn_player_bullet_and_log()
+                player_time_since_shot = 0.0
                 player_time_since_shot += dt
 
             # Update bouncing destructor shapes
@@ -2142,6 +2217,13 @@ try:
                         db["hp"] -= ds.get("damage", 50) * dt * 60
                         if db["hp"] <= 0:
                             destructible_blocks.remove(db)
+                
+                # Check collision with moveable destructible blocks
+                for mdb in moveable_destructible_blocks[:]:
+                    if ds["rect"].colliderect(mdb["rect"]):
+                        mdb["hp"] -= ds.get("damage", 50) * dt * 60
+                        if mdb["hp"] <= 0:
+                            moveable_destructible_blocks.remove(mdb)
                 
                 # Check collision with enemies
                 for e in enemies[:]:
@@ -2213,7 +2295,7 @@ try:
             # Update pickup visual effects
             update_pickup_effects(dt)
 
-            block_rects = [b["rect"] for b in blocks]
+            block_rects = [b["rect"] for b in blocks] + [b["rect"] for b in moveable_destructible_blocks]
             # Cache player position to avoid recalculating
             player_pos_cached = pygame.Vector2(player.center)
             
@@ -2495,7 +2577,7 @@ try:
                         e["color"] = (255, 0, 255)  # Magenta
                     
                     # Boss shooting patterns based on phase
-                    if e["time_since_shot"] >= e["shoot_cooldown"]:
+                if e["time_since_shot"] >= e["shoot_cooldown"]:
                         if e["phase"] == 1:
                             # Phase 1: Single shots
                             spawn_enemy_projectile(e)
@@ -2528,7 +2610,7 @@ try:
                     # Reflective shield enemies don't shoot
                     if not e.get("has_reflective_shield", False):
                         spawn_enemy_projectile(e)
-                        e["time_since_shot"] = 0.0
+                    e["time_since_shot"] = 0.0
 
             # Pickup spawning (affected by difficulty)
             if state == STATE_PLAYING or state == STATE_ENDURANCE:
@@ -2639,6 +2721,12 @@ try:
                 # Check collision with blocks
                 for blk in blocks:
                     if fp["rect"].colliderect(blk["rect"]):
+                        friendly_projectiles.remove(fp)
+                        break
+                
+                # Check collision with moveable destructible blocks
+                for mdb in moveable_destructible_blocks:
+                    if fp["rect"].colliderect(mdb["rect"]):
                         friendly_projectiles.remove(fp)
                         break
 
@@ -2847,14 +2935,14 @@ try:
                             continue
                     else:
                         # No penetration left, remove bullet
-                        player_bullets.remove(b)
+                    player_bullets.remove(b)
 
                     if killed:
                         kill_enemy(e)
 
                     # If bullet was removed, continue to next bullet
                     if b not in player_bullets:
-                        continue
+                    continue
 
                 # bullets interact with indestructible blocks
                 for blk in blocks:
@@ -2865,8 +2953,8 @@ try:
                             b["vel"] = -b["vel"]
                             b["bounces"] = b.get("bounces", 0) - 1
                         else:
-                            player_bullets.remove(b)
-                            break
+                        player_bullets.remove(b)
+                        break
                 
                 # Player bullets can destroy destructible blocks
                 for db in destructible_blocks[:]:
@@ -2875,6 +2963,18 @@ try:
                         db["hp"] -= bullet_damage
                         if db["hp"] <= 0:
                             destructible_blocks.remove(db)
+                        # Remove bullet unless it has penetration
+                        if b.get("penetration", 0) == 0:
+                            player_bullets.remove(b)
+                        break
+                
+                # Player bullets can destroy moveable destructible blocks
+                for mdb in moveable_destructible_blocks[:]:
+                    if r.colliderect(mdb["rect"]):
+                        bullet_damage = b.get("damage", player_bullet_damage)
+                        mdb["hp"] -= bullet_damage
+                        if mdb["hp"] <= 0:
+                            moveable_destructible_blocks.remove(mdb)
                         # Remove bullet unless it has penetration
                         if b.get("penetration", 0) == 0:
                             player_bullets.remove(b)
@@ -2922,6 +3022,17 @@ try:
                         db["hp"] -= enemy_projectile_damage
                         if db["hp"] <= 0:
                             destructible_blocks.remove(db)
+                        enemy_projectiles.remove(p)
+                        break
+                if p not in enemy_projectiles:
+                    continue
+                
+                # Enemy projectiles can damage moveable destructible blocks
+                for mdb in moveable_destructible_blocks[:]:
+                    if r.colliderect(mdb["rect"]):
+                        mdb["hp"] -= enemy_projectile_damage
+                        if mdb["hp"] <= 0:
+                            moveable_destructible_blocks.remove(mdb)
                         enemy_projectiles.remove(p)
                         break
                 if p not in enemy_projectiles:
@@ -3017,6 +3128,13 @@ try:
                 # projectiles collide with blocks
                 for blk in blocks:
                     if r.colliderect(blk["rect"]):
+                        enemy_projectiles.remove(p)
+                        break
+                
+                # Enemy projectiles also collide with moveable destructible blocks (non-bouncing only)
+                if bounces_left == 0:
+                    for mdb in moveable_destructible_blocks:
+                        if r.colliderect(mdb["rect"]):
                         enemy_projectiles.remove(p)
                         break
 
@@ -3155,6 +3273,40 @@ try:
             if ui_show_block_health_bars:
                 draw_health_bar(db["rect"].x, db["rect"].y - 10, db["rect"].w, 6, db["hp"], db["max_hp"])
         
+        # Draw moveable destructible blocks (can be pushed and destroyed)
+        for mdb in moveable_destructible_blocks:
+            # Calculate crack level based on HP
+            hp_ratio = mdb["hp"] / mdb["max_hp"]
+            if hp_ratio < 0.33:
+                crack_level = 3  # Heavily cracked
+            elif hp_ratio < 0.66:
+                crack_level = 2  # Moderately cracked
+            else:
+                crack_level = 1  # Slightly cracked
+            
+            # Base color with cracks
+            base_color = mdb["color"]
+            pygame.draw.rect(screen, base_color, mdb["rect"])
+            
+            # Draw crack texture
+            if crack_level >= 2:
+                # Draw crack lines
+                crack_color = (50, 50, 50)
+                center = mdb["rect"].center
+                # Random crack pattern
+                for i in range(crack_level):
+                    angle = (i * 2.4) * math.pi / 3
+                    end_x = center[0] + math.cos(angle) * (mdb["rect"].w // 2)
+                    end_y = center[1] + math.sin(angle) * (mdb["rect"].h // 2)
+                    pygame.draw.line(screen, crack_color, center, (end_x, end_y), 2)
+            
+            # Draw border to indicate it's moveable (different from regular destructible)
+            pygame.draw.rect(screen, (255, 200, 100), mdb["rect"], 2)  # Orange border for moveable
+            
+            # Health bar only if enabled
+            if ui_show_block_health_bars:
+                draw_health_bar(mdb["rect"].x, mdb["rect"].y - 10, mdb["rect"].w, 6, mdb["hp"], mdb["max_hp"])
+        
         # Draw indestructible blocks with texture (solid appearance)
         for blk in blocks:
             # Draw with pattern/texture to show it's indestructible
@@ -3205,12 +3357,19 @@ try:
         # Draw friendly AI
         for f in friendly_ai:
             pygame.draw.rect(screen, f["color"], f["rect"])
-            # Draw health bar above friendly AI
+            # Draw health bar above friendly AI (green when full)
             bar_x = f["rect"].x
             bar_y = f["rect"].y - 8
             bar_w = f["rect"].w
             bar_h = 4
-            draw_health_bar(bar_x, bar_y, bar_w, bar_h, f["hp"], f["max_hp"])
+            # Use bright green for friendly AI health bars
+            hp_ratio = f["hp"] / f["max_hp"] if f["max_hp"] > 0 else 0
+            pygame.draw.rect(screen, (60, 60, 60), (bar_x, bar_y, bar_w, bar_h))  # Background
+            fill_w = int(bar_w * hp_ratio)
+            # Bright green for full health, slightly darker when damaged
+            green_intensity = int(60 + (200 - 60) * hp_ratio)
+            pygame.draw.rect(screen, (60, green_intensity, 60), (bar_x, bar_y, fill_w, bar_h))
+            pygame.draw.rect(screen, (20, 20, 20), (bar_x, bar_y, bar_w, bar_h), 2)  # Border
         
         # Draw friendly projectiles
         for fp in friendly_projectiles:
@@ -3219,7 +3378,7 @@ try:
         for e in enemies:
             pygame.draw.rect(screen, e["color"], e["rect"])
             if ui_show_health_bars:
-                draw_health_bar(e["rect"].x, e["rect"].y - 10, e["rect"].w, 6, e["hp"], e["max_hp"])
+            draw_health_bar(e["rect"].x, e["rect"].y - 10, e["rect"].w, 6, e["hp"], e["max_hp"])
 
             # Draw shield for shielded enemies
             if e.get("has_shield"):
@@ -3323,13 +3482,18 @@ try:
 
         # HUD (only if UI is enabled)
         if ui_show_all_ui:
-            # Draw overshield bar (above HP bar)
-            hp_bar_y = 10
+            # Draw health bar at the bottom of the screen
+            hp_bar_width = 400
+            hp_bar_height = 30
+            hp_bar_x = (WIDTH - hp_bar_width) // 2  # Center horizontally
+            hp_bar_y = HEIGHT - hp_bar_height - 20  # 20 pixels from bottom
+            
+            # Draw overshield bar (above HP bar at bottom)
             if overshield > 0:
-                overshield_bar_x = 10
-                overshield_bar_y = 10
-                overshield_bar_w = 220
+                overshield_bar_w = hp_bar_width
                 overshield_bar_h = 12
+                overshield_bar_x = hp_bar_x
+                overshield_bar_y = hp_bar_y - 18  # Above HP bar
                 overshield_ratio = overshield / overshield_max
                 # Background
                 pygame.draw.rect(screen, (40, 40, 40), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h))
@@ -3338,13 +3502,19 @@ try:
                 # Border
                 pygame.draw.rect(screen, (150, 220, 255), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h), 2)
                 # Text
-                screen.blit(font.render(f"Shield: {int(overshield)}/{int(overshield_max)}", True, (150, 220, 255)), (overshield_bar_x + 5, overshield_bar_y - 1))
-                hp_bar_y = 28  # Move HP bar down if overshield is shown
+                shield_text = font.render(f"Shield: {int(overshield)}/{int(overshield_max)}", True, (150, 220, 255))
+                shield_text_x = overshield_bar_x + (overshield_bar_w - shield_text.get_width()) // 2
+                screen.blit(shield_text, (shield_text_x, overshield_bar_y - 1))
             
-            draw_health_bar(10, hp_bar_y, 220, 18, player_hp, player_max_hp)
-            hp_text_y = hp_bar_y + 24
-            screen.blit(font.render(f"HP: {player_hp}/{player_max_hp}", True, (230, 230, 230)), (12, hp_text_y))
-            lives_y = hp_text_y + 24
+            # Draw HP bar at bottom
+            draw_health_bar(hp_bar_x, hp_bar_y, hp_bar_width, hp_bar_height, player_hp, player_max_hp)
+            # HP text centered above the bar
+            hp_text = font.render(f"HP: {player_hp}/{player_max_hp}", True, (230, 230, 230))
+            hp_text_x = hp_bar_x + (hp_bar_width - hp_text.get_width()) // 2
+            screen.blit(hp_text, (hp_text_x, hp_bar_y - 24))
+            
+            # Other HUD elements remain at top-left
+            lives_y = 10
             # Render HUD using helper function
             y = render_hud_text(f"Lives: {lives}", lives_y)
             y = render_hud_text(f"Level: {current_level} - {level_themes[current_level]['name']}", y, (255, 200, 100))
@@ -3414,7 +3584,7 @@ try:
             
             # Only show metrics if enabled
             if ui_show_metrics:
-                screen.blit(
+        screen.blit(
             font.render(
                 f"Run: {run_time:.1f}s  Shots: {shots_fired}  Hits: {hits}  Kills: {enemies_killed}  Deaths: {deaths}",
                 True,
