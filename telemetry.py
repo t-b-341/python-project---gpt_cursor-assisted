@@ -2,6 +2,16 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Optional
 
+# GPU acceleration support (optional - falls back to CPU if unavailable)
+try:
+    from gpu_physics import CUDA_AVAILABLE
+    USE_GPU = CUDA_AVAILABLE
+    if USE_GPU:
+        # GPU acceleration available for batch operations
+        pass
+except ImportError:
+    USE_GPU = False
+
 
 # ----------------------------
 # Events

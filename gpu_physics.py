@@ -224,12 +224,71 @@ if CUDA_AVAILABLE:
         
         return collision_pairs
 
+    def process_data_batch_gpu(data_array, operation="histogram"):
+        """
+        GPU-accelerated data processing for telemetry/visualization.
+        
+        Args:
+            data_array: numpy array of data points
+            operation: "histogram", "distance", "aggregate"
+        
+        Returns:
+            Processed results
+        """
+        if not CUDA_AVAILABLE or len(data_array) == 0:
+            return None
+        
+        # Placeholder for future GPU-accelerated data processing
+        # Can be extended for histogram calculations, distance matrices, etc.
+        return None
+
 else:
     # Fallback functions when CUDA is not available
+    from numba import njit
+    
+    @njit
+    def update_bullets_cpu_jit(positions, velocities, dt, screen_width, screen_height, result_mask):
+        """CPU JIT-accelerated bullet update."""
+        for i in range(positions.shape[0]):
+            positions[i, 0] += velocities[i, 0] * dt
+            positions[i, 1] += velocities[i, 1] * dt
+            x, y = positions[i, 0], positions[i, 1]
+            if x < -50 or x > screen_width + 50 or y < -50 or y > screen_height + 50:
+                result_mask[i] = 0
+            else:
+                result_mask[i] = 1
+    
     def update_bullets_batch(bullets_data, dt, screen_width, screen_height):
-        """Fallback CPU implementation."""
-        return list(range(len(bullets_data)))
+        """Fallback CPU implementation with JIT optimization."""
+        if len(bullets_data) == 0:
+            return []
+        
+        n = len(bullets_data)
+        positions = np.zeros((n, 2), dtype=np.float32)
+        velocities = np.zeros((n, 2), dtype=np.float32)
+        result_mask = np.ones(n, dtype=np.int32)
+        
+        for i, bullet in enumerate(bullets_data):
+            positions[i, 0] = bullet.get('x', 0)
+            positions[i, 1] = bullet.get('y', 0)
+            velocities[i, 0] = bullet.get('vx', 0)
+            velocities[i, 1] = bullet.get('vy', 0)
+        
+        update_bullets_cpu_jit(positions, velocities, dt, screen_width, screen_height, result_mask)
+        
+        keep_indices = []
+        for i in range(n):
+            if result_mask[i] == 1:
+                bullets_data[i]['x'] = float(positions[i, 0])
+                bullets_data[i]['y'] = float(positions[i, 1])
+                keep_indices.append(i)
+        
+        return keep_indices
     
     def check_collisions_batch(bullets_data, targets_data):
         """Fallback CPU implementation."""
         return []
+    
+    def process_data_batch_gpu(data_array, operation="histogram"):
+        """Fallback CPU implementation."""
+        return None

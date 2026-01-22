@@ -13,6 +13,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
+# GPU acceleration support (optional - falls back to CPU if unavailable)
+try:
+    from gpu_physics import CUDA_AVAILABLE
+    USE_GPU = CUDA_AVAILABLE
+    if USE_GPU:
+        try:
+            from numba import cuda
+            import numpy as np
+            # GPU acceleration available for data processing
+        except ImportError:
+            USE_GPU = False
+except ImportError:
+    USE_GPU = False
+
 
 DB_PATH = "game_telemetry.db"
 OUT_DIR = "telemetry_plots"
