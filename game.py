@@ -117,6 +117,16 @@
 # ✅ CUDA 12.9 CONFIGURED - GPU acceleration is active (RTX 4080 SUPER detected)
 #    Falls back to CPU JIT (2-5x speedup) if CUDA becomes unavailable.
 #--------------------------------------------------------
+#fix the health bars for the friendly ai, and make their health bars full and green at the beginning of the waves
+#--------------------------------------------------------
+#change all enemies to have no more than 300 health each. The enemies can have health lower than that.
+#--------------------------------------------------------
+#I'm still encountering frame rate issues. Let's add a feature where at the beginning ofhe game, you ask if the user wants to run telemetry and write to game_telemetry.db.
+#isualize.py: update the charts to be the most recent run
+#--------------------------------------------------------
+#set default telemetry to disabled in the menu
+#--------------------------------------------------------
+
 
 
 
@@ -244,7 +254,9 @@ big_font = pygame.font.SysFont(None, 56)
 # ----------------------------
 # Telemetry
 # ----------------------------
-telemetry = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
+# Telemetry can be disabled to improve performance
+telemetry_enabled = False  # Default: Disabled (will be set by user in menu)
+telemetry = None  # Will be initialized if enabled
 run_started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 # ----------------------------
@@ -311,6 +323,7 @@ ui_show_all_ui = True
 ui_show_block_health_bars = False  # Health bars for destructible blocks
 ui_show_player_health_bar = True  # Health bar above player character
 ui_show_metrics = True  # Show metrics/stats in HUD
+ui_telemetry_enabled_selected = 1  # 0 = Enabled, 1 = Disabled (for menu) - Default: Disabled
 
 # Alternative aiming mechanics
 aiming_mechanic = "mouse"  # "mouse", "lockon", "predictive", "directional", "hybrid"
@@ -663,8 +676,8 @@ enemy_templates: list[dict] = [
         "type": "baka",
         "rect": pygame.Rect(90, 450, 28, 28),
         "color": (100, 80, 80),
-        "hp": 400,
-        "max_hp": 400,
+        "hp": 300,
+        "max_hp": 300,
         "shoot_cooldown": 0.1,
         "projectile_speed": 500,
         "projectile_color": (255, 120, 180),
@@ -687,8 +700,8 @@ enemy_templates: list[dict] = [
         "type": "BIG NEKU",
         "rect": pygame.Rect(400, 450, 28, 28),
         "color": (100, 200, 0),
-        "hp": 1000,
-        "max_hp": 1000,
+        "hp": 300,
+        "max_hp": 300,
         "shoot_cooldown": 1,
         "projectile_speed": 700,
         "projectile_color": (160, 200, 255),
@@ -748,8 +761,8 @@ boss_template = {
     "type": "FINAL_BOSS",
     "rect": pygame.Rect(WIDTH // 2 - 50, HEIGHT // 2 - 50, 100, 100),
     "color": (255, 0, 0),
-    "hp": 5000,
-    "max_hp": 5000,
+    "hp": 300,
+    "max_hp": 300,
     "shoot_cooldown": 0.5,
     "projectile_speed": 400,
     "projectile_color": (255, 50, 50),
@@ -989,7 +1002,7 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
                 if player_rect.colliderect(tr["bounding_rect"]):
                     hit_block = tr
                     hit_is_trapezoid = True
-                    break
+                break
 
         if hit_block is None:
             continue
@@ -1184,6 +1197,8 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
 
 def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
     hp = int(t["hp"] * hp_scale)
+    # Cap HP at 300 maximum
+    hp = min(hp, 300)
     enemy = {
         "type": t["type"],
         "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
@@ -1230,9 +1245,9 @@ def log_enemy_spawns(new_enemies: list[dict]):
 
 def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
     """Create a friendly AI unit from a template."""
-    # Set HP to random 50-100 instead of using hp_scale
-    hp = random.randint(50, 100)
-    max_hp = hp  # Full health at wave start
+    # Set max HP to 100 (consistent for all friendly AI)
+    max_hp = 100
+    hp = max_hp  # Always start with full health at wave start
     return {
         "type": t["type"],
         "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
@@ -1388,7 +1403,8 @@ def spawn_friendly_projectile(friendly: dict, target: dict):
             target_enemy_type=target.get("type", "unknown"),
         )
     )
-    telemetry.flush(force=True)
+    if telemetry_enabled and telemetry:
+        telemetry.flush(force=True)
 
 
 def start_wave(wave_num: int):
@@ -1408,15 +1424,11 @@ def start_wave(wave_num: int):
         boss["rect"] = pygame.Rect(WIDTH // 2 - 50, HEIGHT // 2 - 50, 100, 100)
         diff_mult = difficulty_multipliers[difficulty]
         
-        # Final level (level 3) boss has 10,000 HP
-        if current_level == 3:
-            boss["hp"] = 10000
-            boss["max_hp"] = 10000
-        else:
-            # Scale boss HP for levels 1-2
-            boss_hp_scale = 1.0 + (current_level - 1) * 0.5
-            boss["hp"] = int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"])
-            boss["max_hp"] = boss["hp"]
+        # Boss HP is capped at 300 (same as all enemies)
+        # Scale boss HP for different levels, but cap at 300
+        boss_hp_scale = 1.0 + (current_level - 1) * 0.3
+        boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"]), 300)
+        boss["max_hp"] = boss["hp"]
         
         boss["phase"] = 1
         boss["time_since_shot"] = 0.0
@@ -1743,13 +1755,13 @@ def spawn_player_bullet_and_log():
             effective_damage = base_damage
             rocket_explosion = 0.0
 
-        r = pygame.Rect(
-            player.centerx - effective_size[0] // 2,
-            player.centery - effective_size[1] // 2,
-            effective_size[0],
-            effective_size[1],
-        )
-        player_bullets.append({
+    r = pygame.Rect(
+        player.centerx - effective_size[0] // 2,
+        player.centery - effective_size[1] // 2,
+        effective_size[0],
+        effective_size[1],
+    )
+    player_bullets.append({
             "rect": r,
             "vel": d * effective_speed,
             "shape": shape,
@@ -1793,12 +1805,15 @@ def spawn_enemy_projectile(enemy: dict):
     e_pos = pygame.Vector2(enemy["rect"].center)
     threat_result = find_nearest_threat(e_pos)
     
+    # Calculate direction
     if threat_result:
         threat_pos, threat_type = threat_result
         d = vec_toward(e_pos.x, e_pos.y, threat_pos.x, threat_pos.y)
     else:
         # Fallback to player if no threats
         d = vec_toward(enemy["rect"].centerx, enemy["rect"].centery, player.centerx, player.centery)
+    
+    # Create projectile rect and properties (used regardless of threat result)
     r = pygame.Rect(
         enemy["rect"].centerx - enemy_projectile_size[0] // 2,
         enemy["rect"].centery - enemy_projectile_size[1] // 2,
@@ -1808,29 +1823,29 @@ def spawn_enemy_projectile(enemy: dict):
     proj_color = enemy.get("projectile_color", enemy_projectiles_color)
     proj_shape = enemy.get("projectile_shape", "circle")
     bounces = enemy.get("bouncing_projectiles", False)
-    enemy_projectiles.append(
-        {
-            "rect": r,
-            "vel": d * enemy["projectile_speed"],
-            "enemy_type": enemy["type"],  # attribute damage source
-            "color": proj_color,
-            "shape": proj_shape,
-            "bounces": 10 if bounces else 0,  # max bounces for bouncing enemy type
-        }
-    )
+    
+    enemy_projectiles.append({
+        "rect": r,
+        "vel": d * enemy["projectile_speed"],
+        "enemy_type": enemy["type"],  # attribute damage source
+        "color": proj_color,
+        "shape": proj_shape,
+        "bounces": 10 if bounces else 0,  # max bounces for bouncing enemy type
+    })
     
     # Log enemy projectile metadata
-    telemetry.log_bullet_metadata(
-        BulletMetadataEvent(
+    if telemetry_enabled and telemetry:
+        telemetry.log_bullet_metadata(
+            BulletMetadataEvent(
                 t=run_time,
-            bullet_type="enemy",
-            shape=proj_shape,
-            color_r=proj_color[0],
-            color_g=proj_color[1],
-            color_b=proj_color[2],
-            source_enemy_type=enemy["type"],
+                bullet_type="enemy",
+                shape=proj_shape,
+                color_r=proj_color[0],
+                color_g=proj_color[1],
+                color_b=proj_color[2],
+                source_enemy_type=enemy["type"],
+            )
         )
-    )
 
 
 def spawn_boss_projectile(boss: dict, direction: pygame.Vector2):
@@ -2073,6 +2088,8 @@ run_id = None  # Will be set when game starts
 # ----------------------------
 # Main loop with safe shutdown
 # ----------------------------
+# Note: telemetry_enabled and telemetry are module-level variables,
+# so we can modify them directly without global declaration in the main loop
 try:
     while running:
         # Cap FPS at 120 for better performance and stability (prevents excessive CPU usage)
@@ -2182,10 +2199,21 @@ try:
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                             menu_section = 1
                     elif menu_section == 3:
+                        # Toggle between metrics and telemetry options
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
-                            ui_show_metrics_selected = (ui_show_metrics_selected - 1) % 2
+                            if ui_show_metrics_selected == 0:
+                                ui_show_metrics_selected = 1
+                                ui_telemetry_enabled_selected = 0
+                            else:
+                                ui_show_metrics_selected = 0
+                                ui_telemetry_enabled_selected = 1
                         elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                            ui_show_metrics_selected = (ui_show_metrics_selected + 1) % 2
+                            if ui_show_metrics_selected == 0:
+                                ui_show_metrics_selected = 1
+                                ui_telemetry_enabled_selected = 0
+                            else:
+                                ui_show_metrics_selected = 0
+                                ui_telemetry_enabled_selected = 1
                         elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                             menu_section = 4
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
@@ -2197,6 +2225,17 @@ try:
                             aiming_mode = AIM_MOUSE if aiming_mode_selected == 0 else AIM_ARROWS
                             player_class = player_class_options[player_class_selected]
                             ui_show_metrics = ui_show_metrics_selected == 0
+                            # Set telemetry enabled based on user choice
+                            telemetry_enabled = ui_telemetry_enabled_selected == 0
+                            # Initialize telemetry if enabled
+                            if telemetry_enabled:
+                                telemetry = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
+                            else:
+                                # Create a no-op telemetry object
+                                class NoOpTelemetry:
+                                    def __getattr__(self, name):
+                                        return lambda *args, **kwargs: None
+                                telemetry = NoOpTelemetry()
                             # Apply class stats
                             stats = player_class_stats[player_class]
                             player_max_hp = int(100 * stats["hp_mult"])
@@ -2205,7 +2244,7 @@ try:
                             player_bullet_damage = int(20 * stats["damage_mult"])
                             player_shoot_cooldown = 0.12 / stats["firerate_mult"]
                             state = STATE_PLAYING
-                            run_id = telemetry.start_run(run_started_at, player_max_hp)
+                            run_id = telemetry.start_run(run_started_at, player_max_hp) if telemetry_enabled else None
                             start_wave(wave_number)
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                             menu_section = 3
@@ -3024,10 +3063,11 @@ try:
                                 spawn_boss_projectile(e, dir_vec)
                         e["time_since_shot"] = 0.0
                 elif e["time_since_shot"] >= e["shoot_cooldown"]:
+                    # Regular enemy shooting (non-boss)
                     # Reflective shield enemies don't shoot
                     if not e.get("has_reflective_shield", False):
                         spawn_enemy_projectile(e)
-                    e["time_since_shot"] = 0.0
+                        e["time_since_shot"] = 0.0
 
             # Pickup spawning (affected by difficulty)
             if state == STATE_PLAYING or state == STATE_ENDURANCE:
@@ -3288,7 +3328,7 @@ try:
                             pass
                         if b in player_bullets:
                             player_bullets.remove(b)
-                        continue
+                            continue
 
                     # bullet hits enemy
                     hit_enemy_index = None
@@ -3410,34 +3450,36 @@ try:
                                         other_e["hp"] -= exp_damage
                                         damage_dealt += exp_damage
                                         # Log explosion hit
-                                        telemetry.log_enemy_hit(
-                                            EnemyHitEvent(
-                                                t=run_time,
-                                                enemy_type=other_e["type"],
-                                                enemy_x=other_e["rect"].x,
-                                                enemy_y=other_e["rect"].y,
-                                                damage=exp_damage,
-                                                enemy_hp_after=max(0, other_e["hp"]),
-                                                killed=other_e["hp"] <= 0,
+                                        if telemetry_enabled and telemetry:
+                                            telemetry.log_enemy_hit(
+                                                EnemyHitEvent(
+                                                    t=run_time,
+                                                    enemy_type=other_e["type"],
+                                                    enemy_x=other_e["rect"].x,
+                                                    enemy_y=other_e["rect"].y,
+                                                    damage=exp_damage,
+                                                    enemy_hp_after=max(0, other_e["hp"]),
+                                                    killed=other_e["hp"] <= 0,
+                                                )
                                             )
-                                        )
                                         if other_e["hp"] <= 0:
                                             kill_enemy(other_e)
 
                         killed = e["hp"] <= 0
                         hp_after = max(0, e["hp"])
 
-                        telemetry.log_enemy_hit(
-                            EnemyHitEvent(
-                                t=run_time,
-                                enemy_type=e["type"],
-                                enemy_x=e["rect"].x,
-                                enemy_y=e["rect"].y,
-                                damage=bullet_damage,
-                                enemy_hp_after=hp_after,
-                                killed=killed,
+                        if telemetry_enabled and telemetry:
+                            telemetry.log_enemy_hit(
+                                EnemyHitEvent(
+                                    t=run_time,
+                                    enemy_type=e["type"],
+                                    enemy_x=e["rect"].x,
+                                    enemy_y=e["rect"].y,
+                                    damage=bullet_damage,
+                                    enemy_hp_after=hp_after,
+                                    killed=killed,
+                                )
                             )
-                        )
 
                         # Handle penetration
                         penetration = b.get("penetration", 0)
@@ -3470,7 +3512,7 @@ try:
                             else:
                                 if b in player_bullets:
                                     player_bullets.remove(b)
-                                break
+                            break
                     
                     # Bullets interact with trapezoid blocks
                     for tb in trapezoid_blocks:
@@ -3706,7 +3748,8 @@ try:
 
         else:
             # allow background flush timing while paused/continue screen
-            telemetry.tick(dt_real)
+            if telemetry_enabled and telemetry:
+                telemetry.tick(dt_real)
 
         # --- Draw ---
         # Apply level theme
@@ -3778,11 +3821,17 @@ try:
             elif menu_section == 3:
                 draw_centered_text("Options", 250, (200, 200, 200))
                 metrics_options = ["Show Metrics", "Hide Metrics"]
-                y_start = 350
+                telemetry_options = ["Enable Telemetry", "Disable Telemetry"]
+                y_start = 320
                 for i, opt in enumerate(metrics_options):
                     color = (255, 255, 100) if i == ui_show_metrics_selected else (150, 150, 150)
                     prefix = "> " if i == ui_show_metrics_selected else "  "
                     draw_centered_text(f"{prefix}{opt}", y_start + i * 50, color)
+                y_start_telemetry = 420
+                for i, opt in enumerate(telemetry_options):
+                    color = (255, 255, 100) if i == ui_telemetry_enabled_selected else (150, 150, 150)
+                    prefix = "> " if i == ui_telemetry_enabled_selected else "  "
+                    draw_centered_text(f"{prefix}{opt}", y_start_telemetry + i * 50, color)
                 draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
             elif menu_section == 4:
                 draw_centered_text("Ready to Start", 300, (100, 255, 100))
@@ -3790,7 +3839,8 @@ try:
                 draw_centered_text(f"Aiming: {['Mouse', 'Arrow Keys'][aiming_mode_selected]}", 450, (200, 200, 200))
                 draw_centered_text(f"Class: {['Balanced', 'Tank', 'Speedster', 'Sniper'][player_class_selected]}", 500, (200, 200, 200))
                 draw_centered_text(f"Metrics: {['Show', 'Hide'][ui_show_metrics_selected]}", 550, (200, 200, 200))
-                draw_centered_text("Press ENTER to Start", 600, (100, 255, 100))
+                draw_centered_text(f"Telemetry: {['Enabled', 'Disabled'][ui_telemetry_enabled_selected]}", 600, (200, 200, 200))
+                draw_centered_text("Press ENTER to Start", 650, (100, 255, 100))
                 draw_centered_text("Press LEFT to go back, ESC to Quit", 650, (150, 150, 150))
             
             pygame.display.flip()
@@ -3945,18 +3995,32 @@ try:
         # Draw friendly AI
         for f in friendly_ai:
             pygame.draw.rect(screen, f["color"], f["rect"])
-            # Draw health bar above friendly AI (green when full)
-            bar_x = f["rect"].x
-            bar_y = f["rect"].y - 8
-            bar_w = f["rect"].w
-            bar_h = 4
-            # Use bright green for friendly AI health bars
-            hp_ratio = f["hp"] / f["max_hp"] if f["max_hp"] > 0 else 0
-            pygame.draw.rect(screen, (60, 60, 60), (bar_x, bar_y, bar_w, bar_h))  # Background
-            fill_w = int(bar_w * hp_ratio)
-            # Bright green for full health, slightly darker when damaged
-            green_intensity = int(60 + (200 - 60) * hp_ratio)
-            pygame.draw.rect(screen, (60, green_intensity, 60), (bar_x, bar_y, fill_w, bar_h))
+            # Draw health bar above friendly AI (bright green when full)
+            if ui_show_health_bars:
+                bar_x = f["rect"].x
+                bar_y = f["rect"].y - 8
+                bar_w = f["rect"].w
+                bar_h = 4
+                hp_ratio = f["hp"] / f["max_hp"] if f["max_hp"] > 0 else 0
+                # Background (dark gray)
+                pygame.draw.rect(screen, (60, 60, 60), (bar_x, bar_y, bar_w, bar_h))
+                # Health fill - bright green when full, transitions to yellow/red when damaged
+                fill_w = int(bar_w * hp_ratio)
+                if hp_ratio > 0.66:
+                    # Full to 66%: Bright green (0, 255, 0) to slightly dimmed green
+                    green_val = int(255 * (hp_ratio - 0.66) / 0.34) if hp_ratio < 1.0 else 255
+                    health_color = (0, max(200, green_val), 0)
+                elif hp_ratio > 0.33:
+                    # 66% to 33%: Green to yellow transition
+                    yellow_ratio = (hp_ratio - 0.33) / 0.33
+                    health_color = (int(255 * (1 - yellow_ratio)), 200, 0)
+                else:
+                    # Below 33%: Yellow to red
+                    red_ratio = hp_ratio / 0.33
+                    health_color = (255, int(200 * red_ratio), 0)
+                pygame.draw.rect(screen, health_color, (bar_x, bar_y, fill_w, bar_h))
+                # Border
+                pygame.draw.rect(screen, (20, 20, 20), (bar_x, bar_y, bar_w, bar_h), 1)
             pygame.draw.rect(screen, (20, 20, 20), (bar_x, bar_y, bar_w, bar_h), 2)  # Border
         
         # Draw friendly projectiles
@@ -4253,7 +4317,7 @@ finally:
         deaths=deaths,
         max_wave=wave_number,
     )
-    telemetry.close()
+    if telemetry_enabled and telemetry:
+        telemetry.close()
+        print(f"Saved run_id={run_id} to game_telemetry.db")
     pygame.quit()
-
-    print(f"Saved run_id={run_id} to game_telemetry.db")
