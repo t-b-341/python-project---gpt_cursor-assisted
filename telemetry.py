@@ -253,6 +253,11 @@ class Telemetry:
         self.max_buffer = int(max_buffer)
 
         self.conn = sqlite3.connect(self.db_path)
+        # Enable WAL mode for better performance (faster writes, allows concurrent reads)
+        self.conn.execute("PRAGMA journal_mode = WAL;")
+        # Optimize for performance
+        self.conn.execute("PRAGMA synchronous = NORMAL;")  # Faster than FULL, still safe
+        self.conn.execute("PRAGMA cache_size = -64000;")  # 64MB cache
         self.conn.execute("PRAGMA foreign_keys = ON;")
         self._init_schema_and_migrate()
 

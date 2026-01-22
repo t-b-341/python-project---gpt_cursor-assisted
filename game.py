@@ -1083,6 +1083,76 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
     clamp_rect_to_screen(enemy_rect)
 
 
+def move_enemy_with_push_cached(enemy_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict],
+                                 cached_moveable_destructible_rects: list,
+                                 cached_trapezoid_rects: list,
+                                 cached_triangle_rects: list):
+    """Optimized enemy movement with block pushing using cached rect lists."""
+    block_rects = [b["rect"] for b in block_list]
+    # Use cached rects for all_collision_rects (main performance gain)
+    all_collision_rects = block_rects + cached_moveable_destructible_rects + cached_trapezoid_rects + cached_triangle_rects
+
+    for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
+        if axis_dx == 0 and axis_dy == 0:
+            continue
+
+        enemy_rect.x += axis_dx
+        enemy_rect.y += axis_dy
+
+        hit_block = None
+        hit_is_trapezoid = False
+        hit_is_moveable_destructible = False
+        # Check regular blocks first
+        for b in block_list:
+            if enemy_rect.colliderect(b["rect"]):
+                hit_block = b
+                break
+        # Check moveable destructible blocks
+        if hit_block is None:
+            for b in moveable_destructible_blocks:
+                if enemy_rect.colliderect(b["rect"]):
+                    hit_block = b
+                    hit_is_moveable_destructible = True
+                    break
+        # Check trapezoid blocks (unmovable, so enemy can't push them)
+        if hit_block is None:
+            for tb in trapezoid_blocks:
+                if enemy_rect.colliderect(tb["bounding_rect"]):
+                    hit_block = tb
+                    hit_is_trapezoid = True
+                    break
+        # Check triangle blocks (unmovable, so enemy can't push them)
+        if hit_block is None:
+            for tr in triangle_blocks:
+                if enemy_rect.colliderect(tr["bounding_rect"]):
+                    hit_block = tr
+                    hit_is_trapezoid = True
+                    break
+
+        if hit_block is None:
+            continue
+
+        # Trapezoids are unmovable, so just block enemy movement
+        if hit_is_trapezoid:
+            enemy_rect.x -= axis_dx
+            enemy_rect.y -= axis_dy
+            continue
+
+        hit_rect = hit_block["rect"]
+        other_rects = [r for r in all_collision_rects if r is not hit_rect]
+
+        # Try to push the block
+        if can_move_rect(hit_rect, axis_dx, axis_dy, other_rects):
+            hit_rect.x += axis_dx
+            hit_rect.y += axis_dy
+        else:
+            # Block can't be pushed, so enemy can't move
+            enemy_rect.x -= axis_dx
+            enemy_rect.y -= axis_dy
+
+    clamp_rect_to_screen(enemy_rect)
+
+
 def rect_offscreen(r: pygame.Rect) -> bool:
     return r.right < 0 or r.left > WIDTH or r.bottom < 0 or r.top > HEIGHT
 
@@ -1220,25 +1290,32 @@ def find_threats_in_dodge_range(enemy_pos: pygame.Vector2, dodge_range: float = 
     """Find bullets (player or friendly) that are close enough to dodge."""
     threats = []
     enemy_v2 = pygame.Vector2(enemy_pos)
+    dodge_range_sq = dodge_range * dodge_range  # Use squared distance for faster comparison
     
     # Check player bullets
     for b in player_bullets:
         bullet_pos = pygame.Vector2(b["rect"].center)
-        dist = (bullet_pos - enemy_v2).length()
-        if dist < dodge_range:
+        dist_sq = (bullet_pos - enemy_v2).length_squared()
+        if dist_sq < dodge_range_sq:
+            # Only compute actual distance if in range
+            dist = math.sqrt(dist_sq)
             # Predict where bullet will be
             bullet_vel = b.get("vel", pygame.Vector2(0, 0))
-            time_to_reach = dist / bullet_vel.length() if bullet_vel.length() > 0 else 999
+            vel_length = bullet_vel.length()
+            time_to_reach = dist / vel_length if vel_length > 0 else 999
             if time_to_reach < 0.5:  # Only dodge if bullet will reach soon
                 threats.append(bullet_pos)
     
     # Check friendly projectiles
     for fp in friendly_projectiles:
         bullet_pos = pygame.Vector2(fp["rect"].center)
-        dist = (bullet_pos - enemy_v2).length()
-        if dist < dodge_range:
+        dist_sq = (bullet_pos - enemy_v2).length_squared()
+        if dist_sq < dodge_range_sq:
+            # Only compute actual distance if in range
+            dist = math.sqrt(dist_sq)
             bullet_vel = fp.get("vel", pygame.Vector2(0, 0))
-            time_to_reach = dist / bullet_vel.length() if bullet_vel.length() > 0 else 999
+            vel_length = bullet_vel.length()
+            time_to_reach = dist / vel_length if vel_length > 0 else 999
             if time_to_reach < 0.5:
                 threats.append(bullet_pos)
     
@@ -1997,8 +2074,8 @@ run_id = None  # Will be set when game starts
 # ----------------------------
 try:
     while running:
-        # Allow uncapped FPS for better performance, or cap at 60
-        dt_real = clock.tick(0) / 1000.0  # 0 = uncapped, use 60 for capped
+        # Cap FPS at 120 for better performance and stability (prevents excessive CPU usage)
+        dt_real = clock.tick(120) / 1000.0  # Cap at 120 FPS
         # Cap dt to prevent large jumps
         dt = min(dt_real if state == STATE_PLAYING else 0.0, 0.033)  # Max 30ms = ~30 FPS minimum
 
@@ -2623,7 +2700,13 @@ try:
             # Cache player position to avoid recalculating
             player_pos_cached = pygame.Vector2(player.center)
             
-            for e in enemies:
+            # Cache block lists for enemy movement (reused in move_enemy_with_push)
+            cached_block_rects = block_rects
+            cached_moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
+            cached_trapezoid_rects = [tb["bounding_rect"] for tb in trapezoid_blocks]
+            cached_triangle_rects = [tr["bounding_rect"] for tr in triangle_blocks]
+            
+            for enemy_idx, e in enumerate(enemies):
                 e_pos = pygame.Vector2(e["rect"].center)
                 
                 # When 5 or fewer enemies remain, they move directly towards player
@@ -2648,10 +2731,12 @@ try:
                     else:
                         toward_threat = pygame.Vector2(0, 0)
                 
-                # Check for nearby bullets to dodge (only check every other frame for performance)
+                # Check for nearby bullets to dodge (only check every 3rd frame for performance)
                 dodge_vector = pygame.Vector2(0, 0)
-                # Only check dodge every other frame to improve performance
-                if len(enemies) % 2 == 0 or enemies.index(e) % 2 == 0:
+                # Only check dodge every 3rd frame to improve performance (reduced from every other frame)
+                # Use frame counter + enemy index to stagger checks
+                frame_mod = (int(run_time * 60) % 3)  # Cycle every 3 frames
+                if enemy_idx % 3 == frame_mod:
                     nearby_bullets = find_threats_in_dodge_range(e_pos, dodge_range=250.0)
                 else:
                     nearby_bullets = []
@@ -2717,7 +2802,11 @@ try:
                 
                 if dx_e or dy_e:
                     # Enemies can push blocks out of the way to chase the player
-                    move_enemy_with_push(e["rect"], dx_e, dy_e, blocks)
+                    # Pass cached block rects to avoid recreating lists
+                    move_enemy_with_push_cached(e["rect"], dx_e, dy_e, blocks, 
+                                                 cached_moveable_destructible_rects,
+                                                 cached_trapezoid_rects,
+                                                 cached_triangle_rects)
 
             # Cleanup: Remove any enemies that somehow got stuck with HP <= 0
             # This is a safety check to prevent enemies from getting stuck alive
