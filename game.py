@@ -183,7 +183,7 @@
 #--------------------------------------------------------
 #metrics menu: show and hide, independent from telemetry
 #telemetry menu:  enable and disable, independent from metrics
-#--------------------------------------------------------
+#-------------------------------------------------------- 1-23-26
 #make all blocks moveable, and indestructible, and the player can push them around
 #--------------------------------------------------------
 #add destructible, moveable blocks back in. Make blocks 50% of all blocks, and the other 50% be indestructible, moveable blocks
@@ -193,6 +193,19 @@
 #--------------------------------------------------------
 #fix issue where allies do not disappear after dying - FIXED: Added cleanup checks and hazard collision handling
 #--------------------------------------------------------
+#fix issue where wave beams get stuck displayed after beam switched - FIXED: Added beam clearing when switching weapons
+#--------------------------------------------------------
+#make bouncing bullets projectiles twice the size, and projectiles orange - FIXED: Added 2x size multiplier and orange color
+#--------------------------------------------------------
+#make player stick out more on map by making player 10% larger, and have a highlight around the player - FIXED: Increased size to 28x28 and added glowing highlight
+#--------------------------------------------------------
+#make player's model a circle - FIXED: Changed from rectangle to circle with circular highlight
+#--------------------------------------------------------
+#in menu, set default beam selection to basic - FIXED: Changed default selection to index 6 (basic)
+#--------------------------------------------------------
+
+
+
 
 
 import math
@@ -344,8 +357,8 @@ menu_section = 0  # 0 = difficulty, 1 = aiming, 2 = class, 3 = options, 4 = beam
 ui_show_metrics_selected = 1  # 0 = Show, 1 = Hide - Default: Hide (disabled)
 ui_options_selected = 0  # 0 = Metrics, 1 = Telemetry (which option is currently focused)
 # Beam selection for testing
-beam_selection_selected = 0  # 0 = wave_beam, 1 = rocket, etc.
-beam_selection_pattern = "wave_beam"  # Default weapon pattern
+beam_selection_selected = 6  # 0 = wave_beam, 1 = rocket, etc., 6 = basic (default)
+beam_selection_pattern = "basic"  # Default weapon pattern
 
 # Level system - 3 levels, each with 3 waves (boss on wave 3)
 current_level = 1
@@ -419,7 +432,7 @@ controls_rebinding = False
 # ----------------------------
 # Player
 # ----------------------------
-player = pygame.Rect((WIDTH - 25) // 2, (HEIGHT - 25) // 2, 25, 25)
+player = pygame.Rect((WIDTH - 28) // 2, (HEIGHT - 28) // 2, 28, 28)  # 10% larger (25 * 1.1 = 27.5, rounded to 28)
 player_speed = 300  # px/s (base speed, modified by class)
 player_max_hp = 250  # base HP (modified by class)
 player_hp = player_max_hp
@@ -2450,6 +2463,8 @@ def spawn_player_bullet_and_log():
             size_mult *= 10.0  # 10x size multiplier
         elif current_weapon_mode == "rocket":
             size_mult *= 2.5  # Rockets are bigger (2.5x size)
+        elif current_weapon_mode == "bouncing":
+            size_mult *= 2.0  # Bouncing bullets are twice the size
         
         effective_size = (
             int(player_bullet_size[0] * size_mult),
@@ -2476,7 +2491,7 @@ def spawn_player_bullet_and_log():
             "rect": r,
             "vel": d * effective_speed,
             "shape": shape,
-            "color": (255, 100, 0) if current_weapon_mode == "rocket" else player_bullets_color,  # orange for rockets
+            "color": (255, 100, 0) if current_weapon_mode == "rocket" else (255, 165, 0) if current_weapon_mode == "bouncing" else player_bullets_color,  # orange for rockets, orange for bouncing bullets
             "damage": effective_damage,
             "penetration": int(player_stat_multipliers["bullet_penetration"]),
             "explosion_radius": max(rocket_explosion, player_stat_multipliers["bullet_explosion_radius"]),
@@ -2655,6 +2670,11 @@ def apply_pickup_effect(pickup_type: str):
     elif pickup_type in ["giant_bullets", "giant"]:
         unlocked_weapons.add("giant")
         previous_weapon_mode = current_weapon_mode
+        # Clear beams when switching away from beam weapons
+        if previous_weapon_mode == "wave_beam":
+            wave_beams.clear()
+        if previous_weapon_mode == "laser":
+            laser_beams.clear()
         current_weapon_mode = "giant"
         # Log weapon switch from pickup
         if previous_weapon_mode != current_weapon_mode:
@@ -2669,6 +2689,11 @@ def apply_pickup_effect(pickup_type: str):
     elif pickup_type in ["triple_shot", "triple"]:
         unlocked_weapons.add("triple")
         previous_weapon_mode = current_weapon_mode
+        # Clear beams when switching away from beam weapons
+        if previous_weapon_mode == "wave_beam":
+            wave_beams.clear()
+        if previous_weapon_mode == "laser":
+            laser_beams.clear()
         current_weapon_mode = "triple"
         weapon_names = {
             "giant": "GIANT BULLETS",
@@ -2705,6 +2730,11 @@ def apply_pickup_effect(pickup_type: str):
     elif pickup_type in ["bouncing_bullets", "bouncing"]:
         unlocked_weapons.add("bouncing")
         previous_weapon_mode = current_weapon_mode
+        # Clear beams when switching away from beam weapons
+        if previous_weapon_mode == "wave_beam":
+            wave_beams.clear()
+        if previous_weapon_mode == "laser":
+            laser_beams.clear()
         current_weapon_mode = "bouncing"
         weapon_names = {
             "giant": "GIANT BULLETS",
@@ -2741,6 +2771,11 @@ def apply_pickup_effect(pickup_type: str):
     elif pickup_type in ["rocket_launcher", "rocket"]:
         unlocked_weapons.add("rocket")
         previous_weapon_mode = current_weapon_mode
+        # Clear beams when switching away from beam weapons
+        if previous_weapon_mode == "wave_beam":
+            wave_beams.clear()
+        if previous_weapon_mode == "laser":
+            laser_beams.clear()
         current_weapon_mode = "rocket"
         weapon_names = {
             "giant": "GIANT BULLETS",
@@ -2777,6 +2812,9 @@ def apply_pickup_effect(pickup_type: str):
     elif pickup_type == "laser":
         unlocked_weapons.add("laser")
         previous_weapon_mode = current_weapon_mode
+        # Clear beams when switching away from beam weapons
+        if previous_weapon_mode == "wave_beam":
+            wave_beams.clear()
         current_weapon_mode = "laser"
         weapon_names = {
             "giant": "GIANT BULLETS",
@@ -2813,6 +2851,11 @@ def apply_pickup_effect(pickup_type: str):
     elif pickup_type == "basic":
         unlocked_weapons.add("basic")  # Should already be unlocked, but ensure it
         previous_weapon_mode = current_weapon_mode
+        # Clear beams when switching away from beam weapons
+        if previous_weapon_mode == "wave_beam":
+            wave_beams.clear()
+        if previous_weapon_mode == "laser":
+            laser_beams.clear()
         current_weapon_mode = "basic"
         weapon_names = {
             "giant": "GIANT BULLETS",
@@ -2849,6 +2892,9 @@ def apply_pickup_effect(pickup_type: str):
     elif pickup_type == "wave_beam":
         unlocked_weapons.add("wave_beam")
         previous_weapon_mode = current_weapon_mode
+        # Clear beams when switching away from beam weapons
+        if previous_weapon_mode == "laser":
+            laser_beams.clear()
         current_weapon_mode = "wave_beam"
         weapon_names = {
             "giant": "GIANT BULLETS",
@@ -3023,6 +3069,11 @@ try:
                         # Only switch if weapon is unlocked
                         if requested_weapon in unlocked_weapons:
                             previous_weapon_mode = current_weapon_mode
+                            # Clear beams when switching away from beam weapons
+                            if previous_weapon_mode == "wave_beam" and requested_weapon != "wave_beam":
+                                wave_beams.clear()
+                            if previous_weapon_mode == "laser" and requested_weapon != "laser":
+                                laser_beams.clear()
                             current_weapon_mode = requested_weapon
                             # Log weapon switch
                             if previous_weapon_mode != current_weapon_mode:
@@ -3135,6 +3186,11 @@ try:
                             selected_weapon = weapon_selection_options[beam_selection_selected]
                             # Unlock and switch to selected weapon
                             unlocked_weapons.add(selected_weapon)
+                            # Clear beams when switching away from beam weapons
+                            if current_weapon_mode == "wave_beam" and selected_weapon != "wave_beam":
+                                wave_beams.clear()
+                            if current_weapon_mode == "laser" and selected_weapon != "laser":
+                                laser_beams.clear()
                             current_weapon_mode = selected_weapon
                             if selected_weapon == "wave_beam":
                                 wave_beam_pattern_index = 0  # Use sine pattern
@@ -5395,9 +5451,18 @@ try:
             # Draw warning border
             pygame.draw.rect(screen, (255, 0, 0), ds["rect"], 3)
         
-        # Draw player - red when shield is active, normal color otherwise
+        # Draw player highlight/glow (always visible)
+        player_radius = player.w // 2  # Radius for circle (player is square)
+        highlight_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        # Outer glow circle
+        pygame.draw.circle(highlight_surf, (255, 255, 200, 100), player.center, player_radius + 3, 2)
+        # Inner glow circle
+        pygame.draw.circle(highlight_surf, (255, 255, 150, 150), player.center, player_radius + 1, 1)
+        screen.blit(highlight_surf, (0, 0))
+        
+        # Draw player as circle - red when shield is active, normal color otherwise
         player_color = (255, 50, 50) if shield_active else (200, 60, 60)
-        pygame.draw.rect(screen, player_color, player)
+        pygame.draw.circle(screen, player_color, player.center, player_radius)
         
         # Draw health bar above player character
         if ui_show_player_health_bar:
