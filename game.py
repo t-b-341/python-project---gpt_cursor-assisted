@@ -164,9 +164,26 @@
 #--------------------------------------------------------
 #make wave beam an undulating wave, with a period of 1 second, and a amplitude of 10 pixels
 #--------------------------------------------------------
-
-
-
+#make the wave beam have a period of 0.5 seconds, and a amplitude of 7 pixels
+#--------------------------------------------------------
+#when player collects a pickup, automatically switch to that weapon, and display the weapon name on the screen
+#--------------------------------------------------------
+#take away wave beam as a starting weapon, leave it as only a pickup, leaving the player only with the basic beam and the other weapons as pickups
+#--------------------------------------------------------
+#make the weapon pickup messages display for 3 seconds, and then fade out
+#--------------------------------------------------------
+#make hazards move 3x faster
+#--------------------------------------------------------
+#give destructible obstacles 10x more health
+#--------------------------------------------------------
+#give allies 10x more health
+#make the default telemetry selection to be disabled, but still able to be enabled
+#--------------------------------------------------------
+#select telemetry, and select metrics, as two different options in the menu that can be selected independently, with disabled as the default for both
+#--------------------------------------------------------
+#metrics menu: show and hide, independent from telemetry
+#telemetry menu:  enable and disable, independent from metrics
+#--------------------------------------------------------
 
 
 
@@ -316,7 +333,8 @@ STATE_WAVE_BUILDER = "WAVE_BUILDER"  # Custom wave builder
 
 state = STATE_MENU
 menu_section = 0  # 0 = difficulty, 1 = aiming, 2 = class, 3 = options, 4 = beam_selection, 5 = start
-ui_show_metrics_selected = 0  # 0 = Show, 1 = Hide
+ui_show_metrics_selected = 1  # 0 = Show, 1 = Hide - Default: Hide (disabled)
+ui_options_selected = 0  # 0 = Metrics, 1 = Telemetry (which option is currently focused)
 # Beam selection for testing
 beam_selection_selected = 0  # 0 = wave_beam, 1 = rocket, etc.
 beam_selection_pattern = "wave_beam"  # Default weapon pattern
@@ -367,7 +385,7 @@ ui_show_stats = True
 ui_show_all_ui = True
 ui_show_block_health_bars = False  # Health bars for destructible blocks
 ui_show_player_health_bar = True  # Health bar above player character
-ui_show_metrics = True  # Show metrics/stats in HUD
+ui_show_metrics = False  # Show metrics/stats in HUD - Default: Disabled
 ui_telemetry_enabled_selected = 1  # 0 = Enabled, 1 = Disabled (for menu) - Default: Disabled
 
 # Alternative aiming mechanics
@@ -467,13 +485,14 @@ random_damage_multiplier = 1.0  # Starts at 1.0x
 
 # Damage number display system (floating damage numbers over enemies)
 damage_numbers: list[dict] = []  # List of {x, y, damage, timer, color}
+weapon_pickup_messages: list[dict] = []  # List of {weapon_name, timer, color} for displaying weapon pickup notifications
 
 # Weapon mode system (keys 1-6 to switch)
 # "basic" = normal bullets, "rocket" = rocket launcher, "triple" = triple shot,
 # "bouncing" = bouncing bullets, "giant" = giant bullets, "laser" = laser beam
 current_weapon_mode = "basic"
 previous_weapon_mode = "basic"  # Track for telemetry
-unlocked_weapons: set[str] = {"basic", "wave_beam"}  # Weapons player has unlocked (starts with basic and wave_beam)
+unlocked_weapons: set[str] = {"basic"}  # Weapons player has unlocked (starts with basic only)
 
 # Laser beam system
 laser_beams: list[dict] = []  # List of active laser beams
@@ -502,12 +521,12 @@ hazard_obstacles = [
         "width": 250,  # Half size (250x250)
         "height": 250,
         "rotation_angle": 0.0,
-        "rotation_speed": 0.3,
+        "rotation_speed": 0.9,  # 3x faster (0.3 * 3)
         "orbit_center": pygame.Vector2(250, 250),
         "orbit_radius": 100,
         "orbit_angle": 0.0,
-        "orbit_speed": 0.2,
-        "velocity": pygame.Vector2(50, 30),
+        "orbit_speed": 0.6,  # 3x faster (0.2 * 3)
+        "velocity": pygame.Vector2(150, 90),  # 3x faster (50*3, 30*3)
         "damage": 20,
         "color": (255, 100, 100),
         "points": [],
@@ -519,12 +538,12 @@ hazard_obstacles = [
         "width": 250,
         "height": 250,
         "rotation_angle": 1.0,
-        "rotation_speed": 0.25,
+        "rotation_speed": 0.75,  # 3x faster (0.25 * 3)
         "orbit_center": pygame.Vector2(WIDTH - 250, 250),
         "orbit_radius": 100,
         "orbit_angle": 1.5,
-        "orbit_speed": 0.15,
-        "velocity": pygame.Vector2(-40, 50),
+        "orbit_speed": 0.45,  # 3x faster (0.15 * 3)
+        "velocity": pygame.Vector2(-120, 150),  # 3x faster (-40*3, 50*3)
         "damage": 10,
         "color": (255, 150, 100),
         "points": [],
@@ -536,12 +555,12 @@ hazard_obstacles = [
         "width": 250,
         "height": 250,
         "rotation_angle": 2.0,
-        "rotation_speed": 0.35,
+        "rotation_speed": 1.05,  # 3x faster (0.35 * 3)
         "orbit_center": pygame.Vector2(250, HEIGHT - 250),
         "orbit_radius": 100,
         "orbit_angle": 3.0,
-        "orbit_speed": 0.18,
-        "velocity": pygame.Vector2(30, -45),
+        "orbit_speed": 0.54,  # 3x faster (0.18 * 3)
+        "velocity": pygame.Vector2(90, -135),  # 3x faster (30*3, -45*3)
         "damage": 10,
         "color": (255, 120, 120),
         "points": [],
@@ -553,12 +572,12 @@ hazard_obstacles = [
         "width": 250,
         "height": 250,
         "rotation_angle": 1.5,
-        "rotation_speed": 0.28,
+        "rotation_speed": 0.84,  # 3x faster (0.28 * 3)
         "orbit_center": pygame.Vector2(WIDTH - 250, HEIGHT - 250),
         "orbit_radius": 100,
         "orbit_angle": 2.5,
-        "orbit_speed": 0.22,
-        "velocity": pygame.Vector2(-35, -40),
+        "orbit_speed": 0.66,  # 3x faster (0.22 * 3)
+        "velocity": pygame.Vector2(-105, -120),  # 3x faster (-35*3, -40*3)
         "damage": 10,
         "color": (255, 130, 110),
         "points": [],
@@ -580,37 +599,37 @@ blocks = []  # Empty - no moveable indestructible blocks
 
 # Destructible blocks (unmovable, destructible)
 destructible_blocks = [
-    {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 50, "max_hp": 50, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 60, "max_hp": 60, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1100, 300, 90, 90), "color": (180, 120, 180), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1300, 500, 70, 70), "color": (120, 180, 120), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1000, 800, 80, 60), "color": (200, 120, 100), "hp": 50, "max_hp": 50, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(400, 1000, 100, 50), "color": (150, 150, 220), "hp": 60, "max_hp": 60, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 500, "max_hp": 500, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 600, "max_hp": 600, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1100, 300, 90, 90), "color": (180, 120, 180), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1300, 500, 70, 70), "color": (120, 180, 120), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1000, 800, 80, 60), "color": (200, 120, 100), "hp": 500, "max_hp": 500, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(400, 1000, 100, 50), "color": (150, 150, 220), "hp": 600, "max_hp": 600, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0},
 ]
 
 # Moveable destructible blocks (can be pushed by player AND destroyed by player/enemy bullets)
 moveable_destructible_blocks = [
-    {"rect": pygame.Rect(350, 400, 70, 70), "color": (200, 100, 100), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(850, 500, 60, 60), "color": (100, 200, 100), "hp": 35, "max_hp": 35, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(650, 300, 80, 50), "color": (200, 150, 100), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(1050, 600, 60, 60), "color": (150, 100, 200), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(450, 800, 70, 50), "color": (200, 180, 120), "hp": 50, "max_hp": 50, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(1250, 900, 80, 40), "color": (100, 150, 200), "hp": 35, "max_hp": 35, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(550, 1100, 60, 60), "color": (180, 200, 100), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(950, 1100, 70, 50), "color": (200, 120, 150), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(350, 400, 70, 70), "color": (200, 100, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(850, 500, 60, 60), "color": (100, 200, 100), "hp": 350, "max_hp": 350, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(650, 300, 80, 50), "color": (200, 150, 100), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(1050, 600, 60, 60), "color": (150, 100, 200), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(450, 800, 70, 50), "color": (200, 180, 120), "hp": 500, "max_hp": 500, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(1250, 900, 80, 40), "color": (100, 150, 200), "hp": 350, "max_hp": 350, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(550, 1100, 60, 60), "color": (180, 200, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(950, 1100, 70, 50), "color": (200, 120, 150), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0, "is_moveable": True},
     # Add more moveable destructible blocks to fill the map
-    {"rect": pygame.Rect(200, 600, 60, 60), "color": (150, 150, 200), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(300, 800, 70, 50), "color": (200, 100, 150), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(700, 900, 60, 60), "color": (100, 200, 150), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(1150, 700, 70, 50), "color": (200, 150, 100), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(1350, 400, 60, 60), "color": (150, 200, 100), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(500, 500, 70, 50), "color": (200, 100, 200), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(200, 600, 60, 60), "color": (150, 150, 200), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(300, 800, 70, 50), "color": (200, 100, 150), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(700, 900, 60, 60), "color": (100, 200, 150), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(1150, 700, 70, 50), "color": (200, 150, 100), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(1350, 400, 60, 60), "color": (150, 200, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    {"rect": pygame.Rect(500, 500, 70, 50), "color": (200, 100, 200), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0, "is_moveable": True},
 ]
 
 # Border geometry: trapezoids and triangles (unmovable, indestructible)
@@ -722,18 +741,18 @@ for i in range(bottom_triangle_count):
 
 # Add more destructible blocks to fill the map
 destructible_blocks.extend([
-    {"rect": pygame.Rect(240, 360, 70, 70), "color": (160, 110, 210), "hp": 50, "max_hp": 50, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(400, 520, 60, 60), "color": (110, 210, 160), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(560, 680, 80, 50), "color": (210, 160, 110), "hp": 60, "max_hp": 60, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(720, 840, 70, 70), "color": (160, 160, 210), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(880, 1000, 60, 60), "color": (210, 210, 110), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1040, 1160, 80, 50), "color": (190, 130, 190), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1200, 1320, 70, 70), "color": (130, 190, 130), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1360, 1160, 60, 60), "color": (210, 130, 110), "hp": 50, "max_hp": 50, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1520, 1000, 80, 50), "color": (160, 160, 230), "hp": 60, "max_hp": 60, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1680, 840, 70, 70), "color": (230, 210, 130), "hp": 45, "max_hp": 45, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1840, 680, 60, 60), "color": (200, 160, 210), "hp": 55, "max_hp": 55, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(200, 840, 80, 50), "color": (110, 210, 210), "hp": 40, "max_hp": 40, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(240, 360, 70, 70), "color": (160, 110, 210), "hp": 500, "max_hp": 500, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(400, 520, 60, 60), "color": (110, 210, 160), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(560, 680, 80, 50), "color": (210, 160, 110), "hp": 600, "max_hp": 600, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(720, 840, 70, 70), "color": (160, 160, 210), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(880, 1000, 60, 60), "color": (210, 210, 110), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1040, 1160, 80, 50), "color": (190, 130, 190), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1200, 1320, 70, 70), "color": (130, 190, 130), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1360, 1160, 60, 60), "color": (210, 130, 110), "hp": 500, "max_hp": 500, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1520, 1000, 80, 50), "color": (160, 160, 230), "hp": 600, "max_hp": 600, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1680, 840, 70, 70), "color": (230, 210, 130), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(1840, 680, 60, 60), "color": (200, 160, 210), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
+    {"rect": pygame.Rect(200, 840, 80, 50), "color": (110, 210, 210), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0},
 ])
 
 # Single moving health recovery zone
@@ -927,8 +946,8 @@ friendly_ai_templates: list[dict] = [
         "type": "scout",
         "rect": pygame.Rect(0, 0, 24, 24),
         "color": (100, 200, 255),  # Light blue
-        "hp": 40,
-        "max_hp": 40,
+        "hp": 400,  # 10x health (was 40)
+        "max_hp": 400,  # 10x health (was 40)
         "shoot_cooldown": 0.4,
         "projectile_speed": 600,
         "projectile_color": (150, 220, 255),
@@ -941,8 +960,8 @@ friendly_ai_templates: list[dict] = [
         "type": "guardian",
         "rect": pygame.Rect(0, 0, 28, 28),
         "color": (100, 255, 150),  # Light green
-        "hp": 80,
-        "max_hp": 80,
+        "hp": 800,  # 10x health (was 80)
+        "max_hp": 800,  # 10x health (was 80)
         "shoot_cooldown": 0.6,
         "projectile_speed": 500,
         "projectile_color": (150, 255, 200),
@@ -955,8 +974,8 @@ friendly_ai_templates: list[dict] = [
         "type": "sniper",
         "rect": pygame.Rect(0, 0, 22, 22),
         "color": (255, 200, 100),  # Orange
-        "hp": 30,
-        "max_hp": 30,
+        "hp": 300,  # 10x health (was 30)
+        "max_hp": 300,  # 10x health (was 30)
         "shoot_cooldown": 1.2,
         "projectile_speed": 800,
         "projectile_color": (255, 220, 150),
@@ -969,8 +988,8 @@ friendly_ai_templates: list[dict] = [
         "type": "tank",
         "rect": pygame.Rect(0, 0, 32, 32),
         "color": (200, 150, 255),  # Purple
-        "hp": 150,
-        "max_hp": 150,
+        "hp": 1500,  # 10x health (was 150)
+        "max_hp": 1500,  # 10x health (was 150)
         "shoot_cooldown": 0.8,
         "projectile_speed": 400,
         "projectile_color": (220, 180, 255),
@@ -1408,8 +1427,8 @@ def log_enemy_spawns(new_enemies: list[dict]):
 
 def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
     """Create a friendly AI unit from a template."""
-    # Set max HP to 100 (consistent for all friendly AI)
-    max_hp = 100
+    # Set max HP to 1000 (10x health - was 100, now 1000 for all friendly AI)
+    max_hp = 1000
     hp = max_hp  # Always start with full health at wave start
     return {
         "type": t["type"],
@@ -1755,8 +1774,8 @@ def generate_wave_beam_points(start_pos: pygame.Vector2, direction: pygame.Vecto
     num_points = max(200, length // 5)  # Generate more points for smoother solid line
     step = length / num_points
     
-    # Undulation: 1 second period = 2 * pi radians per second
-    undulation_phase = time_offset * 2 * math.pi  # Phase offset for 1 second period
+    # Undulation: 0.5 second period = 4 * pi radians per second
+    undulation_phase = time_offset * 4 * math.pi  # Phase offset for 0.5 second period
     
     for i in range(num_points + 1):
         t = i * step
@@ -2474,7 +2493,7 @@ def kill_enemy(enemy: dict):
 def apply_pickup_effect(pickup_type: str):
     """Apply the effect of a collected pickup."""
     global boost_meter, fire_rate_buff_t, player_max_hp, player_hp
-    global player_stat_multipliers, current_weapon_mode, overshield
+    global player_stat_multipliers, current_weapon_mode, overshield, weapon_pickup_messages
     
     if pickup_type == "boost":
         boost_meter = min(boost_meter_max, boost_meter + 45.0)
@@ -2526,6 +2545,29 @@ def apply_pickup_effect(pickup_type: str):
         unlocked_weapons.add("triple")
         previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "triple"
+        weapon_names = {
+            "giant": "GIANT BULLETS",
+            "triple": "TRIPLE SHOT",
+            "bouncing": "BOUNCING BULLETS",
+            "rocket": "ROCKET LAUNCHER",
+            "laser": "LASER BEAM",
+            "basic": "BASIC FIRE",
+            "wave_beam": "WAVE BEAM"
+        }
+        weapon_colors = {
+            "giant": (255, 200, 0),
+            "triple": (100, 200, 255),
+            "bouncing": (100, 255, 100),
+            "rocket": (255, 100, 0),
+            "laser": (255, 50, 50),
+            "basic": (200, 200, 200),
+            "wave_beam": (50, 255, 50)
+        }
+        weapon_pickup_messages.append({
+            "weapon_name": weapon_names.get("triple", "TRIPLE SHOT"),
+            "timer": 3.0,
+            "color": weapon_colors.get("triple", (255, 255, 255))
+        })
         if previous_weapon_mode != current_weapon_mode:
             telemetry.log_player_action(PlayerActionEvent(
                 t=run_time,
@@ -2539,6 +2581,29 @@ def apply_pickup_effect(pickup_type: str):
         unlocked_weapons.add("bouncing")
         previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "bouncing"
+        weapon_names = {
+            "giant": "GIANT BULLETS",
+            "triple": "TRIPLE SHOT",
+            "bouncing": "BOUNCING BULLETS",
+            "rocket": "ROCKET LAUNCHER",
+            "laser": "LASER BEAM",
+            "basic": "BASIC FIRE",
+            "wave_beam": "WAVE BEAM"
+        }
+        weapon_colors = {
+            "giant": (255, 200, 0),
+            "triple": (100, 200, 255),
+            "bouncing": (100, 255, 100),
+            "rocket": (255, 100, 0),
+            "laser": (255, 50, 50),
+            "basic": (200, 200, 200),
+            "wave_beam": (50, 255, 50)
+        }
+        weapon_pickup_messages.append({
+            "weapon_name": weapon_names.get("bouncing", "BOUNCING BULLETS"),
+            "timer": 3.0,
+            "color": weapon_colors.get("bouncing", (255, 255, 255))
+        })
         if previous_weapon_mode != current_weapon_mode:
             telemetry.log_player_action(PlayerActionEvent(
                 t=run_time,
@@ -2552,6 +2617,29 @@ def apply_pickup_effect(pickup_type: str):
         unlocked_weapons.add("rocket")
         previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "rocket"
+        weapon_names = {
+            "giant": "GIANT BULLETS",
+            "triple": "TRIPLE SHOT",
+            "bouncing": "BOUNCING BULLETS",
+            "rocket": "ROCKET LAUNCHER",
+            "laser": "LASER BEAM",
+            "basic": "BASIC FIRE",
+            "wave_beam": "WAVE BEAM"
+        }
+        weapon_colors = {
+            "giant": (255, 200, 0),
+            "triple": (100, 200, 255),
+            "bouncing": (100, 255, 100),
+            "rocket": (255, 100, 0),
+            "laser": (255, 50, 50),
+            "basic": (200, 200, 200),
+            "wave_beam": (50, 255, 50)
+        }
+        weapon_pickup_messages.append({
+            "weapon_name": weapon_names.get("rocket", "ROCKET LAUNCHER"),
+            "timer": 3.0,
+            "color": weapon_colors.get("rocket", (255, 255, 255))
+        })
         if previous_weapon_mode != current_weapon_mode:
             telemetry.log_player_action(PlayerActionEvent(
                 t=run_time,
@@ -2565,6 +2653,29 @@ def apply_pickup_effect(pickup_type: str):
         unlocked_weapons.add("laser")
         previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "laser"
+        weapon_names = {
+            "giant": "GIANT BULLETS",
+            "triple": "TRIPLE SHOT",
+            "bouncing": "BOUNCING BULLETS",
+            "rocket": "ROCKET LAUNCHER",
+            "laser": "LASER BEAM",
+            "basic": "BASIC FIRE",
+            "wave_beam": "WAVE BEAM"
+        }
+        weapon_colors = {
+            "giant": (255, 200, 0),
+            "triple": (100, 200, 255),
+            "bouncing": (100, 255, 100),
+            "rocket": (255, 100, 0),
+            "laser": (255, 50, 50),
+            "basic": (200, 200, 200),
+            "wave_beam": (50, 255, 50)
+        }
+        weapon_pickup_messages.append({
+            "weapon_name": weapon_names.get("laser", "LASER BEAM"),
+            "timer": 3.0,
+            "color": weapon_colors.get("laser", (255, 255, 255))
+        })
         if previous_weapon_mode != current_weapon_mode:
             telemetry.log_player_action(PlayerActionEvent(
                 t=run_time,
@@ -2578,6 +2689,65 @@ def apply_pickup_effect(pickup_type: str):
         unlocked_weapons.add("basic")  # Should already be unlocked, but ensure it
         previous_weapon_mode = current_weapon_mode
         current_weapon_mode = "basic"
+        weapon_names = {
+            "giant": "GIANT BULLETS",
+            "triple": "TRIPLE SHOT",
+            "bouncing": "BOUNCING BULLETS",
+            "rocket": "ROCKET LAUNCHER",
+            "laser": "LASER BEAM",
+            "basic": "BASIC FIRE",
+            "wave_beam": "WAVE BEAM"
+        }
+        weapon_colors = {
+            "giant": (255, 200, 0),
+            "triple": (100, 200, 255),
+            "bouncing": (100, 255, 100),
+            "rocket": (255, 100, 0),
+            "laser": (255, 50, 50),
+            "basic": (200, 200, 200),
+            "wave_beam": (50, 255, 50)
+        }
+        weapon_pickup_messages.append({
+            "weapon_name": weapon_names.get("basic", "BASIC FIRE"),
+            "timer": 3.0,
+            "color": weapon_colors.get("basic", (255, 255, 255))
+        })
+        if previous_weapon_mode != current_weapon_mode:
+            telemetry.log_player_action(PlayerActionEvent(
+                t=run_time,
+                action_type="weapon_switch",
+                x=player.centerx,
+                y=player.centery,
+                duration=None,
+                success=True
+            ))
+    elif pickup_type == "wave_beam":
+        unlocked_weapons.add("wave_beam")
+        previous_weapon_mode = current_weapon_mode
+        current_weapon_mode = "wave_beam"
+        weapon_names = {
+            "giant": "GIANT BULLETS",
+            "triple": "TRIPLE SHOT",
+            "bouncing": "BOUNCING BULLETS",
+            "rocket": "ROCKET LAUNCHER",
+            "laser": "LASER BEAM",
+            "basic": "BASIC FIRE",
+            "wave_beam": "WAVE BEAM"
+        }
+        weapon_colors = {
+            "giant": (255, 200, 0),
+            "triple": (100, 200, 255),
+            "bouncing": (100, 255, 100),
+            "rocket": (255, 100, 0),
+            "laser": (255, 50, 50),
+            "basic": (200, 200, 200),
+            "wave_beam": (50, 255, 50)
+        }
+        weapon_pickup_messages.append({
+            "weapon_name": weapon_names.get("wave_beam", "WAVE BEAM"),
+            "timer": 3.0,
+            "color": weapon_colors.get("wave_beam", (50, 255, 50))
+        })
         if previous_weapon_mode != current_weapon_mode:
             telemetry.log_player_action(PlayerActionEvent(
                 t=run_time,
@@ -2611,6 +2781,7 @@ def reset_after_death():
     player_health_regen_rate = 0.0  # Reset health regeneration rate
     random_damage_multiplier = 1.0  # Reset random damage multiplier
     damage_numbers.clear()  # Clear damage numbers on death
+    weapon_pickup_messages.clear()  # Clear weapon pickup messages on death
     # Reset moving health zone to center
     moving_health_zone["rect"].center = (WIDTH // 2, HEIGHT // 2)
     moving_health_zone["target"] = None
@@ -2621,7 +2792,7 @@ def reset_after_death():
     wave_number = 1
     wave_in_level = 1
     current_level = 1
-    unlocked_weapons = {"basic", "wave_beam"}  # Reset to basic and wave_beam
+    unlocked_weapons = {"basic"}  # Reset to basic only
     current_weapon_mode = "basic"  # Reset to basic weapon
     previous_weapon_mode = "basic"
     previous_boost_state = False
@@ -2637,22 +2808,22 @@ def reset_after_death():
     hazard_obstacles[0]["center"] = pygame.Vector2(250, 250)  # Top-left
     hazard_obstacles[0]["rotation_angle"] = 0.0
     hazard_obstacles[0]["orbit_angle"] = 0.0
-    hazard_obstacles[0]["velocity"] = pygame.Vector2(50, 30)
+    hazard_obstacles[0]["velocity"] = pygame.Vector2(150, 90)  # 3x faster
     hazard_obstacles[0]["points"] = []
     hazard_obstacles[1]["center"] = pygame.Vector2(WIDTH - 250, 250)  # Top-right
     hazard_obstacles[1]["rotation_angle"] = 1.0
     hazard_obstacles[1]["orbit_angle"] = 1.5
-    hazard_obstacles[1]["velocity"] = pygame.Vector2(-40, 50)
+    hazard_obstacles[1]["velocity"] = pygame.Vector2(-120, 150)  # 3x faster
     hazard_obstacles[1]["points"] = []
     hazard_obstacles[2]["center"] = pygame.Vector2(250, HEIGHT - 250)  # Bottom-left
     hazard_obstacles[2]["rotation_angle"] = 2.0
     hazard_obstacles[2]["orbit_angle"] = 3.0
-    hazard_obstacles[2]["velocity"] = pygame.Vector2(30, -45)
+    hazard_obstacles[2]["velocity"] = pygame.Vector2(90, -135)  # 3x faster
     hazard_obstacles[2]["points"] = []
     hazard_obstacles[3]["center"] = pygame.Vector2(WIDTH - 250, HEIGHT - 250)  # Bottom-right
     hazard_obstacles[3]["rotation_angle"] = 1.5
     hazard_obstacles[3]["orbit_angle"] = 2.5
-    hazard_obstacles[3]["velocity"] = pygame.Vector2(-35, -40)
+    hazard_obstacles[3]["velocity"] = pygame.Vector2(-105, -120)  # 3x faster
     hazard_obstacles[3]["points"] = []
     # Reset shield
     shield_active = False
@@ -2797,22 +2968,22 @@ try:
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                             menu_section = 1
                     elif menu_section == 3:
-                        # Toggle between metrics and telemetry options
+                        # Independent metrics and telemetry options
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
-                            if ui_show_metrics_selected == 0:
-                                ui_show_metrics_selected = 1
-                                ui_telemetry_enabled_selected = 0
-                            else:
-                                ui_show_metrics_selected = 0
-                                ui_telemetry_enabled_selected = 1
+                            # Move selection up (between metrics and telemetry)
+                            ui_options_selected = (ui_options_selected - 1) % 2
                         elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                            if ui_show_metrics_selected == 0:
-                                ui_show_metrics_selected = 1
-                                ui_telemetry_enabled_selected = 0
+                            # Move selection down (between metrics and telemetry)
+                            ui_options_selected = (ui_options_selected + 1) % 2
+                        elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            # Toggle the currently selected option
+                            if ui_options_selected == 0:
+                                # Toggle metrics
+                                ui_show_metrics_selected = (ui_show_metrics_selected + 1) % 2
                             else:
-                                ui_show_metrics_selected = 0
-                                ui_telemetry_enabled_selected = 1
-                        elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                                # Toggle telemetry
+                                ui_telemetry_enabled_selected = (ui_telemetry_enabled_selected + 1) % 2
+                        elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
                             menu_section = 4
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                             menu_section = 2
@@ -3266,15 +3437,15 @@ try:
                         # Get current wave pattern (cycles through patterns)
                         pattern = wave_beam_patterns[wave_beam_pattern_index % len(wave_beam_patterns)]
                         
-                        # Generate wave beam points with undulation (1 second period, 10 pixel amplitude)
+                        # Generate wave beam points with undulation (0.5 second period, 7 pixel amplitude)
                         beam_points = generate_wave_beam_points(
                             player_center, 
                             direction, 
                             pattern, 
                             wave_beam_length,
-                            amplitude=10.0,  # 10 pixel amplitude
+                            amplitude=7.0,  # 7 pixel amplitude
                             frequency=0.02,
-                            time_offset=run_time  # Time-based undulation with 1 second period
+                            time_offset=run_time  # Time-based undulation with 0.5 second period
                         )
                         
                         # Find closest collision along the beam path
@@ -3567,6 +3738,12 @@ try:
                 dn["y"] -= 30 * dt  # Move up
                 if dn["timer"] <= 0:
                     damage_numbers.remove(dn)
+            
+            # Update weapon pickup messages
+            for msg in weapon_pickup_messages[:]:
+                msg["timer"] -= dt
+                if msg["timer"] <= 0:
+                    weapon_pickup_messages.remove(msg)
 
             block_rects = [b["rect"] for b in blocks] + [b["rect"] for b in moveable_destructible_blocks] + [tb["bounding_rect"] for tb in trapezoid_blocks] + [tr["bounding_rect"] for tr in triangle_blocks]
             # Cache player position to avoid recalculating
@@ -3943,6 +4120,8 @@ try:
                     "triple_shot",  # shoot 3 beams
                     "bouncing_bullets",  # bullets bounce off walls
                     "rocket_launcher",  # slower fire rate, more damage, AOE
+                    "laser",  # laser beam weapon
+                    "wave_beam",  # wave beam weapon (undulating lime green beam)
                     "overshield",  # adds overshield (extra health bar)
                     "random_damage",  # randomizes base damage multiplier (0.5x to 3.0x)
                 ]
@@ -4760,17 +4939,28 @@ try:
                 draw_centered_text("Options", 250, (200, 200, 200))
                 metrics_options = ["Show Metrics", "Hide Metrics"]
                 telemetry_options = ["Enable Telemetry", "Disable Telemetry"]
+                
+                # Draw Metrics option (independent selection)
                 y_start = 320
+                metrics_label_color = (255, 255, 100) if ui_options_selected == 0 else (150, 150, 150)
+                metrics_label_prefix = "> " if ui_options_selected == 0 else "  "
+                draw_centered_text(f"{metrics_label_prefix}Metrics:", y_start, metrics_label_color)
                 for i, opt in enumerate(metrics_options):
-                    color = (255, 255, 100) if i == ui_show_metrics_selected else (150, 150, 150)
-                    prefix = "> " if i == ui_show_metrics_selected else "  "
-                    draw_centered_text(f"{prefix}{opt}", y_start + i * 50, color)
+                    option_color = (255, 255, 100) if (ui_options_selected == 0 and i == ui_show_metrics_selected) else (150, 150, 150)
+                    option_prefix = "  > " if (ui_options_selected == 0 and i == ui_show_metrics_selected) else "    "
+                    draw_centered_text(f"{option_prefix}{opt}", y_start + 30 + i * 35, option_color)
+                
+                # Draw Telemetry option (independent selection)
                 y_start_telemetry = 420
+                telemetry_label_color = (255, 255, 100) if ui_options_selected == 1 else (150, 150, 150)
+                telemetry_label_prefix = "> " if ui_options_selected == 1 else "  "
+                draw_centered_text(f"{telemetry_label_prefix}Telemetry:", y_start_telemetry, telemetry_label_color)
                 for i, opt in enumerate(telemetry_options):
-                    color = (255, 255, 100) if i == ui_telemetry_enabled_selected else (150, 150, 150)
-                    prefix = "> " if i == ui_telemetry_enabled_selected else "  "
-                    draw_centered_text(f"{prefix}{opt}", y_start_telemetry + i * 50, color)
-                draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
+                    option_color = (255, 255, 100) if (ui_options_selected == 1 and i == ui_telemetry_enabled_selected) else (150, 150, 150)
+                    option_prefix = "  > " if (ui_options_selected == 1 and i == ui_telemetry_enabled_selected) else "    "
+                    draw_centered_text(f"{option_prefix}{opt}", y_start_telemetry + 30 + i * 35, option_color)
+                
+                draw_centered_text("Press UP/DOWN to navigate, ENTER/SPACE to toggle, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
             elif menu_section == 4:
                 draw_centered_text("Weapon Selection (Testing)", 250, (200, 200, 200))
                 y_start = 320
@@ -4992,6 +5182,18 @@ try:
             damage_text = font.render(f"-{int(dn['damage'])}", True, color_with_alpha)
             text_rect = damage_text.get_rect(center=(int(dn["x"]), int(dn["y"])))
             screen.blit(damage_text, text_rect)
+        
+        # Draw weapon pickup messages (centered, large text)
+        for msg in weapon_pickup_messages:
+            # Calculate alpha based on timer (fade out over 3 seconds)
+            alpha = int(255 * (msg["timer"] / 3.0))  # Fade from 255 to 0 over 3 seconds
+            alpha = max(0, min(255, alpha))
+            # Adjust color with alpha
+            color_with_alpha = tuple(min(255, int(c * alpha / 255)) for c in msg["color"])
+            # Draw weapon name in large text, centered on screen
+            weapon_text = big_font.render(msg["weapon_name"], True, color_with_alpha)
+            text_rect = weapon_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+            screen.blit(weapon_text, text_rect)
 
             # Draw shield for shielded enemies
             if e.get("has_shield"):
