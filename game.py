@@ -3751,9 +3751,10 @@ try:
                 # Menu navigation
                 if state == STATE_MENU:
                     if main_menu_active:
-                        if event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                        if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER or event.key == pygame.K_SPACE:
                             main_menu_active = False
                             menu_section = 0
+                            print("Main menu deactivated, moving to difficulty selection")
                     elif menu_section == 0:
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
                             difficulty_selected = (difficulty_selected - 1) % len(difficulty_options)
@@ -3923,7 +3924,11 @@ try:
                     elif state == STATE_CONTROLS:
                         state = STATE_PAUSED
                     elif state == STATE_MENU:
-                        running = False
+                        if main_menu_active:
+                            running = False
+                        else:
+                            main_menu_active = True
+                            menu_section = 0
                     elif state == STATE_VICTORY or state == STATE_GAME_OVER or state == STATE_HIGH_SCORES:
                         running = False  # Quit from victory/game over/high scores screens
                     elif state == STATE_NAME_INPUT:
