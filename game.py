@@ -250,7 +250,7 @@
 #create custom character profile creator
 #--------------------------------------------------------/
 #character profile premade and custom character profile do not allow for right to continue to next menu 
-# --------------------------------------------------------
+# --------------------------------------------------------/
 #make character profile option yes or no, and if yes, allow player to select premade, or make a profile, prior to start of game
 #replace metrics selection with HUD, which toggles HUD dynamics on or off, and can be changed
 #fix text overlap in "ready to start" menu with weapon basic, and other text
@@ -263,11 +263,10 @@
 #fix triple shot beam to include two more beams, offset by an equal arc on each side of center beam, and increase beam shot size to 3x current size, and turn purple
 #verify when health = zero, enemies and allies die and disappear from map
 #after each enemy dies, put in bottom right corner a text feed that updates "(enemy type) defeated!"
-#--------------------------------------------------------
+#--------------------------------------------------------/
 #change hud and telemetry to two different pages, rather than sharing the same page
 #change triple shot to basic beam, with three beams in total, offset by an equal arc
 #delete second HUD menu on options menu
-#once all steps implemented, verify code in game.py, and supporting libraries are optimized, effecient, and effective
 #--------------------------------------------------------
 #prevent any blocks from overlapping with each other
 #make health bar and HP amount above the control information at bottom of screen in-game
@@ -411,6 +410,7 @@ pygame.display.set_caption("Mouse Aim Shooter + Telemetry (SQLite)")
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 28)
 big_font = pygame.font.SysFont(None, 56)
+small_font = pygame.font.SysFont(None, 20)
 
 # ----------------------------
 # Telemetry
@@ -444,6 +444,8 @@ ui_options_selected = 0  # 0 = Metrics, 1 = Telemetry (which option is currently
 endurance_mode_selected = 0  # 0 = Normal, 1 = Endurance Mode
 
 # Character profile system
+use_character_profile = False  # Whether to use character profiles
+use_character_profile_selected = 0  # 0 = No, 1 = Yes
 character_profile_selected = 0  # 0 = Premade, 1 = Custom
 character_profile_options = ["Premade Profiles", "Create Custom Profile"]
 custom_profile_stat_selected = 0  # Which stat is being edited
@@ -1113,7 +1115,7 @@ enemy_templates: list[dict] = [
         "bouncing_projectiles": True,  # shoots bouncing projectiles
     },
     {
-        "type": "shielded",
+        "type": "shield enemy",
         "rect": pygame.Rect(300, 300, 32, 32),
         "color": (100, 150, 200),
         "hp": 100,
@@ -1744,8 +1746,8 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> di
         "color": t["color"],
         "hp": hp,
         "max_hp": hp,
-        "shoot_cooldown": t["shoot_cooldown"] / 1.1,  # 110% fire rate (faster = lower cooldown)
-        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / 1.1),
+        "shoot_cooldown": t["shoot_cooldown"] / 1.5,  # 150% fire rate (faster = lower cooldown, increased from 1.1)
+        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / 1.5),
         "projectile_speed": t["projectile_speed"],
         "projectile_color": t.get("projectile_color", enemy_projectiles_color),
         "projectile_shape": t.get("projectile_shape", "circle"),
@@ -1805,8 +1807,8 @@ def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) ->
         "color": t["color"],
         "hp": hp,
         "max_hp": max_hp,  # Full health, green bar at wave start
-        "shoot_cooldown": t["shoot_cooldown"] / 1.1,  # 110% fire rate (faster = lower cooldown)
-        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / 1.1),
+        "shoot_cooldown": t["shoot_cooldown"] / 1.5,  # 150% fire rate (faster = lower cooldown, increased from 1.1)
+        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / 1.5),
         "projectile_speed": t["projectile_speed"],
         "projectile_color": t["projectile_color"],
         "projectile_shape": t["projectile_shape"],
@@ -1998,7 +2000,7 @@ def start_wave(wave_num: int):
         boss_hp_scale = 1.0 + (current_level - 1) * 0.3
         boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"] * 1.1), 300)  # 110% health
         boss["max_hp"] = boss["hp"]
-        boss["shoot_cooldown"] = boss_template["shoot_cooldown"] / 1.1  # 110% fire rate (faster = lower cooldown)
+        boss["shoot_cooldown"] = boss_template["shoot_cooldown"] / 1.5  # 150% fire rate (faster = lower cooldown, increased from 1.1)
         boss["speed"] = boss_template["speed"] * 1.1  # 110% movement speed
         
         boss["phase"] = 1
@@ -2799,7 +2801,7 @@ def spawn_player_bullet_and_log():
     # Determine shot pattern based on weapon mode
     if current_weapon_mode == "triple":
         # Triple shot: center + left + right spread
-        spread_angle_deg = 8.6  # degrees
+        spread_angle_deg = 15.0  # degrees (increased from 8.6 for better spread)
         directions = [
             base_dir,  # center
             base_dir.rotate(-spread_angle_deg),  # left
@@ -2818,6 +2820,10 @@ def spawn_player_bullet_and_log():
             size_mult *= 2.5  # Rockets are bigger (2.5x size)
         elif current_weapon_mode == "bouncing":
             size_mult *= 2.0  # Bouncing bullets are twice the size
+        
+        # Triple shot: 3x size multiplier
+        if current_weapon_mode == "triple":
+            size_mult *= 3.0
         
         effective_size = (
             int(player_bullet_size[0] * size_mult),
@@ -2844,7 +2850,7 @@ def spawn_player_bullet_and_log():
             "rect": r,
             "vel": d * effective_speed,
             "shape": shape,
-            "color": (255, 100, 0) if current_weapon_mode == "rocket" else (255, 165, 0) if current_weapon_mode == "bouncing" else player_bullets_color,  # orange for rockets, orange for bouncing bullets
+            "color": (200, 100, 255) if current_weapon_mode == "triple" else (255, 100, 0) if current_weapon_mode == "rocket" else (255, 165, 0) if current_weapon_mode == "bouncing" else player_bullets_color,  # purple for triple, orange for rockets, orange for bouncing bullets
             "damage": effective_damage,
             "penetration": int(player_stat_multipliers["bullet_penetration"]),
             "explosion_radius": max(rocket_explosion, player_stat_multipliers["bullet_explosion_radius"]),
@@ -2978,10 +2984,20 @@ def calculate_kill_score(wave_num: int, run_time: float) -> int:
     return SCORE_BASE_POINTS + (wave_num * SCORE_WAVE_MULTIPLIER) + int(run_time * SCORE_TIME_MULTIPLIER)
 
 
+# Enemy defeat messages
+enemy_defeat_messages: list[dict] = []  # List of {enemy_type, timer} for defeat messages
+
 def kill_enemy(enemy: dict):
     """Handle enemy death: drop weapon, update score, remove from list."""
-    global enemies_killed, score, current_level
+    global enemies_killed, score, current_level, enemy_defeat_messages
     is_boss = enemy.get("is_boss", False)
+    
+    # Add defeat message
+    enemy_type = enemy.get("type", "enemy")
+    enemy_defeat_messages.append({
+        "enemy_type": enemy_type,
+        "timer": 3.0,  # Display for 3 seconds
+    })
     
     # If boss is killed, spawn level completion weapon in center
     if is_boss:
@@ -3417,6 +3433,12 @@ try:
             survival_time += dt  # Track total survival time
             player_time_since_shot += dt
             grenade_time_since_used += dt
+            
+            # Update enemy defeat messages timer
+            for msg in enemy_defeat_messages[:]:
+                msg["timer"] -= dt
+                if msg["timer"] <= 0:
+                    enemy_defeat_messages.remove(msg)
 
         # --- Events ---
         for event in pygame.event.get():
@@ -3507,9 +3529,23 @@ try:
                         elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
                             aiming_mode_selected = (aiming_mode_selected + 1) % 2
                         elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                            menu_section = 2
+                            menu_section = 1.5  # Go to character profile yes/no
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                             menu_section = 0
+                    elif menu_section == 1.5:
+                        # Character profile yes/no selection
+                        if event.key == pygame.K_UP or event.key == pygame.K_w:
+                            use_character_profile_selected = (use_character_profile_selected - 1) % 2
+                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                            use_character_profile_selected = (use_character_profile_selected + 1) % 2
+                        elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            use_character_profile = use_character_profile_selected == 1
+                            if use_character_profile:
+                                menu_section = 2  # Go to profile selection
+                            else:
+                                menu_section = 3  # Skip to options
+                        elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                            menu_section = 1
                     elif menu_section == 2:
                         # Character profile creator
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -3608,13 +3644,17 @@ try:
                             difficulty = difficulty_options[difficulty_selected]
                             aiming_mode = AIM_MOUSE if aiming_mode_selected == 0 else AIM_ARROWS
                             # Apply character profile
-                            if character_profile_selected == 0:
-                                # Use premade class
-                                player_class = player_class_options[player_class_selected]
+                            if use_character_profile:
+                                if character_profile_selected == 0:
+                                    # Use premade class
+                                    player_class = player_class_options[player_class_selected]
+                                else:
+                                    # Use custom profile - add to player_class_stats
+                                    player_class = "CUSTOM"
+                                    player_class_stats["CUSTOM"] = custom_profile_stats.copy()
                             else:
-                                # Use custom profile - add to player_class_stats
-                                player_class = "CUSTOM"
-                                player_class_stats["CUSTOM"] = custom_profile_stats.copy()
+                                # No character profile - use default class selection
+                                player_class = player_class_options[player_class_selected]
                             
                             # Apply class stats to player
                             class_stats = player_class_stats[player_class]
@@ -5921,6 +5961,15 @@ try:
                     prefix = "> " if i == aiming_mode_selected else "  "
                     draw_centered_text(f"{prefix}{aim_option}", y_start + i * 50, color)
                 draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
+            elif menu_section == 1.5:
+                draw_centered_text("Use Character Profile?", 250, (200, 200, 200))
+                profile_options = ["No", "Yes"]
+                y_start = 350
+                for i, option in enumerate(profile_options):
+                    color = (255, 255, 100) if i == use_character_profile_selected else (150, 150, 150)
+                    prefix = "> " if i == use_character_profile_selected else "  "
+                    draw_centered_text(f"{prefix}{option}", y_start + i * 50, color)
+                draw_centered_text("Press UP/DOWN to select, RIGHT/ENTER/SPACE to continue, LEFT to go back", 600, (150, 150, 150))
             elif menu_section == 2:
                 draw_centered_text("Character Profile", 250, (200, 200, 200))
                 y_start = 350
@@ -5955,15 +6004,15 @@ try:
                 draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
             elif menu_section == 3:
                 draw_centered_text("Options", 250, (200, 200, 200))
-                metrics_options = ["Show Metrics", "Hide Metrics"]
+                hud_options = ["Show HUD", "Hide HUD"]
                 telemetry_options = ["Enable Telemetry", "Disable Telemetry"]
                 
-                # Draw Metrics option (independent selection)
+                # Draw HUD option (independent selection)
                 y_start = 320
-                metrics_label_color = (255, 255, 100) if ui_options_selected == 0 else (150, 150, 150)
-                metrics_label_prefix = "> " if ui_options_selected == 0 else "  "
-                draw_centered_text(f"{metrics_label_prefix}Metrics:", y_start, metrics_label_color)
-                for i, opt in enumerate(metrics_options):
+                hud_label_color = (255, 255, 100) if ui_options_selected == 0 else (150, 150, 150)
+                hud_label_prefix = "> " if ui_options_selected == 0 else "  "
+                draw_centered_text(f"{hud_label_prefix}HUD:", y_start, hud_label_color)
+                for i, opt in enumerate(hud_options):
                     option_color = (255, 255, 100) if (ui_options_selected == 0 and i == ui_show_metrics_selected) else (150, 150, 150)
                     option_prefix = "  > " if (ui_options_selected == 0 and i == ui_show_metrics_selected) else "    "
                     draw_centered_text(f"{option_prefix}{opt}", y_start + 30 + i * 35, option_color)
@@ -5989,20 +6038,26 @@ try:
                     draw_centered_text(f"{prefix}{weapon_display}", y_start + i * 40, color)
                 draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
             elif menu_section == 5:
-                draw_centered_text("Ready to Start", 300, (100, 255, 100))
-                draw_centered_text(f"Difficulty: {difficulty_options[difficulty_selected]}", 400, (200, 200, 200))
-                draw_centered_text(f"Aiming: {['Mouse', 'Arrow Keys'][aiming_mode_selected]}", 450, (200, 200, 200))
-                draw_centered_text(f"Class: {['Balanced', 'Tank', 'Speedster', 'Sniper'][player_class_selected]}", 500, (200, 200, 200))
-                draw_centered_text(f"Metrics: {['Show', 'Hide'][ui_show_metrics_selected]}", 550, (200, 200, 200))
-                draw_centered_text(f"Telemetry: {['Enabled', 'Disabled'][ui_telemetry_enabled_selected]}", 600, (200, 200, 200))
+                draw_centered_text("Ready to Start", 250, (100, 255, 100))
+                draw_centered_text(f"Difficulty: {difficulty_options[difficulty_selected]}", 300, (200, 200, 200))
+                draw_centered_text(f"Aiming: {['Mouse', 'Arrow Keys'][aiming_mode_selected]}", 340, (200, 200, 200))
+                if use_character_profile:
+                    if character_profile_selected == 0:
+                        draw_centered_text(f"Class: {['Balanced', 'Tank', 'Speedster', 'Sniper'][player_class_selected]}", 380, (200, 200, 200))
+                    else:
+                        draw_centered_text("Class: Custom Profile", 380, (200, 200, 200))
+                else:
+                    draw_centered_text(f"Class: {['Balanced', 'Tank', 'Speedster', 'Sniper'][player_class_selected]}", 380, (200, 200, 200))
+                draw_centered_text(f"HUD: {['Show', 'Hide'][ui_show_metrics_selected]}", 420, (200, 200, 200))
+                draw_centered_text(f"Telemetry: {['Enabled', 'Disabled'][ui_telemetry_enabled_selected]}", 460, (200, 200, 200))
                 selected_weapon_display = weapon_selection_options[beam_selection_selected].replace("_", " ").upper()
-                draw_centered_text(f"Weapon: {selected_weapon_display}", 650, (200, 200, 200))
+                draw_centered_text(f"Weapon: {selected_weapon_display}", 500, (200, 200, 200))
                 # Endurance mode selection
                 endurance_color = (255, 255, 100) if endurance_mode_selected == 1 else (200, 200, 200)
                 endurance_prefix = "> " if endurance_mode_selected == 1 else "  "
-                draw_centered_text(f"{endurance_prefix}Mode: {['Normal', 'Endurance Mode'][endurance_mode_selected]}", 700, endurance_color)
-                draw_centered_text("Press UP/DOWN to select mode, ENTER/SPACEBAR to Start! :D", 750, (100, 255, 100))
-                draw_centered_text("Press LEFT to go back, ESC to Quit", 800, (150, 150, 150))
+                draw_centered_text(f"{endurance_prefix}Mode: {['Normal', 'Endurance Mode'][endurance_mode_selected]}", 560, endurance_color)
+                draw_centered_text("Press UP/DOWN to select mode, ENTER/SPACEBAR to Start! :D", 620, (100, 255, 100))
+                draw_centered_text("Press LEFT to go back, ESC to Quit", 680, (150, 150, 150))
             
             pygame.display.flip()
             continue
@@ -6268,7 +6323,20 @@ try:
         for e in enemies:
             pygame.draw.rect(screen, e["color"], e["rect"])
             if ui_show_health_bars:
-                draw_health_bar(e["rect"].x, e["rect"].y - 10, e["rect"].w, 6, e["hp"], e["max_hp"])
+                # Draw health bar
+                health_bar_y = e["rect"].y - 10
+                draw_health_bar(e["rect"].x, health_bar_y, e["rect"].w, 6, e["hp"], e["max_hp"])
+                # Test mode: Draw enemy name over health bar
+                if testing_mode:
+                    enemy_type = e.get("type", "enemy")
+                    enemy_name = enemy_type.replace("_", " ").title()
+                    name_text = small_font.render(enemy_name, True, (255, 255, 255))
+                    name_x = e["rect"].centerx - name_text.get_width() // 2
+                    name_y = health_bar_y - 15
+                    # Draw background for readability
+                    bg_rect = pygame.Rect(name_x - 2, name_y - 1, name_text.get_width() + 4, name_text.get_height() + 2)
+                    pygame.draw.rect(screen, (0, 0, 0, 180), bg_rect)
+                    screen.blit(name_text, (name_x, name_y))
         
         # Draw damage numbers (floating above enemies)
         for dn in damage_numbers:
@@ -6338,17 +6406,32 @@ try:
         
         # Draw grenade explosions
         for exp in grenade_explosions:
+            # Get explosion center (handle both old and new format)
+            if "center" in exp:
+                exp_center = exp["center"]
+                exp_x = int(exp_center.x)
+                exp_y = int(exp_center.y)
+            else:
+                exp_x = int(exp.get("x", 0))
+                exp_y = int(exp.get("y", 0))
+            
+            # Get explosion color (enemy grenades may have custom colors)
+            exp_color = exp.get("color", (255, 100, 0))  # Default orange
+            
             # Draw expanding explosion circle with pulsing effect
             exp_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-            # Outer ring (orange/red)
+            # Outer ring (orange/red or custom color)
             alpha = int(255 * (1.0 - exp["timer"] / 0.3))  # Fade out
-            pygame.draw.circle(exp_surf, (255, 100, 0, alpha), (int(exp["x"]), int(exp["y"])), exp["radius"], 3)
+            outer_color = (*exp_color[:3], alpha) if len(exp_color) == 3 else exp_color
+            pygame.draw.circle(exp_surf, outer_color, (exp_x, exp_y), exp["radius"], 3)
             # Inner ring (yellow/white)
             inner_alpha = int(200 * (1.0 - exp["timer"] / 0.3))
-            pygame.draw.circle(exp_surf, (255, 255, 150, inner_alpha), (int(exp["x"]), int(exp["y"])), max(1, exp["radius"] // 2), 2)
+            inner_color = (255, 255, 150, inner_alpha)
+            pygame.draw.circle(exp_surf, inner_color, (exp_x, exp_y), max(1, exp["radius"] // 2), 2)
             # Center flash
             center_alpha = int(255 * (1.0 - exp["timer"] / 0.3))
-            pygame.draw.circle(exp_surf, (255, 255, 255, center_alpha), (int(exp["x"]), int(exp["y"])), max(5, exp["radius"] // 4))
+            center_color = (255, 255, 255, center_alpha)
+            pygame.draw.circle(exp_surf, center_color, (exp_x, exp_y), max(5, exp["radius"] // 4))
             screen.blit(exp_surf, (0, 0))
         
         # Draw player highlight/glow (always visible)
@@ -6545,6 +6628,19 @@ try:
             screen.blit(font.render("Press 1-6 to switch weapons (if unlocked)", True, (150, 150, 150)), (10, y_offset))
             y_offset += 22
             
+            # Draw enemy defeat messages in bottom right corner
+            defeat_y = HEIGHT - 30
+            for msg in enemy_defeat_messages:
+                enemy_type = msg["enemy_type"]
+                enemy_name = enemy_type.replace("_", " ").title()
+                defeat_text = font.render(f"{enemy_name} defeated!", True, (255, 200, 100))
+                defeat_x = WIDTH - defeat_text.get_width() - 20
+                defeat_y -= 25
+                # Draw background for readability
+                bg_rect = pygame.Rect(defeat_x - 5, defeat_y - 2, defeat_text.get_width() + 10, defeat_text.get_height() + 4)
+                pygame.draw.rect(screen, (0, 0, 0, 200), bg_rect)
+                screen.blit(defeat_text, (defeat_x, defeat_y))
+            
             # Controls display at bottom of screen
             controls_y = HEIGHT - 60
             controls_bg = pygame.Surface((WIDTH, 50), pygame.SRCALPHA)
@@ -6649,20 +6745,20 @@ except Exception as e:
 
 finally:
     run_ended_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    telemetry.end_run(
-        ended_at_iso=run_ended_at,
-        seconds_survived=run_time,
-        player_hp_end=player_hp,
-        shots_fired=shots_fired,
-        hits=hits,
-        damage_taken=damage_taken,
-        damage_dealt=damage_dealt,
-        enemies_spawned=enemies_spawned,
-        enemies_killed=enemies_killed,
-        deaths=deaths,
-        max_wave=wave_number,
-    )
     if telemetry_enabled and telemetry:
+        telemetry.end_run(
+            ended_at_iso=run_ended_at,
+            seconds_survived=run_time,
+            player_hp_end=player_hp,
+            shots_fired=shots_fired,
+            hits=hits,
+            damage_taken=damage_taken,
+            damage_dealt=damage_dealt,
+            enemies_spawned=enemies_spawned,
+            enemies_killed=enemies_killed,
+            deaths=deaths,
+            max_wave=wave_number,
+        )
         telemetry.close()
         print(f"Saved run_id={run_id} to game_telemetry.db")
     pygame.quit()
