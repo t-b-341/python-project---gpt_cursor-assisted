@@ -230,18 +230,19 @@
 #make lives 3 per wave, resetting at the beginning of each wave
 #--------------------------------------------------------/
 #prevent blocks from spawning within a radius of 10x the player size, from the player
-#--------------------------------------------------------
+#--------------------------------------------------------/
 #create enemy classes; pawn = basic beam, basic movement speed
 #create enemy classes; queen = maroon, "player copy"
 #prevent enemies and allies from spawning where blocks are
 #when game launches in command line, print "welcome to my game! :D"
 #give maroon enemy name "queen", and allow it to use grenades and shield as well as it gets damage done to it after 300-500 damage, for 5 seconds, and player gets close (grenade), and destroys destructible cover to lower ability for player to hide
 #prevent allies or enemies from spawning in health block
-#--------------------------------------------------------
-#add in suicide enemy that goes towards player and detonates themselves with grenade, and disappears after detonating, and damages player
+#--------------------------------------------------------/
+#make health block be in a different spot from the boss spawn point
+#add in suicide enemy that goes towards player and detonates themselves with grenade, and disappears after detonating, and damages player if in range of grenade; when enemy dies, the enemy despawns
 #update WEAPON_AND_ENEMY_REFERNCE.md to reflect most recent weapons, their spawn order, enemies with their names, and their behavior patterns
 #make enemies prioritize player damage, unless player is over half the map away from them, then prioritize allies closeby
-#--------------------------------------------------------
+#--------------------------------------------------------/
 #game; add side quests, and goal tracking; complete wave without getting hit, get a bonus 10,000 points
 #prevent boxes from overlapping with allies, on other boxes, or player, on spawn
 #when metrics are disabled, disable all hud information; when selecting options (HUD: enable, disable)
@@ -267,7 +268,6 @@
 #delete second HUD menu on options menu
 #once all steps implemented, verify code in game.py, and supporting libraries are optimized, effecient, and effective
 #--------------------------------------------------------
-#complete remaining to-do list actions
 #prevent any blocks from overlapping with each other
 #make health bar and HP amount above the control information at bottom of screen in-game
 #in last screen before starting game, state "press enter/spacebar to start! :D"
@@ -344,6 +344,9 @@ from telemetry import (
 )
 
 pygame.init()
+
+# Welcome message when game launches
+print("welcome to my game! :D")
 
 # ----------------------------
 # Controls (remappable)
@@ -878,7 +881,7 @@ destructible_blocks.extend([
 
 # Single moving health recovery zone
 moving_health_zone = {
-    "rect": pygame.Rect(WIDTH // 2 - 75, HEIGHT // 2 - 75, 150, 150),
+    "rect": pygame.Rect(WIDTH // 4 - 75, HEIGHT // 4 - 75, 150, 150),  # Offset from center (boss spawn)
     "heal_rate": 20.0,
     "color": (100, 255, 100, 80),
     "name": "Moving Healing Zone",
@@ -931,6 +934,34 @@ super_giant_blocks = [b for b in super_giant_blocks if pygame.Vector2(b["rect"].
 # Enemy templates + cloning
 # ----------------------------
 enemy_templates: list[dict] = [
+    {
+        "type": "pawn",
+        "rect": pygame.Rect(120, 450, 28, 28),
+        "color": (180, 180, 180),  # Gray
+        "hp": 50,
+        "max_hp": 50,
+        "shoot_cooldown": 1.0,  # Basic fire rate
+        "projectile_speed": 300,
+        "projectile_color": (200, 200, 200),
+        "projectile_shape": "circle",
+        "speed": 80,  # Basic movement speed
+        "enemy_class": "pawn",  # Enemy class identifier
+    },
+    {
+        "type": "suicide",
+        "rect": pygame.Rect(200, 200, 24, 24),
+        "color": (255, 50, 50),  # Bright red
+        "hp": 30,
+        "max_hp": 30,
+        "shoot_cooldown": 999.0,  # Doesn't shoot
+        "projectile_speed": 0,
+        "projectile_color": (255, 0, 0),
+        "projectile_shape": "circle",
+        "speed": 120,  # Fast movement toward player
+        "is_suicide": True,  # Marks this as suicide enemy
+        "explosion_range": 150,  # Range for grenade explosion
+        "detonation_distance": 80,  # Distance from player to detonate
+    },
     {
         "type": "grunt",
         "rect": pygame.Rect(120, 450, 28, 28),
@@ -1066,17 +1097,30 @@ enemy_templates: list[dict] = [
         "max_spawns": 3,  # Maximum enemies to spawn per spawner
     },
     {
-        "type": "predictor",
-        "rect": pygame.Rect(400, 400, 34, 34),
-        "color": (100, 0, 0),  # Dark maroon
-        "hp": 90,
-        "max_hp": 90,
-        "shoot_cooldown": 1.5,
-        "projectile_speed": 400,
+        "type": "queen",
+        "name": "queen",  # Explicit name
+        "rect": pygame.Rect(400, 400, 32, 32),
+        "color": (100, 0, 0),  # Dark maroon (player clone)
+        "hp": 2000,  # 2000 health
+        "max_hp": 2000,
+        "shoot_cooldown": 1.0,
+        "projectile_speed": 350,
         "projectile_color": (150, 0, 0),
-        "projectile_shape": "diamond",  # Rhomboid shape
-        "speed": 80,
-        "predicts_player": True,  # Marks this enemy as predictive
+        "projectile_shape": "circle",
+        "speed": 240,  # 3x standard speed (80 * 3)
+        "is_player_clone": True,  # Marks this as player clone
+        "enemy_class": "queen",  # Enemy class identifier
+        "has_shield": True,  # Queen has shield
+        "shield_angle": 0.0,
+        "shield_length": 60,
+        "can_use_grenades": True,  # Queen can use grenades
+        "grenade_cooldown": 5.0,  # Grenade cooldown for queen
+        "time_since_grenade": 999.0,
+        "damage_taken_since_rage": 0,  # Track damage for rage mode
+        "rage_mode_active": False,  # Rage mode after 300-500 damage
+        "rage_mode_timer": 0.0,  # Rage mode duration (5 seconds)
+        "rage_damage_threshold": random.randint(300, 500),  # Random threshold between 300-500
+        "predicts_player": True,  # Queen also predicts player position
     },
     {
         "type": "queen",
@@ -1608,6 +1652,9 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
             continue
         if any(candidate.colliderect(p["rect"]) for p in pickups):
             continue
+        # Prevent spawning in health recovery zone
+        if candidate.colliderect(moving_health_zone["rect"]):
+            continue
         return candidate
     # fallback: top-left corner inside bounds
     return pygame.Rect(max(0, WIDTH // 2 - w), max(0, HEIGHT // 2 - h), w, h)
@@ -1650,6 +1697,17 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> di
         enemy["shield_length"] = t.get("shield_length", 60)
         enemy["shield_hp"] = 0
         enemy["turn_speed"] = t.get("turn_speed", 0.5)
+    # Add queen-specific properties
+    if t.get("type") == "queen":
+        enemy["name"] = t.get("name", "queen")
+        enemy["can_use_grenades"] = t.get("can_use_grenades", False)
+        enemy["grenade_cooldown"] = t.get("grenade_cooldown", 5.0)
+        enemy["time_since_grenade"] = t.get("time_since_grenade", 999.0)
+        enemy["damage_taken_since_rage"] = 0
+        enemy["rage_mode_active"] = False
+        enemy["rage_mode_timer"] = 0.0
+        enemy["rage_damage_threshold"] = t.get("rage_damage_threshold", random.randint(300, 500))
+        enemy["predicts_player"] = t.get("predicts_player", False)
     return enemy
 
 
@@ -1709,23 +1767,42 @@ def find_nearest_enemy(friendly_pos: pygame.Vector2) -> dict | None:
 
 
 def find_nearest_threat(enemy_pos: pygame.Vector2) -> tuple[pygame.Vector2, str] | None:
-    """Find the nearest threat (player or friendly AI) to an enemy."""
+    """Find the nearest threat (player or friendly AI) to an enemy.
+    Prioritizes player unless player is over half the map away, then prioritizes nearby allies."""
     threats = []
     player_pos = pygame.Vector2(player.center)
-    player_dist = (player_pos - enemy_pos).length_squared()
-    threats.append((player_pos, player_dist, "player"))
+    player_dist_sq = (player_pos - enemy_pos).length_squared()
+    player_dist = math.sqrt(player_dist_sq)
+    half_map_distance = math.sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT) / 2  # Half the diagonal of the map
     
+    # Always add player as a threat
+    threats.append((player_pos, player_dist_sq, "player", player_dist))
+    
+    # Add friendly AI threats
     for f in friendly_ai:
         if f["hp"] <= 0:
             continue
         friendly_pos = pygame.Vector2(f["rect"].center)
-        friendly_dist = (friendly_pos - enemy_pos).length_squared()
-        threats.append((friendly_pos, friendly_dist, "friendly"))
+        friendly_dist_sq = (friendly_pos - enemy_pos).length_squared()
+        friendly_dist = math.sqrt(friendly_dist_sq)
+        threats.append((friendly_pos, friendly_dist_sq, "friendly", friendly_dist))
     
     if not threats:
         return None
     
-    # Return the closest threat
+    # If player is over half the map away, prioritize nearby allies
+    if player_dist > half_map_distance:
+        # Filter to only friendly AI threats
+        friendly_threats = [t for t in threats if t[2] == "friendly"]
+        if friendly_threats:
+            # Sort by distance and return closest friendly
+            friendly_threats.sort(key=lambda x: x[1])
+            return (friendly_threats[0][0], friendly_threats[0][2])
+        # If no friendly threats, still return player
+        return (player_pos, "player")
+    
+    # Player is close enough - prioritize player
+    # Return the closest threat (usually player)
     threats.sort(key=lambda x: x[1])
     return (threats[0][0], threats[0][2])
 
@@ -1773,12 +1850,8 @@ def spawn_friendly_ai(count: int, hp_scale: float, speed_scale: float):
     for _ in range(count):
         tmpl = random.choice(friendly_ai_templates)
         friendly = make_friendly_from_template(tmpl, hp_scale, speed_scale)
-        # Spawn near player but not too close
-        spawn_x = player.centerx + random.randint(-200, 200)
-        spawn_y = player.centery + random.randint(-200, 200)
-        spawn_x = max(50, min(spawn_x, WIDTH - 50))
-        spawn_y = max(50, min(spawn_y, HEIGHT - 50))
-        friendly["rect"].center = (spawn_x, spawn_y)
+        # Use random_spawn_position to prevent spawning on blocks or health zone
+        friendly["rect"] = random_spawn_position((friendly["rect"].w, friendly["rect"].h))
         friendly_ai.append(friendly)
         spawned_list.append(friendly)
     
@@ -3191,7 +3264,7 @@ def reset_after_death():
     grenade_explosions.clear()  # Clear grenade explosions on death
     grenade_time_since_used = 999.0  # Reset grenade cooldown
     # Reset moving health zone to center
-    moving_health_zone["rect"].center = (WIDTH // 2, HEIGHT // 2)
+    moving_health_zone["rect"].center = (WIDTH // 4, HEIGHT // 4)  # Offset from center (boss spawn)
     moving_health_zone["target"] = None
     overshield = 0  # Reset overshield
     player_time_since_shot = 999.0
@@ -3863,7 +3936,12 @@ try:
                                 e["hp"] -= laser_damage * dt * 60
                                 damage_dealt += int(laser_damage * dt * 60)
                                 if e["hp"] <= 0:
-                                    kill_enemy(e)
+                                    # Suicide enemies despawn immediately when killed (no drops)
+                                    if e.get("is_suicide", False):
+                                        if e in enemies:
+                                            enemies.remove(e)
+                                    else:
+                                        kill_enemy(e)
                         # Store laser beam for drawing
                         if len(laser_beams) == 0:
                             laser_beams.append({
@@ -3975,7 +4053,12 @@ try:
                                 e["hp"] -= wave_beam_damage * dt * 60
                                 damage_dealt += int(wave_beam_damage * dt * 60)
                                 if e["hp"] <= 0:
-                                    kill_enemy(e)
+                                    # Suicide enemies despawn immediately when killed (no drops)
+                                    if e.get("is_suicide", False):
+                                        if e in enemies:
+                                            enemies.remove(e)
+                                    else:
+                                        kill_enemy(e)
                         
                         # Store wave beam for drawing
                         if len(wave_beams) == 0:
@@ -4219,6 +4302,39 @@ try:
             
             for enemy_idx, e in enumerate(enemies):
                 e_pos = pygame.Vector2(e["rect"].center)
+                
+                # Suicide enemy behavior: move toward player and detonate when close
+                if e.get("is_suicide", False):
+                    player_pos = pygame.Vector2(player.center)
+                    dist_to_player = (player_pos - e_pos).length()
+                    
+                    # Move directly toward player
+                    if dist_to_player > 0:
+                        move_dir = (player_pos - e_pos).normalize()
+                        move_speed = e.get("speed", 120) * dt
+                        e["rect"].x += int(move_dir.x * move_speed)
+                        e["rect"].y += int(move_dir.y * move_speed)
+                        clamp_rect_to_screen(e["rect"])
+                    
+                    # Detonate if close enough to player
+                    detonation_dist = e.get("detonation_distance", 80)
+                    if dist_to_player <= detonation_dist:
+                        # Create grenade explosion
+                        explosion_range = e.get("explosion_range", 150)
+                        grenade_explosions.append({
+                            "center": pygame.Vector2(e["rect"].center),
+                            "radius": explosion_range,
+                            "damage": grenade_damage,
+                            "timer": 0.3,
+                            "color": (255, 50, 50),  # Red for suicide explosion
+                            "damaged_enemies": set(),
+                            "damaged_blocks": set(),
+                            "damaged_player": False,
+                        })
+                        # Remove enemy (despawn)
+                        if e in enemies:
+                            enemies.remove(e)
+                        continue
                 
                 # When 5 or fewer enemies remain, they move directly towards player
                 if len(enemies) <= 5:
@@ -4549,6 +4665,63 @@ try:
             for e in enemies:
                 e["time_since_shot"] += dt
                 
+                # Queen-specific behaviors (grenades, shield, rage mode)
+                if e.get("type") == "queen":
+                    # Update rage mode timer
+                    if e.get("rage_mode_active", False):
+                        e["rage_mode_timer"] -= dt
+                        if e["rage_mode_timer"] <= 0:
+                            e["rage_mode_active"] = False
+                    
+                    # Update grenade cooldown
+                    e["time_since_grenade"] = e.get("time_since_grenade", 999.0) + dt
+                    
+                    # Shield rotation (always active)
+                    if e.get("has_shield", False):
+                        # Rotate shield to face player
+                        player_pos = pygame.Vector2(player.center)
+                        queen_pos = pygame.Vector2(e["rect"].center)
+                        angle_to_player = math.atan2(player_pos.y - queen_pos.y, player_pos.x - queen_pos.x)
+                        e["shield_angle"] = angle_to_player
+                    
+                    # Grenade logic: use grenade if player is close and cooldown ready, or in rage mode
+                    if e.get("can_use_grenades", False):
+                        player_pos = pygame.Vector2(player.center)
+                        queen_pos = pygame.Vector2(e["rect"].center)
+                        dist_to_player = (player_pos - queen_pos).length()
+                        grenade_range = player.w * 10  # 10x player size (same as player grenade)
+                        
+                        # Use grenade if: (player close AND cooldown ready) OR (rage mode active AND cooldown ready)
+                        if e["time_since_grenade"] >= e.get("grenade_cooldown", 5.0):
+                            if dist_to_player <= grenade_range * 1.5 or e.get("rage_mode_active", False):
+                                # Spawn grenade explosion
+                                grenade_explosions.append({
+                                    "center": pygame.Vector2(e["rect"].center),
+                                    "radius": player.w * 10,
+                                    "damage": grenade_damage,
+                                    "timer": 0.3,
+                                    "color": (255, 165, 0),  # Orange
+                                    "damaged_enemies": set(),
+                                    "damaged_blocks": set(),
+                                    "damaged_player": False,  # Track if player was damaged
+                                })
+                                e["time_since_grenade"] = 0.0
+                                
+                                # In rage mode, destroy nearby destructible blocks
+                                if e.get("rage_mode_active", False):
+                                    for db in destructible_blocks[:]:
+                                        block_center = pygame.Vector2(db["rect"].center)
+                                        dist_to_block = (block_center - queen_pos).length()
+                                        if dist_to_block <= grenade_range * 1.5 and db.get("is_destructible"):
+                                            # Destroy block
+                                            destructible_blocks.remove(db)
+                                    for mdb in moveable_destructible_blocks[:]:
+                                        block_center = pygame.Vector2(mdb["rect"].center)
+                                        dist_to_block = (block_center - queen_pos).length()
+                                        if dist_to_block <= grenade_range * 1.5 and mdb.get("is_destructible"):
+                                            # Destroy block
+                                            moveable_destructible_blocks.remove(mdb)
+                
                 # Spawner enemy: spawns enemies during round
                 if e.get("is_spawner", False):
                     e["time_since_spawn"] = e.get("time_since_spawn", 0.0) + dt
@@ -4557,7 +4730,7 @@ try:
                     
                     if e["time_since_spawn"] >= e.get("spawn_cooldown", 5.0) and spawn_count < max_spawns:
                         # Spawn a random enemy near the spawner
-                        spawn_templates = [t for t in enemy_templates if t["type"] not in ["spawner", "predictor"]]
+                        spawn_templates = [t for t in enemy_templates if t["type"] not in ["spawner", "queen"]]
                         if spawn_templates:
                             tmpl = random.choice(spawn_templates)
                             hp_scale = 1.0
@@ -5029,6 +5202,14 @@ try:
                             # Bullet hit from behind/side, apply damage normally
                             e["hp"] -= bullet_damage
                             damage_dealt += bullet_damage
+                            # Track damage for queen rage mode
+                            if e.get("type") == "queen":
+                                e["damage_taken_since_rage"] = e.get("damage_taken_since_rage", 0) + bullet_damage
+                                # Activate rage mode if threshold reached
+                                if not e.get("rage_mode_active", False) and e["damage_taken_since_rage"] >= e.get("rage_damage_threshold", 400):
+                                    e["rage_mode_active"] = True
+                                    e["rage_mode_timer"] = 5.0  # 5 seconds of rage mode
+                                    e["damage_taken_since_rage"] = 0  # Reset counter
                             # Add damage number display
                             damage_numbers.append({
                                 "x": e["rect"].centerx,
@@ -5041,6 +5222,14 @@ try:
                             # Normal enemy, apply damage
                             e["hp"] -= bullet_damage
                             damage_dealt += bullet_damage
+                            # Track damage for queen rage mode
+                            if e.get("type") == "queen":
+                                e["damage_taken_since_rage"] = e.get("damage_taken_since_rage", 0) + bullet_damage
+                                # Activate rage mode if threshold reached
+                                if not e.get("rage_mode_active", False) and e["damage_taken_since_rage"] >= e.get("rage_damage_threshold", 400):
+                                    e["rage_mode_active"] = True
+                                    e["rage_mode_timer"] = 5.0  # 5 seconds of rage mode
+                                    e["damage_taken_since_rage"] = 0  # Reset counter
                             # Add damage number display
                             damage_numbers.append({
                                 "x": e["rect"].centerx,
@@ -5118,7 +5307,12 @@ try:
                                 player_bullets.remove(b)
 
                         if killed:
-                            kill_enemy(e)
+                            # Suicide enemies despawn immediately when killed (no drops)
+                            if e.get("is_suicide", False):
+                                if e in enemies:
+                                    enemies.remove(e)
+                            else:
+                                kill_enemy(e)
 
                         # If bullet was removed, continue to next bullet
                         if b not in player_bullets:
@@ -5388,8 +5582,36 @@ try:
                     grenade_explosions.remove(exp)
                     continue
                 
+                # Get explosion center (handle both old and new format)
+                if "center" in exp:
+                    exp_center = exp["center"]
+                else:
+                    exp_center = pygame.Vector2(exp["x"], exp["y"])
+                
+                # Apply damage to player (if not already damaged by this explosion)
+                if not exp.get("damaged_player", False):
+                    player_center = pygame.Vector2(player.center)
+                    dist_to_player = exp_center.distance_to(player_center)
+                    if dist_to_player <= exp["radius"]:
+                        player_hp -= exp["damage"]
+                        exp["damaged_player"] = True
+                        damage_numbers.append({
+                            "x": player.centerx,
+                            "y": player.y - 15,
+                            "damage": exp["damage"],
+                            "timer": 2.0,
+                            "color": (255, 165, 0),
+                        })
+                        # Log player damage
+                        if telemetry_enabled and telemetry:
+                            telemetry.log_player_damage(PlayerDamageEvent(
+                                t=run_time,
+                                damage=exp["damage"],
+                                source="queen_grenade",
+                                player_hp_after=player_hp,
+                            ))
+                
                 # Apply damage to enemies in radius (only once per explosion)
-                exp_center = pygame.Vector2(exp["x"], exp["y"])
                 for e in enemies[:]:
                     if id(e) in exp["damaged_enemies"]:
                         continue  # Already damaged

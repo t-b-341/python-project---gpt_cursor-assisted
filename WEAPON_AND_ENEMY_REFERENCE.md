@@ -72,7 +72,7 @@ The wave beam system supports these trigonometric patterns (currently only "sine
    - Projectile: Square, blue color
    - Projectile speed: 320
 
-2. **heavy**
+3. **heavy**
    - Heavier, slower enemy
    - HP: 80 (scales with wave)
    - Speed: 70
@@ -80,7 +80,7 @@ The wave beam system supports these trigonometric patterns (currently only "sine
    - Projectile: Circle, orange color
    - Projectile speed: 280
 
-3. **stinky**
+4. **stinky**
    - Fast enemy type
    - HP: 60 (scales with wave)
    - Speed: 110
@@ -88,7 +88,7 @@ The wave beam system supports these trigonometric patterns (currently only "sine
    - Projectile: Diamond, blue color
    - Projectile speed: 320
 
-4. **baka**
+5. **baka**
    - High HP, fast-firing enemy
    - HP: 300 (capped at 300)
    - Speed: 150
@@ -96,7 +96,7 @@ The wave beam system supports these trigonometric patterns (currently only "sine
    - Projectile: Square, pink color
    - Projectile speed: 500
 
-5. **neko neko desu**
+6. **neko neko desu**
    - Low HP, very fast-firing enemy
    - HP: 20 (scales with wave)
    - Speed: 160
@@ -104,7 +104,7 @@ The wave beam system supports these trigonometric patterns (currently only "sine
    - Projectile: Circle, green color
    - Projectile speed: 500
 
-6. **BIG NEKU**
+7. **BIG NEKU**
    - High HP, slow-moving enemy
    - HP: 300 (capped at 300)
    - Speed: 60
@@ -112,7 +112,7 @@ The wave beam system supports these trigonometric patterns (currently only "sine
    - Projectile: Diamond, blue color
    - Projectile speed: 700
 
-7. **bouncer**
+8. **bouncer**
    - Enemy that fires bouncing projectiles
    - HP: 70 (scales with wave)
    - Speed: 85
@@ -121,7 +121,7 @@ The wave beam system supports these trigonometric patterns (currently only "sine
    - Projectile speed: 350
    - Special: Projectiles bounce off walls
 
-8. **shielded**
+9. **shielded**
    - Enemy with directional shield
    - HP: 100 (scales with wave)
    - Speed: 60
@@ -132,15 +132,83 @@ The wave beam system supports these trigonometric patterns (currently only "sine
    - Shield length: 50px
    - Shield rotates to face threats
 
-9. **reflector**
-   - Enemy with reflective shield
-   - HP: 150 (scales with wave)
-   - Speed: 40 (slow)
-   - Shoot cooldown: 999.0s (doesn't shoot)
-   - Special: Has a reflective shield that reflects player bullets back
-   - Shield length: 60px
-   - Shield turns slowly toward threats (0.5 rad/s)
-   - Shield absorbs damage and fires reflected projectiles
+10. **reflector**
+    - Enemy with reflective shield
+    - HP: 150 (scales with wave)
+    - Speed: 40 (slow)
+    - Shoot cooldown: 999.0s (doesn't shoot)
+    - Special: Has a reflective shield that reflects player bullets back
+    - Shield length: 60px
+    - Shield turns slowly toward threats (0.5 rad/s)
+    - Shield absorbs damage and fires reflected projectiles
+
+11. **spawner**
+    - Enemy that spawns other enemies during the round
+    - HP: 120 (scales with wave)
+    - Speed: 50 (slow)
+    - Shoot cooldown: 999.0s (doesn't shoot)
+    - Special: Spawns enemies every 5 seconds
+    - Max spawns: 3 enemies per spawner
+    - Spawns random enemy types (excluding spawner and queen)
+
+12. **queen**
+    - Maroon enemy (player clone)
+    - HP: 2000 (fixed, does not scale)
+    - Speed: 240 (3x standard speed)
+    - Shoot cooldown: 1.0s
+    - Projectile: Circle, dark red color
+    - Projectile speed: 350
+    - Special abilities:
+      - Has a shield that rotates to face the player
+      - Can use grenades (5 second cooldown)
+      - Rage mode: Activates after taking 300-500 damage, lasts 5 seconds
+      - In rage mode: Uses grenades aggressively and destroys nearby destructible blocks
+      - Predicts player position when shooting
+    - Behavior: Advanced AI that mimics player abilities
+
+13. **suicide**
+    - Suicide bomber enemy
+    - HP: 30 (scales with wave)
+    - Speed: 120 (fast movement toward player)
+    - Shoot cooldown: 999.0s (doesn't shoot)
+    - Special: Moves directly toward player and detonates when within 80 pixels
+    - Explosion range: 150 pixels
+    - Explosion damage: Same as player grenade (500 damage)
+    - Behavior: Despawns immediately after detonation (no weapon drops)
+
+10. **spawner**
+    - Enemy that spawns other enemies during the round
+    - HP: 120 (scales with wave)
+    - Speed: 50 (slow)
+    - Shoot cooldown: 999.0s (doesn't shoot)
+    - Special: Spawns enemies every 5 seconds
+    - Max spawns: 3 enemies per spawner
+    - Spawns random enemy types (excluding spawner and queen)
+
+11. **queen**
+    - Maroon enemy (player clone)
+    - HP: 2000 (fixed, does not scale)
+    - Speed: 240 (3x standard speed)
+    - Shoot cooldown: 1.0s
+    - Projectile: Circle, dark red color
+    - Projectile speed: 350
+    - Special abilities:
+      - Has a shield that rotates to face the player
+      - Can use grenades (5 second cooldown)
+      - Rage mode: Activates after taking 300-500 damage, lasts 5 seconds
+      - In rage mode: Uses grenades aggressively and destroys nearby destructible blocks
+      - Predicts player position when shooting
+    - Behavior: Advanced AI that mimics player abilities
+
+12. **suicide**
+    - Suicide bomber enemy
+    - HP: 30 (scales with wave)
+    - Speed: 120 (fast movement toward player)
+    - Shoot cooldown: 999.0s (doesn't shoot)
+    - Special: Moves directly toward player and detonates when within 80 pixels
+    - Explosion range: 150 pixels
+    - Explosion damage: Same as player grenade (500 damage)
+    - Behavior: Despawns immediately after detonation (no weapon drops)
 
 ### Boss Enemy
 
