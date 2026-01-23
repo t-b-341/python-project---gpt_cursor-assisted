@@ -183,7 +183,7 @@
 #--------------------------------------------------------
 #metrics menu: show and hide, independent from telemetry
 #telemetry menu:  enable and disable, independent from metrics
-#-------------------------------------------------------- 1-23-26
+#-------------------------------------------------------- 1-23-26--------------------------------------------------------------------------------------
 #make all blocks moveable, and indestructible, and the player can push them around
 #--------------------------------------------------------
 #add destructible, moveable blocks back in. Make blocks 50% of all blocks, and the other 50% be indestructible, moveable blocks
@@ -280,6 +280,12 @@
 #make it so that the health and other objects do not overlap with each other
 #give player 3x health, 1.5x movement speed
 #remove giant and super giant labels from obstacles
+#--------------------------------------------------------
+#game; change queen shot cooldown to 1 second
+#--------------------------------------------------------
+
+
+
 
 
 
@@ -544,8 +550,8 @@ controls_rebinding = False
 # Player
 # ----------------------------
 player = pygame.Rect((WIDTH - 28) // 2, (HEIGHT - 28) // 2, 28, 28)  # 10% larger (25 * 1.1 = 27.5, rounded to 28)
-player_speed = 300  # px/s (base speed, modified by class)
-player_max_hp = 250  # base HP (modified by class)
+player_speed = 450  # px/s (base speed, modified by class) - 1.5x (300 * 1.5)
+player_max_hp = 750  # base HP (modified by class) - 3x (250 * 3)
 player_hp = player_max_hp
 
 # Player class stat modifiers
@@ -994,6 +1000,39 @@ destructible_blocks = filter_blocks_no_overlap(destructible_blocks, [moveable_de
 moveable_destructible_blocks = filter_blocks_no_overlap(moveable_destructible_blocks, [destructible_blocks, giant_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], player)
 giant_blocks = filter_blocks_no_overlap(giant_blocks, [destructible_blocks, moveable_destructible_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], player)
 super_giant_blocks = filter_blocks_no_overlap(super_giant_blocks, [destructible_blocks, moveable_destructible_blocks, giant_blocks, trapezoid_blocks, triangle_blocks], player)
+
+# Ensure health zone doesn't overlap with blocks
+health_zone_overlaps = True
+max_health_zone_attempts = 100
+for _ in range(max_health_zone_attempts):
+    health_zone_overlaps = False
+    # Check if health zone overlaps with any blocks
+    for block_list in [destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks]:
+        for block in block_list:
+            if moving_health_zone["rect"].colliderect(block["rect"]):
+                health_zone_overlaps = True
+                break
+        if health_zone_overlaps:
+            break
+    # Also check trapezoid and triangle blocks
+    if not health_zone_overlaps:
+        for tb in trapezoid_blocks:
+            if moving_health_zone["rect"].colliderect(tb.get("bounding_rect", tb.get("rect"))):
+                health_zone_overlaps = True
+                break
+    if not health_zone_overlaps:
+        for tr in triangle_blocks:
+            if moving_health_zone["rect"].colliderect(tr.get("bounding_rect", tr.get("rect"))):
+                health_zone_overlaps = True
+                break
+    
+    if not health_zone_overlaps:
+        break  # Found a good position
+    
+    # Try a new random position for health zone
+    new_x = random.randint(100, WIDTH - 250)
+    new_y = random.randint(100, HEIGHT - 250)
+    moving_health_zone["rect"].center = (new_x, new_y)
 
 # ----------------------------
 # Enemy templates + cloning
@@ -2500,24 +2539,39 @@ def update_hazard_obstacles(dt: float):
 def spawn_pickup(pickup_type: str):
     # Make pickups bigger
     size = (32, 32)
-    r = random_spawn_position(size)
-    # All pickups look the same (mystery) - randomized color so player doesn't know what they're getting
-    mystery_colors = [
-        (180, 100, 255),  # purple
-        (100, 255, 180),  # green
-        (255, 180, 100),  # orange
-        (180, 255, 255),  # cyan
-        (255, 100, 180),  # pink
-        (255, 255, 100),  # yellow
-    ]
-    color = random.choice(mystery_colors)
-    pickups.append({
-        "type": pickup_type,
-        "rect": r,
-        "color": color,
-        "timer": 15.0,  # pickup despawns after 15 seconds
-        "age": 0.0,  # current age for visual effects
-    })
+    max_attempts = 50  # Increased attempts to avoid overlaps
+    for _ in range(max_attempts):
+        r = random_spawn_position(size)
+        # Check if pickup overlaps with existing pickups
+        overlaps = False
+        for existing_pickup in pickups:
+            if r.colliderect(existing_pickup["rect"]):
+                overlaps = True
+                break
+        # Check if pickup overlaps with health zone
+        if r.colliderect(moving_health_zone["rect"]):
+            overlaps = True
+        
+        if not overlaps:
+            # All pickups look the same (mystery) - randomized color so player doesn't know what they're getting
+            mystery_colors = [
+                (180, 100, 255),  # purple
+                (100, 255, 180),  # green
+                (255, 180, 100),  # orange
+                (180, 255, 255),  # cyan
+                (255, 100, 180),  # pink
+                (255, 255, 100),  # yellow
+            ]
+            color = random.choice(mystery_colors)
+            pickups.append({
+                "type": pickup_type,
+                "rect": r,
+                "color": color,
+                "timer": 15.0,  # pickup despawns after 15 seconds
+                "age": 0.0,  # current age for visual effects
+            })
+            return  # Successfully spawned, exit function
+    # If we couldn't find a non-overlapping position, skip spawning this pickup
 
 
 def spawn_weapon_in_center(weapon_type: str):
@@ -6304,26 +6358,12 @@ try:
             pygame.draw.rect(screen, gb["color"], gb["rect"])
             # Draw border to indicate it's giant and unmovable
             pygame.draw.rect(screen, (100, 100, 150), gb["rect"], 4)
-            # Draw "GIANT" text on block
-            giant_text = font.render("GIANT", True, (200, 200, 200))
-            text_x = gb["rect"].centerx - giant_text.get_width() // 2
-            text_y = gb["rect"].centery - giant_text.get_height() // 2
-            screen.blit(giant_text, (text_x, text_y))
         
         # Draw super giant blocks (unmovable, indestructible)
         for sgb in super_giant_blocks:
             pygame.draw.rect(screen, sgb["color"], sgb["rect"])
             # Draw border to indicate it's super giant and unmovable
             pygame.draw.rect(screen, (80, 80, 120), sgb["rect"], 6)
-            # Draw "SUPER GIANT" text on block
-            super_text = font.render("SUPER", True, (200, 200, 200))
-            text_x = sgb["rect"].centerx - super_text.get_width() // 2
-            text_y = sgb["rect"].centery - super_text.get_height() // 2 - 10
-            screen.blit(super_text, (text_x, text_y))
-            giant_text2 = font.render("GIANT", True, (200, 200, 200))
-            text_x2 = sgb["rect"].centerx - giant_text2.get_width() // 2
-            text_y2 = sgb["rect"].centery - giant_text2.get_height() // 2 + 10
-            screen.blit(giant_text2, (text_x2, text_y2))
         
         # Draw moveable destructible blocks (50% destructible with HP, 50% indestructible, all moveable)
         for mdb in moveable_destructible_blocks:
