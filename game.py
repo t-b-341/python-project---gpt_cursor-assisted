@@ -243,15 +243,16 @@
 #update WEAPON_AND_ENEMY_REFERNCE.md to reflect most recent weapons, their spawn order, enemies with their names, and their behavior patterns
 #make enemies prioritize player damage, unless player is over half the map away from them, then prioritize allies closeby
 #--------------------------------------------------------/
+#make a list of all pickups, and their effects, and their spawn order
 #game; add side quests, and goal tracking; complete wave without getting hit, get a bonus 10,000 points
 #prevent boxes from overlapping with allies, on other boxes, or player, on spawn
 #when metrics are disabled, disable all hud information; when selecting options (HUD: enable, disable)
-#create custom character profile
-#verify that game will start full screen on my monitor 2, not monitor 1
-#--------------------------------------------------------
+#create custom character profile creator
+#--------------------------------------------------------/
+#character profile premade and custom character profile do not allow for right to continue to next menu 
+# --------------------------------------------------------
 #make character profile option yes or no, and if yes, allow player to select premade, or make a profile, prior to start of game
-#game still does not launch on monitor 2, even if a window on monitor 1 is selected
- #replace metrics selection with HUD, which toggles HUD dynamics on or off, and can be changed
+#replace metrics selection with HUD, which toggles HUD dynamics on or off, and can be changed
 #fix text overlap in "ready to start" menu with weapon basic, and other text
 #test mode menu: puts enemy name over the enemy health bar
 #make custom stats able to be updated
@@ -438,8 +439,34 @@ state = STATE_MENU
 previous_game_state = None  # Track previous game state for pause/unpause (STATE_PLAYING or STATE_ENDURANCE)
 menu_section = 0  # 0 = difficulty, 1 = aiming, 2 = class, 3 = options, 4 = beam_selection, 5 = start
 ui_show_metrics_selected = 1  # 0 = Show, 1 = Hide - Default: Hide (disabled)
+ui_show_hud = True  # HUD visibility (follows metrics setting)
 ui_options_selected = 0  # 0 = Metrics, 1 = Telemetry (which option is currently focused)
 endurance_mode_selected = 0  # 0 = Normal, 1 = Endurance Mode
+
+# Character profile system
+character_profile_selected = 0  # 0 = Premade, 1 = Custom
+character_profile_options = ["Premade Profiles", "Create Custom Profile"]
+custom_profile_stat_selected = 0  # Which stat is being edited
+custom_profile_stats = {
+    "hp_mult": 1.0,
+    "speed_mult": 1.0,
+    "damage_mult": 1.0,
+    "firerate_mult": 1.0,
+}
+custom_profile_stats_list = ["HP Multiplier", "Speed Multiplier", "Damage Multiplier", "Fire Rate Multiplier"]
+custom_profile_stats_keys = ["hp_mult", "speed_mult", "damage_mult", "firerate_mult"]
+
+# Side quests and goal tracking
+side_quests = {
+    "no_hit_wave": {
+        "name": "Perfect Wave",
+        "description": "Complete wave without getting hit",
+        "bonus_points": 10000,
+        "active": False,
+        "completed": False,
+    }
+}
+wave_damage_taken = 0  # Track damage taken in current wave
 # Beam selection for testing (harder to access - requires testing mode)
 testing_mode = False  # Set to True to enable weapon selection menu
 beam_selection_selected = 6  # 0 = wave_beam, 1 = rocket, etc., 6 = basic (default)
@@ -924,11 +951,49 @@ player_center = pygame.Vector2(player.center)
 player_size = max(player.w, player.h)  # Use larger dimension (28)
 min_block_distance = player_size * 10  # 10x player size = 280 pixels
 
-# Filter all block lists to remove blocks too close to player
-destructible_blocks = [b for b in destructible_blocks if pygame.Vector2(b["rect"].center).distance_to(player_center) >= min_block_distance]
-moveable_destructible_blocks = [b for b in moveable_destructible_blocks if pygame.Vector2(b["rect"].center).distance_to(player_center) >= min_block_distance]
-giant_blocks = [b for b in giant_blocks if pygame.Vector2(b["rect"].center).distance_to(player_center) >= min_block_distance]
-super_giant_blocks = [b for b in super_giant_blocks if pygame.Vector2(b["rect"].center).distance_to(player_center) >= min_block_distance]
+# Filter all block lists to remove blocks too close to player and prevent overlaps with each other
+def filter_blocks_no_overlap(block_list: list[dict], all_other_blocks: list[list[dict]], player_rect: pygame.Rect) -> list[dict]:
+    """Filter blocks to remove those too close to player and overlapping with other blocks."""
+    filtered = []
+    for block in block_list:
+        block_rect = block["rect"]
+        block_center = pygame.Vector2(block_rect.center)
+        
+        # Check distance from player
+        if block_center.distance_to(player_center) < min_block_distance:
+            continue
+        
+        # Check collision with player
+        if block_rect.colliderect(player_rect):
+            continue
+        
+        # Check collision with other blocks
+        overlaps = False
+        for other_block_list in all_other_blocks:
+            for other_block in other_block_list:
+                if block_rect.colliderect(other_block["rect"]):
+                    overlaps = True
+                    break
+            if overlaps:
+                break
+        
+        # Check collision with other blocks in same list (prevent self-overlap)
+        if not overlaps:
+            for other_block in block_list:
+                if other_block is not block and block_rect.colliderect(other_block["rect"]):
+                    overlaps = True
+                    break
+        
+        if not overlaps:
+            filtered.append(block)
+    
+    return filtered
+
+# Filter blocks to prevent overlaps (allies checked at runtime in random_spawn_position)
+destructible_blocks = filter_blocks_no_overlap(destructible_blocks, [moveable_destructible_blocks, giant_blocks, super_giant_blocks], player)
+moveable_destructible_blocks = filter_blocks_no_overlap(moveable_destructible_blocks, [destructible_blocks, giant_blocks, super_giant_blocks], player)
+giant_blocks = filter_blocks_no_overlap(giant_blocks, [destructible_blocks, moveable_destructible_blocks, super_giant_blocks], player)
+super_giant_blocks = filter_blocks_no_overlap(super_giant_blocks, [destructible_blocks, moveable_destructible_blocks, giant_blocks], player)
 
 # ----------------------------
 # Enemy templates + cloning
@@ -3446,14 +3511,61 @@ try:
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                             menu_section = 0
                     elif menu_section == 2:
+                        # Character profile creator
+                        if event.key == pygame.K_UP or event.key == pygame.K_w:
+                            character_profile_selected = (character_profile_selected - 1) % len(character_profile_options)
+                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                            character_profile_selected = (character_profile_selected + 1) % len(character_profile_options)
+                        elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            if character_profile_selected == 0:
+                                # Use premade profiles (existing class system)
+                                menu_section = 7  # Go to class selection
+                            elif character_profile_selected == 1:
+                                # Create custom profile
+                                menu_section = 6  # Go to custom profile creator
+                        elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
+                            # Continue to next menu based on selection
+                            if character_profile_selected == 0:
+                                menu_section = 7  # Go to class selection
+                            elif character_profile_selected == 1:
+                                menu_section = 6  # Go to custom profile creator
+                        elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                            menu_section = 1
+                    elif menu_section == 6:
+                        # Custom character profile creator
+                        if event.key == pygame.K_UP or event.key == pygame.K_w:
+                            custom_profile_stat_selected = (custom_profile_stat_selected - 1) % len(custom_profile_stats_list)
+                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                            custom_profile_stat_selected = (custom_profile_stat_selected + 1) % len(custom_profile_stats_list)
+                        elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                            stat_key = custom_profile_stats_keys[custom_profile_stat_selected]
+                            custom_profile_stats[stat_key] = max(0.5, custom_profile_stats[stat_key] - 0.1)
+                        elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
+                            # Continue to next menu (options)
+                            menu_section = 3
+                        elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS or (event.key == pygame.K_EQUALS and pygame.key.get_mods() & pygame.KMOD_SHIFT):
+                            # Increase stat using + key
+                            stat_key = custom_profile_stats_keys[custom_profile_stat_selected]
+                            custom_profile_stats[stat_key] = min(3.0, custom_profile_stats[stat_key] + 0.1)
+                        elif event.key == pygame.K_MINUS:
+                            # Decrease stat using - key (alternative to LEFT)
+                            stat_key = custom_profile_stats_keys[custom_profile_stat_selected]
+                            custom_profile_stats[stat_key] = max(0.5, custom_profile_stats[stat_key] - 0.1)
+                        elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            # Apply custom profile and continue
+                            menu_section = 3  # Go to options
+                        elif event.key == pygame.K_BACKSPACE:
+                            menu_section = 2  # Go back to profile selection
+                    elif menu_section == 7:
+                        # Player class selection (premade profiles)
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
                             player_class_selected = (player_class_selected - 1) % len(player_class_options)
                         elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
                             player_class_selected = (player_class_selected + 1) % len(player_class_options)
                         elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                            menu_section = 3
+                            menu_section = 3  # Go to options
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                            menu_section = 1
+                            menu_section = 2  # Go back to profile selection
                     elif menu_section == 3:
                         # Independent metrics and telemetry options
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -3465,8 +3577,9 @@ try:
                         elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                             # Toggle the currently selected option
                             if ui_options_selected == 0:
-                                # Toggle metrics
+                                # Toggle metrics/HUD
                                 ui_show_metrics_selected = (ui_show_metrics_selected + 1) % 2
+                                ui_show_hud = ui_show_metrics_selected == 0  # HUD follows metrics
                             else:
                                 # Toggle telemetry
                                 ui_telemetry_enabled_selected = (ui_telemetry_enabled_selected + 1) % 2
@@ -3494,8 +3607,23 @@ try:
                             # Start game with selected settings
                             difficulty = difficulty_options[difficulty_selected]
                             aiming_mode = AIM_MOUSE if aiming_mode_selected == 0 else AIM_ARROWS
-                            player_class = player_class_options[player_class_selected]
+                            # Apply character profile
+                            if character_profile_selected == 0:
+                                # Use premade class
+                                player_class = player_class_options[player_class_selected]
+                            else:
+                                # Use custom profile - add to player_class_stats
+                                player_class = "CUSTOM"
+                                player_class_stats["CUSTOM"] = custom_profile_stats.copy()
+                            
+                            # Apply class stats to player
+                            class_stats = player_class_stats[player_class]
+                            player_max_hp = int(250 * class_stats["hp_mult"])
+                            player_hp = player_max_hp
+                            player_speed = int(300 * class_stats["speed_mult"])
+                            
                             ui_show_metrics = ui_show_metrics_selected == 0
+                            ui_show_hud = ui_show_metrics  # HUD follows metrics setting
                             # Set telemetry enabled based on user choice
                             telemetry_enabled = ui_telemetry_enabled_selected == 0
                             # Set weapon from selection
@@ -3718,6 +3846,20 @@ try:
             if not enemies and wave_active:
                 wave_active = False
                 time_to_next_wave = max(0.5, wave_respawn_delay - 0.25 * enemy_spawn_boost_level)
+                
+                # Check side quest completion
+                if side_quests["no_hit_wave"]["active"] and wave_damage_taken == 0:
+                    side_quests["no_hit_wave"]["completed"] = True
+                    bonus_points = side_quests["no_hit_wave"]["bonus_points"]
+                    score += bonus_points
+                    # Show bonus message
+                    weapon_pickup_messages.append({
+                        "weapon_name": f"PERFECT WAVE! +{bonus_points:,} BONUS",
+                        "timer": 5.0,
+                        "color": (255, 255, 0)
+                    })
+                side_quests["no_hit_wave"]["active"] = False
+                
                 # Log wave end event
                 telemetry.log_wave(
                     WaveEvent(
@@ -4149,7 +4291,9 @@ try:
                 
                 # Check collision with player
                 if ds["rect"].colliderect(player):
-                    player_hp -= ds.get("damage", 50) * dt * 60
+                    damage_amount = ds.get("damage", 50) * dt * 60
+                    player_hp -= damage_amount
+                    wave_damage_taken += int(damage_amount)  # Track for side quests
                     if player_hp <= 0:
                         deaths += 1
                         lives -= 1
@@ -4190,6 +4334,7 @@ try:
                         if remaining_damage > 0:
                             player_hp -= remaining_damage
                         damage_taken += int(hazard["damage"] * dt * 60)
+                        wave_damage_taken += int(hazard["damage"] * dt * 60)  # Track for side quests
                         
                         if player_hp < 0:
                             player_hp = 0
@@ -5495,6 +5640,7 @@ try:
                     if remaining_damage > 0:
                         player_hp -= remaining_damage
                     damage_taken += enemy_projectile_damage
+                    wave_damage_taken += enemy_projectile_damage  # Track for side quests
 
                     if player_hp < 0:
                         player_hp = 0
@@ -5576,7 +5722,15 @@ try:
             # Update grenade explosions
             for exp in grenade_explosions[:]:
                 exp["timer"] -= dt
-                exp["radius"] = int(exp["max_radius"] * (1.0 - exp["timer"] / 0.3))  # Expand over 0.3 seconds
+                
+                # Handle different grenade explosion formats
+                if "max_radius" in exp:
+                    # Player grenades: expand from 0 to max_radius over 0.3 seconds
+                    exp["radius"] = int(exp["max_radius"] * (1.0 - exp["timer"] / 0.3))
+                elif "radius" not in exp:
+                    # If radius doesn't exist, set a default
+                    exp["radius"] = 150
+                # Otherwise, radius is already set (queen/suicide enemy grenades)
                 
                 if exp["timer"] <= 0:
                     grenade_explosions.remove(exp)
@@ -5594,6 +5748,7 @@ try:
                     dist_to_player = exp_center.distance_to(player_center)
                     if dist_to_player <= exp["radius"]:
                         player_hp -= exp["damage"]
+                        wave_damage_taken += exp["damage"]  # Track for side quests
                         exp["damaged_player"] = True
                         damage_numbers.append({
                             "x": player.centerx,
@@ -5767,6 +5922,25 @@ try:
                     draw_centered_text(f"{prefix}{aim_option}", y_start + i * 50, color)
                 draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
             elif menu_section == 2:
+                draw_centered_text("Character Profile", 250, (200, 200, 200))
+                y_start = 350
+                for i, profile_option in enumerate(character_profile_options):
+                    color = (255, 255, 100) if i == character_profile_selected else (150, 150, 150)
+                    prefix = "> " if i == character_profile_selected else "  "
+                    draw_centered_text(f"{prefix}{profile_option}", y_start + i * 50, color)
+                draw_centered_text("Press UP/DOWN to select, RIGHT/ENTER/SPACE to continue, LEFT to go back", 600, (150, 150, 150))
+            elif menu_section == 6:
+                # Custom character profile creator
+                draw_centered_text("Custom Character Profile", 200, (255, 200, 100))
+                y_start = 300
+                for i, stat_name in enumerate(custom_profile_stats_list):
+                    stat_key = custom_profile_stats_keys[i]
+                    stat_value = custom_profile_stats[stat_key]
+                    color = (255, 255, 100) if i == custom_profile_stat_selected else (150, 150, 150)
+                    prefix = "> " if i == custom_profile_stat_selected else "  "
+                    draw_centered_text(f"{prefix}{stat_name}: {stat_value:.1f}x", y_start + i * 40, color)
+                draw_centered_text("Press UP/DOWN to select, LEFT/- to decrease, +/- to increase, RIGHT/ENTER to continue, BACKSPACE to go back", 550, (150, 150, 150))
+            elif menu_section == 7:
                 draw_centered_text("Select Player Class", 250, (200, 200, 200))
                 class_names = ["Balanced", "Tank", "Speedster", "Sniper"]
                 y_start = 350
@@ -6269,8 +6443,8 @@ try:
         for p in enemy_projectiles:
             draw_projectile(p["rect"], p.get("color", enemy_projectiles_color), p.get("shape", "circle"))
 
-        # HUD (only if UI is enabled)
-        if ui_show_all_ui:
+        # HUD (only if UI and HUD are enabled)
+        if ui_show_all_ui and ui_show_hud and ui_show_metrics:
             # Draw health bar at the bottom of the screen
             hp_bar_width = 400
             hp_bar_height = 30
