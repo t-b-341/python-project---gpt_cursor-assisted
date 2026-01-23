@@ -203,6 +203,88 @@
 #--------------------------------------------------------
 #in menu, set default beam selection to basic - FIXED: Changed default selection to index 6 (basic)
 #--------------------------------------------------------
+#allow the player to start in endurance mode 
+#fix endurance mode crash when game starts
+#-------------------------------------------------------
+#do not drop the basic beam as a pickup weapon 
+#game; Make a placeholder text for each drop saying whether it's health, or which weapon it is 
+#game; Change shape of healing pattern with each stage between triangles and rectangles 
+#--------------------------------------------------------
+#increase enemy and ally movement speed by 110% 
+#increase enemy and ally health by 110%  
+#increase enemy and ally damage by 110%  
+#increase enemy and ally fire rate by 110%
+#--------------------------------------------------------
+#add in a grenade to use with e with an aoe of a radius that is 10x the player space that kills enemies and does damage to destructible obstacles
+#game; fix ally collision to prevent player position and allies from being in the same spot
+#game; enemy type - spawner - spawns enemies during round
+#game; make wave beam second to last dropped, giant beam last
+#game; make beam selector harder to access (testing mode? if yes, display beam selection)
+#game; make an enemy that predicts and shoots ahead of player's location; dark maroon rhomboid
+#game; lower blocks amount, and make them bigger
+#Game; add controls at bottom of screen (wasd to move, mouse + click to aim and shoot) or (wasd to move, arrow keys to aim and shoot), grenade, and which weapon is mapped to which weapon slot with first letter of weapon name
+#--------------------------------------------------------
+#grenade detonates where player is, and does not damage player
+#make player clone (maroon enemy) have 2000 health, and move 3x standard speed
+#add another block size - giant, super giant, which cannot be moved
+#make it so that player spawn and block spawn cannot overlap, player spawn takes priority
+#make lives 3 per wave, resetting at the beginning of each wave
+#--------------------------------------------------------
+#prevent blocks from spawning within a radius of 10x the player size, from the player
+#--------------------------------------------------------
+#create enemy classes; pawn = basic beam, basic movement speed
+#create enemy classes; queen = maroon, "player copy"
+#prevent enemies and allies from spawning where blocks are
+#when game launches in command line, print "welcome to my game! :D"
+#give maroon enemy name "queen", and allow it to use grenades and shield as well as it gets damage done to it after 300-500 damage, for 5 seconds, and player gets close (grenade), and destroys destructible cover to lower ability for player to hide
+#prevent allies or enemies from spawning in health block
+#--------------------------------------------------------
+#add in suicide enemy that goes towards player and detonates themselves with grenade, and disappears after detonating, and damages player
+#update WEAPON_AND_ENEMY_REFERNCE.md to reflect most recent weapons, their spawn order, enemies with their names, and their behavior patterns
+#make enemies prioritize player damage, unless player is over half the map away from them, then prioritize allies closeby
+#--------------------------------------------------------
+#on only my machine, always start game on my main display (display 2)
+#--------------------------------------------------------
+#game; add side quests, and goal tracking; complete wave without getting hit, get a bonus 10,000 points
+#prevent boxes from overlapping with allies, on other boxes, or player, on spawn
+#when metrics are disabled, disable all hud information; when selecting options (HUD: enable, disable)
+#create custom character profile
+#verify that game will start full screen on my monitor 2, not monitor 1
+#--------------------------------------------------------
+#make character profile option yes or no, and if yes, allow player to select premade, or make a profile, prior to start of game
+#game still does not launch on monitor 2, even if a window on monitor 1 is selected
+ #replace metrics selection with HUD, which toggles HUD dynamics on or off, and can be changed
+#fix text overlap in "ready to start" menu with weapon basic, and other text
+#test mode menu: puts enemy name over the enemy health bar
+#make custom stats able to be updated
+#make custom stats able to select to next menu by enter, and right arrow
+#fix text overlap in "select player class" menu
+#increase rate of fire for all enemies
+#game; rename enemy with shield to "shield enemy"
+#fix triple shot beam to include two more beams, offset by an equal arc on each side of center beam, and increase beam shot size to 3x current size, and turn purple
+#verify when health = zero, enemies and allies die and disappear from map
+#after each enemy dies, put in bottom right corner a text feed that updates "(enemy type) defeated!"
+#--------------------------------------------------------
+#change hud and telemetry to two different pages, rather than sharing the same page
+#change triple shot to basic beam, with three beams in total, offset by an equal arc
+#delete second HUD menu on options menu
+#once all steps implemented, verify code in game.py, and supporting libraries are optimized, effecient, and effective
+#--------------------------------------------------------
+#complete remaining to-do list actions
+#prevent any blocks from overlapping with each other
+#make health bar and HP amount above the control information at bottom of screen in-game
+#in last screen before starting game, state "press enter/spacebar to start! :D"
+#increase "queen" rate of fire, and raise health to 5000, and give shield like "shield enemy" that activates and deactivates at rates of 10-20 seconds each phase, enabled for 5-10 seconds
+#increase base enemy spawn amount by 3x
+#make an enemy "patrol" that patrols the outside border of the map, with the wave beam
+#exit to main menu option added
+#add a first menu named "main menu": has "press enter/spacebar to start" and a welcome message "GREETINGS, OH GREAT PLAYER"
+#if enemies haven't moved for 5 seconds, have them change direction away from an object they are stuck on
+#fix game slowdown when many shots are on screen
+#remove printed message when starting the game of which monitor is selected
+#change queen shoot cooldown to 0.2s, and update in WEAPON_AND_ENEMY_REFERENCE.md
+#change weapon mapping message at bottom to be 1: basic, 2: (next weapon), ... listing the weapon names, and showing that the weapons are available and mapped to their respective key
+#--------------------------------------------------------
 
 
 
@@ -353,9 +435,11 @@ STATE_MODS = "MODS"  # Mod settings menu
 STATE_WAVE_BUILDER = "WAVE_BUILDER"  # Custom wave builder
 
 state = STATE_MENU
+previous_game_state = None  # Track previous game state for pause/unpause (STATE_PLAYING or STATE_ENDURANCE)
 menu_section = 0  # 0 = difficulty, 1 = aiming, 2 = class, 3 = options, 4 = beam_selection, 5 = start
 ui_show_metrics_selected = 1  # 0 = Show, 1 = Hide - Default: Hide (disabled)
 ui_options_selected = 0  # 0 = Metrics, 1 = Telemetry (which option is currently focused)
+endurance_mode_selected = 0  # 0 = Normal, 1 = Endurance Mode
 # Beam selection for testing
 beam_selection_selected = 6  # 0 = wave_beam, 1 = rocket, etc., 6 = basic (default)
 beam_selection_pattern = "basic"  # Default weapon pattern
@@ -821,6 +905,12 @@ player_bullets_color = (10, 200, 200)
 player_bullet_shapes = ["circle", "square", "diamond"]
 player_bullet_shape_index = 0
 
+# Grenade system
+grenade_explosions: list[dict] = []  # List of active explosions {x, y, radius, max_radius, timer, damage}
+grenade_cooldown = 2.0  # Cooldown between grenades (seconds)
+grenade_time_since_used = 999.0  # Time since last grenade
+grenade_damage = 500  # Damage to enemies and destructible blocks
+
 # ----------------------------
 # Enemy templates + cloning
 # ----------------------------
@@ -1041,7 +1131,7 @@ friendly_projectiles: list[dict] = []
 # ----------------------------
 enemy_projectiles: list[dict] = []
 enemy_projectile_size = (10, 10)
-enemy_projectile_damage = 10
+enemy_projectile_damage = int(10 * 1.1)  # 110% damage (11 damage)
 enemy_projectiles_color = (200, 200, 200)
 enemy_projectile_shapes = ["circle", "square", "diamond"]
 
@@ -1420,7 +1510,8 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
 
 
 def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
-    hp = int(t["hp"] * hp_scale)
+    # Apply 110% multipliers (1.1x) to all stats
+    hp = int(t["hp"] * hp_scale * 1.1)  # 110% health
     # Cap HP at 300 maximum
     hp = min(hp, 300)
     enemy = {
@@ -1429,12 +1520,12 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> di
         "color": t["color"],
         "hp": hp,
         "max_hp": hp,
-        "shoot_cooldown": t["shoot_cooldown"],
-        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"]),
+        "shoot_cooldown": t["shoot_cooldown"] / 1.1,  # 110% fire rate (faster = lower cooldown)
+        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / 1.1),
         "projectile_speed": t["projectile_speed"],
         "projectile_color": t.get("projectile_color", enemy_projectiles_color),
         "projectile_shape": t.get("projectile_shape", "circle"),
-        "speed": t.get("speed", 80) * speed_scale,
+        "speed": t.get("speed", 80) * speed_scale * 1.1,  # 110% movement speed
     }
     # Add shield properties if present
     if t.get("has_shield"):
@@ -1470,7 +1561,8 @@ def log_enemy_spawns(new_enemies: list[dict]):
 def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
     """Create a friendly AI unit from a template."""
     # Set max HP to 1000 (10x health - was 100, now 1000 for all friendly AI)
-    max_hp = 1000
+    # Apply 110% multiplier (1.1x) to all stats
+    max_hp = int(1000 * 1.1)  # 110% health
     hp = max_hp  # Always start with full health at wave start
     return {
         "type": t["type"],
@@ -1478,14 +1570,14 @@ def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) ->
         "color": t["color"],
         "hp": hp,
         "max_hp": max_hp,  # Full health, green bar at wave start
-        "shoot_cooldown": t["shoot_cooldown"],
-        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"]),
+        "shoot_cooldown": t["shoot_cooldown"] / 1.1,  # 110% fire rate (faster = lower cooldown)
+        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / 1.1),
         "projectile_speed": t["projectile_speed"],
         "projectile_color": t["projectile_color"],
         "projectile_shape": t["projectile_shape"],
-        "speed": t["speed"] * speed_scale,
+        "speed": t["speed"] * speed_scale * 1.1,  # 110% movement speed
         "behavior": t["behavior"],
-        "damage": t["damage"],
+        "damage": int(t["damage"] * 1.1),  # 110% damage
         "target": None,  # Current target enemy
     }
 
@@ -1650,9 +1742,12 @@ def start_wave(wave_num: int):
         
         # Boss HP is capped at 300 (same as all enemies)
         # Scale boss HP for different levels, but cap at 300
+        # Apply 110% multiplier (1.1x) to all boss stats
         boss_hp_scale = 1.0 + (current_level - 1) * 0.3
-        boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"]), 300)
+        boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"] * 1.1), 300)  # 110% health
         boss["max_hp"] = boss["hp"]
+        boss["shoot_cooldown"] = boss_template["shoot_cooldown"] / 1.1  # 110% fire rate (faster = lower cooldown)
+        boss["speed"] = boss_template["speed"] * 1.1  # 110% movement speed
         
         boss["phase"] = 1
         boss["time_since_shot"] = 0.0
@@ -2159,13 +2254,16 @@ def spawn_pickup(pickup_type: str):
 
 def spawn_weapon_in_center(weapon_type: str):
     """Spawn a weapon pickup in the center of the screen (level completion reward)."""
+    # Do not spawn basic beam as a pickup
+    if weapon_type == "basic":
+        return
     weapon_colors_map = {
-        "basic": (200, 200, 200),
         "rocket": (255, 100, 0),
         "triple": (100, 200, 255),
         "bouncing": (100, 255, 100),
         "giant": (255, 200, 0),
         "laser": (255, 50, 50),
+        "wave_beam": (50, 255, 50),
     }
     weapon_pickup_size = (40, 40)  # Bigger for level completion rewards
     weapon_pickup_rect = pygame.Rect(
@@ -2197,9 +2295,12 @@ def spawn_weapon_drop(enemy: dict):
         "BIG NEKU": "giant",
         "bouncer": "bouncing",
     }
-    # 30% chance to drop weapon
+    # 30% chance to drop weapon (exclude basic beam)
     if random.random() < 0.3 and enemy_type in weapon_drop_map:
         weapon_type = weapon_drop_map[enemy_type]
+        # Skip basic beam - do not drop it as a pickup
+        if weapon_type == "basic":
+            return
         # Spawn weapon pickup at enemy location
         weapon_pickup_size = (28, 28)
         weapon_pickup_rect = pygame.Rect(
@@ -2953,6 +3054,8 @@ def reset_after_death():
     random_damage_multiplier = 1.0  # Reset random damage multiplier
     damage_numbers.clear()  # Clear damage numbers on death
     weapon_pickup_messages.clear()  # Clear weapon pickup messages on death
+    grenade_explosions.clear()  # Clear grenade explosions on death
+    grenade_time_since_used = 999.0  # Reset grenade cooldown
     # Reset moving health zone to center
     moving_health_zone["rect"].center = (WIDTH // 2, HEIGHT // 2)
     moving_health_zone["target"] = None
@@ -3035,12 +3138,13 @@ try:
         # Cap FPS at 120 for better performance and stability (prevents excessive CPU usage)
         dt_real = clock.tick(120) / 1000.0  # Cap at 120 FPS
         # Cap dt to prevent large jumps
-        dt = min(dt_real if state == STATE_PLAYING else 0.0, 0.033)  # Max 30ms = ~30 FPS minimum
+        dt = min(dt_real if (state == STATE_PLAYING or state == STATE_ENDURANCE) else 0.0, 0.033)  # Max 30ms = ~30 FPS minimum
 
-        if state == STATE_PLAYING:
+        if state == STATE_PLAYING or state == STATE_ENDURANCE:
             run_time += dt
             survival_time += dt  # Track total survival time
             player_time_since_shot += dt
+            grenade_time_since_used += dt
 
         # --- Events ---
         for event in pygame.event.get():
@@ -3063,7 +3167,7 @@ try:
                     last_vertical_key = event.key
 
                 # Weapon switching (keys 1-6) - only works if weapon is unlocked
-                if state == STATE_PLAYING:
+                if state == STATE_PLAYING or state == STATE_ENDURANCE:
                     if event.key in WEAPON_KEY_MAP:
                         requested_weapon = WEAPON_KEY_MAP[event.key]
                         # Only switch if weapon is unlocked
@@ -3174,7 +3278,12 @@ try:
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                             menu_section = 3
                     elif menu_section == 5:
-                        if event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                        # Endurance mode selection (UP/DOWN)
+                        if event.key == pygame.K_UP or event.key == pygame.K_w:
+                            endurance_mode_selected = (endurance_mode_selected - 1) % 2
+                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                            endurance_mode_selected = (endurance_mode_selected + 1) % 2
+                        elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                             # Start game with selected settings
                             difficulty = difficulty_options[difficulty_selected]
                             aiming_mode = AIM_MOUSE if aiming_mode_selected == 0 else AIM_ARROWS
@@ -3213,18 +3322,27 @@ try:
                             player_speed = int(300 * stats["speed_mult"])
                             player_bullet_damage = int(20 * stats["damage_mult"])
                             player_shoot_cooldown = 0.12 / stats["firerate_mult"]
-                            state = STATE_PLAYING
+                            # Set state based on endurance mode selection
+                            if endurance_mode_selected == 1:
+                                state = STATE_ENDURANCE
+                                lives = 999  # Infinite lives in endurance mode
+                                previous_game_state = STATE_ENDURANCE  # Track for pause/unpause
+                            else:
+                                state = STATE_PLAYING
+                                previous_game_state = STATE_PLAYING  # Track for pause/unpause
                             run_id = telemetry.start_run(run_started_at, player_max_hp) if telemetry_enabled else None
                             start_wave(wave_number)
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                             menu_section = 4
                 
                 if event.key == pygame.K_ESCAPE:
-                    if state == STATE_PLAYING:
+                    if state == STATE_PLAYING or state == STATE_ENDURANCE:
+                        previous_game_state = state  # Save current state before pausing
                         state = STATE_PAUSED
                         pause_selected = 0
                     elif state == STATE_PAUSED:
-                        state = STATE_PLAYING
+                        # Restore previous game state (STATE_PLAYING or STATE_ENDURANCE)
+                        state = previous_game_state if previous_game_state else STATE_PLAYING
                     elif state == STATE_CONTINUE:
                         running = False
                     elif state == STATE_CONTROLS:
@@ -3248,11 +3366,13 @@ try:
                         name_input_active = False
 
                 if event.key == pygame.K_p:
-                    if state == STATE_PLAYING:
+                    if state == STATE_PLAYING or state == STATE_ENDURANCE:
+                        previous_game_state = state  # Save current state before pausing
                         state = STATE_PAUSED
                         pause_selected = 0
                     elif state == STATE_PAUSED:
-                        state = STATE_PLAYING
+                        # Restore previous game state (STATE_PLAYING or STATE_ENDURANCE)
+                        state = previous_game_state if previous_game_state else STATE_PLAYING
 
                 # Pause menu
                 if state == STATE_PAUSED:
@@ -3263,7 +3383,8 @@ try:
                     elif event.key == pygame.K_RETURN:
                         choice = pause_options[pause_selected]
                         if choice == "Continue":
-                            state = STATE_PLAYING
+                            # Restore previous game state (STATE_PLAYING or STATE_ENDURANCE)
+                            state = previous_game_state if previous_game_state else STATE_PLAYING
                         elif choice == "Quit":
                             running = False
                     elif event.key == pygame.K_c:
@@ -3281,7 +3402,7 @@ try:
                         controls_rebinding = True
 
                 # Shield activation (Left Alt key)
-                if state == STATE_PLAYING:
+                if state == STATE_PLAYING or state == STATE_ENDURANCE:
                     if event.key == pygame.K_LALT:
                         # Activate shield if cooldown is ready
                         if shield_cooldown_remaining <= 0.0 and not shield_active:
@@ -3289,6 +3410,25 @@ try:
                             shield_duration_remaining = shield_duration
                             # Random cooldown between 10-15 seconds
                             shield_cooldown = random.uniform(10.0, 15.0)
+                    
+                    # Grenade activation (E key)
+                    if event.key == pygame.K_e:
+                        # Only trigger grenade if not in menu/victory screens (E is used there too)
+                        if grenade_time_since_used >= grenade_cooldown:
+                            # Create explosion at player position
+                            player_center = pygame.Vector2(player.center)
+                            grenade_radius = max(player.w, player.h) * 10  # 10x player size
+                            grenade_explosions.append({
+                                "x": player_center.x,
+                                "y": player_center.y,
+                                "radius": 0,  # Start at 0, expand to max_radius
+                                "max_radius": grenade_radius,
+                                "timer": 0.3,  # Explosion lasts 0.3 seconds
+                                "damage": grenade_damage,
+                                "damaged_enemies": set(),  # Track which enemies already took damage
+                                "damaged_blocks": set()  # Track which blocks already took damage
+                            })
+                            grenade_time_since_used = 0.0
                 
                 # Victory screen
                 if state == STATE_VICTORY:
@@ -3366,7 +3506,7 @@ try:
                             last_vertical_key = None
 
         # --- Simulation ---
-        if state == STATE_PLAYING:
+        if state == STATE_PLAYING or state == STATE_ENDURANCE:
             # Movement
             if not enemies and wave_active:
                 wave_active = False
@@ -5051,6 +5191,72 @@ try:
                                 enemy_projectiles.remove(p)
                             break
 
+            # Update grenade explosions
+            for exp in grenade_explosions[:]:
+                exp["timer"] -= dt
+                exp["radius"] = int(exp["max_radius"] * (1.0 - exp["timer"] / 0.3))  # Expand over 0.3 seconds
+                
+                if exp["timer"] <= 0:
+                    grenade_explosions.remove(exp)
+                    continue
+                
+                # Apply damage to enemies in radius (only once per explosion)
+                exp_center = pygame.Vector2(exp["x"], exp["y"])
+                for e in enemies[:]:
+                    if id(e) in exp["damaged_enemies"]:
+                        continue  # Already damaged
+                    
+                    enemy_center = pygame.Vector2(e["rect"].center)
+                    dist = exp_center.distance_to(enemy_center)
+                    
+                    if dist <= exp["radius"]:
+                        # Enemy is in explosion radius
+                        e["hp"] -= exp["damage"]
+                        damage_dealt += exp["damage"]
+                        exp["damaged_enemies"].add(id(e))
+                        
+                        # Add damage number display
+                        damage_numbers.append({
+                            "x": e["rect"].centerx,
+                            "y": e["rect"].y - 15,
+                            "damage": exp["damage"],
+                            "timer": 2.0,
+                            "color": (255, 200, 0),  # Orange/yellow for grenade damage
+                        })
+                        
+                        if e["hp"] <= 0:
+                            kill_enemy(e)
+                
+                # Apply damage to destructible blocks
+                for db in destructible_blocks[:]:
+                    if id(db) in exp["damaged_blocks"]:
+                        continue
+                    
+                    block_center = pygame.Vector2(db["rect"].center)
+                    dist = exp_center.distance_to(block_center)
+                    
+                    if dist <= exp["radius"]:
+                        if db.get("is_destructible") and "hp" in db:
+                            db["hp"] -= exp["damage"]
+                            exp["damaged_blocks"].add(id(db))
+                            if db["hp"] <= 0:
+                                destructible_blocks.remove(db)
+                
+                # Apply damage to moveable destructible blocks
+                for mdb in moveable_destructible_blocks[:]:
+                    if id(mdb) in exp["damaged_blocks"]:
+                        continue
+                    
+                    block_center = pygame.Vector2(mdb["rect"].center)
+                    dist = exp_center.distance_to(block_center)
+                    
+                    if dist <= exp["radius"]:
+                        if mdb.get("is_destructible") and "hp" in mdb:
+                            mdb["hp"] -= exp["damage"]
+                            exp["damaged_blocks"].add(id(mdb))
+                            if mdb["hp"] <= 0:
+                                moveable_destructible_blocks.remove(mdb)
+
             telemetry.tick(dt)
 
         else:
@@ -5207,8 +5413,12 @@ try:
                 draw_centered_text(f"Telemetry: {['Enabled', 'Disabled'][ui_telemetry_enabled_selected]}", 600, (200, 200, 200))
                 selected_weapon_display = weapon_selection_options[beam_selection_selected].replace("_", " ").upper()
                 draw_centered_text(f"Weapon: {selected_weapon_display}", 650, (200, 200, 200))
-                draw_centered_text("Press ENTER to Start", 700, (100, 255, 100))
-                draw_centered_text("Press LEFT to go back, ESC to Quit", 750, (150, 150, 150))
+                # Endurance mode selection
+                endurance_color = (255, 255, 100) if endurance_mode_selected == 1 else (200, 200, 200)
+                endurance_prefix = "> " if endurance_mode_selected == 1 else "  "
+                draw_centered_text(f"{endurance_prefix}Mode: {['Normal', 'Endurance Mode'][endurance_mode_selected]}", 700, endurance_color)
+                draw_centered_text("Press UP/DOWN to select mode, ENTER/SPACEBAR to Start! :D", 750, (100, 255, 100))
+                draw_centered_text("Press LEFT to go back, ESC to Quit", 800, (150, 150, 150))
             
             pygame.display.flip()
             continue
@@ -5237,15 +5447,44 @@ try:
         # Indestructible blocks drawn with destructible blocks (see below)
         
         # Draw moving health recovery zone (semi-transparent green)
+        # Shape alternates between triangle and rectangle based on wave_in_level
         zone = moving_health_zone
-        zone_surf = pygame.Surface((zone["rect"].w, zone["rect"].h), pygame.SRCALPHA)
-        pygame.draw.rect(zone_surf, zone["color"], (0, 0, zone["rect"].w, zone["rect"].h))
-        screen.blit(zone_surf, zone["rect"].topleft)
-        # Draw border with pulsing effect
-        pulse = 0.5 + 0.5 * math.sin(run_time * 3.0)
-        border_alpha = int(150 + 100 * pulse)
-        border_color = (50, 255, 50)
-        pygame.draw.rect(screen, border_color, zone["rect"], 3)
+        zone_center = (zone["rect"].centerx, zone["rect"].centery)
+        zone_width = zone["rect"].w
+        zone_height = zone["rect"].h
+        
+        # Alternate shape: wave_in_level 1 = rectangle, 2 = triangle, 3 = rectangle, etc.
+        use_triangle = (wave_in_level % 2 == 0)
+        
+        zone_surf = pygame.Surface((zone["rect"].w + 20, zone["rect"].h + 20), pygame.SRCALPHA)
+        
+        if use_triangle:
+            # Draw triangle shape
+            triangle_points = [
+                (zone_width // 2, 10),  # Top point
+                (10, zone_height + 10),  # Bottom left
+                (zone_width + 10, zone_height + 10)  # Bottom right
+            ]
+            pygame.draw.polygon(zone_surf, zone["color"], triangle_points)
+            screen.blit(zone_surf, (zone["rect"].x - 10, zone["rect"].y - 10))
+            # Draw border with pulsing effect
+            pulse = 0.5 + 0.5 * math.sin(run_time * 3.0)
+            border_alpha = int(150 + 100 * pulse)
+            border_color = (50, 255, 50)
+            pygame.draw.polygon(screen, border_color, [
+                (zone_center[0], zone["rect"].y),
+                (zone["rect"].x, zone["rect"].bottom),
+                (zone["rect"].right, zone["rect"].bottom)
+            ], 3)
+        else:
+            # Draw rectangle shape
+            pygame.draw.rect(zone_surf, zone["color"], (10, 10, zone["rect"].w, zone["rect"].h))
+            screen.blit(zone_surf, (zone["rect"].x - 10, zone["rect"].y - 10))
+            # Draw border with pulsing effect
+            pulse = 0.5 + 0.5 * math.sin(run_time * 3.0)
+            border_alpha = int(150 + 100 * pulse)
+            border_color = (50, 255, 50)
+            pygame.draw.rect(screen, border_color, zone["rect"], 3)
         
         # Draw destructible blocks (50% destructible with HP, 50% indestructible, all moveable)
         for db in destructible_blocks:
@@ -5329,6 +5568,42 @@ try:
             screen.blit(glow_surf, (pu["rect"].x - 10, pu["rect"].y - 10))
             # Draw pickup
             pygame.draw.rect(screen, pu["color"], pu["rect"])
+            
+            # Draw text label above pickup showing what it is
+            pickup_type = pu.get("type", "unknown")
+            if pickup_type == "health":
+                label_text = "HEALTH"
+                label_color = (100, 255, 100)
+            elif pickup_type == "max_health":
+                label_text = "MAX HEALTH"
+                label_color = (100, 255, 100)
+            elif pickup_type in ["rocket", "triple", "bouncing", "giant", "laser", "wave_beam", "bouncing_bullets"]:
+                # Weapon pickup - show weapon name
+                weapon_names = {
+                    "rocket": "ROCKET",
+                    "triple": "TRIPLE",
+                    "bouncing": "BOUNCING",
+                    "bouncing_bullets": "BOUNCING",
+                    "giant": "GIANT",
+                    "laser": "LASER",
+                    "wave_beam": "WAVE BEAM"
+                }
+                label_text = weapon_names.get(pickup_type, pickup_type.upper())
+                label_color = (255, 255, 100)
+            else:
+                # Other pickup types
+                label_text = pickup_type.upper().replace("_", " ")
+                label_color = (200, 200, 200)
+            
+            # Draw label text above pickup
+            label_surf = font.render(label_text, True, label_color)
+            label_x = pu["rect"].centerx - label_surf.get_width() // 2
+            label_y = pu["rect"].y - 20
+            # Draw background for text readability
+            bg_rect = pygame.Rect(label_x - 2, label_y - 1, label_surf.get_width() + 4, label_surf.get_height() + 2)
+            pygame.draw.rect(screen, (0, 0, 0, 180), bg_rect)
+            screen.blit(label_surf, (label_x, label_y))
+            
             # Draw timer bar
             timer_ratio = pu.get("timer", 15.0) / 15.0
             timer_bar_y = pu["rect"].bottom + 2
@@ -5450,6 +5725,21 @@ try:
             pygame.draw.rect(screen, color, ds["rect"])
             # Draw warning border
             pygame.draw.rect(screen, (255, 0, 0), ds["rect"], 3)
+        
+        # Draw grenade explosions
+        for exp in grenade_explosions:
+            # Draw expanding explosion circle with pulsing effect
+            exp_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            # Outer ring (orange/red)
+            alpha = int(255 * (1.0 - exp["timer"] / 0.3))  # Fade out
+            pygame.draw.circle(exp_surf, (255, 100, 0, alpha), (int(exp["x"]), int(exp["y"])), exp["radius"], 3)
+            # Inner ring (yellow/white)
+            inner_alpha = int(200 * (1.0 - exp["timer"] / 0.3))
+            pygame.draw.circle(exp_surf, (255, 255, 150, inner_alpha), (int(exp["x"]), int(exp["y"])), max(1, exp["radius"] // 2), 2)
+            # Center flash
+            center_alpha = int(255 * (1.0 - exp["timer"] / 0.3))
+            pygame.draw.circle(exp_surf, (255, 255, 255, center_alpha), (int(exp["x"]), int(exp["y"])), max(5, exp["radius"] // 4))
+            screen.blit(exp_surf, (0, 0))
         
         # Draw player highlight/glow (always visible)
         player_radius = player.w // 2  # Radius for circle (player is square)
