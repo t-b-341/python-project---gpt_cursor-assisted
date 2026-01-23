@@ -277,13 +277,14 @@
 #fix game slowdown when many shots are on screen
 #change queen shoot cooldown to 0.2s, and update in WEAPON_AND_ENEMY_REFERENCE.md
 #--------------------------------------------------------/
-#make it so that the health and other objects do not overlap with each other
+#make it so that the health box and other objects do not overlap with each other
 #give player 3x health, 1.5x movement speed
 #remove giant and super giant labels from obstacles
+#--------------------------------------------------------/
+#game; change queen shot cooldown to 1 second, and update in WEAPON_AND_ENEMY_REFERENCE.md
+#--------------------------------------------------------/
+#make it so that the health box does not overlap with other objects
 #--------------------------------------------------------
-#game; change queen shot cooldown to 1 second
-#--------------------------------------------------------
-
 
 
 
@@ -1207,7 +1208,7 @@ enemy_templates: list[dict] = [
         "color": (100, 0, 0),  # Dark maroon (player clone)
         "hp": 5000,  # 5000 health (increased from 2000)
         "max_hp": 5000,
-        "shoot_cooldown": 0.2,  # 0.2s cooldown (increased fire rate)
+        "shoot_cooldown": 1.0,  # 1.0s cooldown
         "projectile_speed": 350,
         "projectile_color": (150, 0, 0),
         "projectile_shape": "circle",
@@ -1232,7 +1233,7 @@ enemy_templates: list[dict] = [
         "color": (100, 0, 0),  # Dark maroon (player clone)
         "hp": 5000,  # 5000 health (increased from 2000)
         "max_hp": 5000,
-        "shoot_cooldown": 0.2,  # 0.2s cooldown (increased fire rate)
+        "shoot_cooldown": 1.0,  # 1.0s cooldown
         "projectile_speed": 350,
         "projectile_color": (150, 0, 0),
         "projectile_shape": "circle",
@@ -4480,26 +4481,91 @@ try:
             
             # Update moving health zone position
             zone = moving_health_zone
+            
+            # Helper function to check if health zone overlaps with any objects
+            def health_zone_overlaps_with_objects(zone_rect: pygame.Rect) -> bool:
+                """Check if health zone overlaps with blocks, pickups, enemies, or player."""
+                # Check blocks
+                for block_list in [destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks]:
+                    for block in block_list:
+                        if zone_rect.colliderect(block["rect"]):
+                            return True
+                # Check trapezoid and triangle blocks
+                for tb in trapezoid_blocks:
+                    if zone_rect.colliderect(tb.get("bounding_rect", tb.get("rect"))):
+                        return True
+                for tr in triangle_blocks:
+                    if zone_rect.colliderect(tr.get("bounding_rect", tr.get("rect"))):
+                        return True
+                # Check pickups
+                for pickup in pickups:
+                    if zone_rect.colliderect(pickup["rect"]):
+                        return True
+                # Check enemies (with small margin to avoid constant collisions)
+                for enemy in enemies:
+                    if zone_rect.colliderect(enemy["rect"]):
+                        return True
+                # Check player (with small margin)
+                if zone_rect.colliderect(player):
+                    return True
+                return False
+            
             if zone["target"] is None or (pygame.Vector2(zone["rect"].center) - zone["target"]).length() < 10:
-                # Pick a new random target position
-                zone["target"] = pygame.Vector2(
-                    random.randint(100, WIDTH - 100),
-                    random.randint(100, HEIGHT - 100)
-                )
+                # Pick a new random target position that doesn't overlap
+                max_target_attempts = 50
+                new_target = None
+                for _ in range(max_target_attempts):
+                    candidate_target = pygame.Vector2(
+                        random.randint(100, WIDTH - 250),
+                        random.randint(100, HEIGHT - 250)
+                    )
+                    # Create a test rect at the candidate position
+                    test_rect = pygame.Rect(
+                        int(candidate_target.x - zone["rect"].w // 2),
+                        int(candidate_target.y - zone["rect"].h // 2),
+                        zone["rect"].w,
+                        zone["rect"].h
+                    )
+                    if not health_zone_overlaps_with_objects(test_rect):
+                        new_target = candidate_target
+                        break
+                if new_target:
+                    zone["target"] = new_target
+                else:
+                    # If we can't find a good target, keep current position
+                    zone["target"] = None
             
             # Move zone towards target
             zone_center = pygame.Vector2(zone["rect"].center)
-            direction = (zone["target"] - zone_center)
-            if direction.length() > 0:
-                direction = direction.normalize()
-                move_amount = zone["velocity"] * dt  # velocity is a scalar (float)
-                move_vector = direction * move_amount  # direction is Vector2, move_amount is float, result is Vector2
-                new_center = zone_center + move_vector
-                zone["rect"].centerx = int(new_center.x)
-                zone["rect"].centery = int(new_center.y)
-                # Keep zone on screen
-                zone["rect"].left = max(0, min(zone["rect"].left, WIDTH - zone["rect"].w))
-                zone["rect"].top = max(0, min(zone["rect"].top, HEIGHT - zone["rect"].h))
+            if zone["target"]:
+                direction = (zone["target"] - zone_center)
+                if direction.length() > 0:
+                    direction = direction.normalize()
+                    move_amount = zone["velocity"] * dt  # velocity is a scalar (float)
+                    move_vector = direction * move_amount  # direction is Vector2, move_amount is float, result is Vector2
+                    new_center = zone_center + move_vector
+                    
+                    # Test new position for overlaps before applying
+                    test_rect = pygame.Rect(
+                        int(new_center.x - zone["rect"].w // 2),
+                        int(new_center.y - zone["rect"].h // 2),
+                        zone["rect"].w,
+                        zone["rect"].h
+                    )
+                    # Keep zone on screen
+                    test_rect.left = max(0, min(test_rect.left, WIDTH - test_rect.w))
+                    test_rect.top = max(0, min(test_rect.top, HEIGHT - test_rect.h))
+                    
+                    # Only move if new position doesn't overlap
+                    if not health_zone_overlaps_with_objects(test_rect):
+                        zone["rect"].centerx = int(new_center.x)
+                        zone["rect"].centery = int(new_center.y)
+                        # Keep zone on screen
+                        zone["rect"].left = max(0, min(zone["rect"].left, WIDTH - zone["rect"].w))
+                        zone["rect"].top = max(0, min(zone["rect"].top, HEIGHT - zone["rect"].h))
+                    else:
+                        # If new position would overlap, pick a new target
+                        zone["target"] = None
             
             # Health recovery zone - heal player when inside
             current_frame_zones = set()

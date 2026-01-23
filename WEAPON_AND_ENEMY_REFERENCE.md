@@ -155,7 +155,7 @@ The wave beam system supports these trigonometric patterns (currently only "sine
     - Maroon enemy (player clone)
     - HP: 5000 (fixed, does not scale, increased from 2000)
     - Speed: 240 (3x standard speed)
-    - Shoot cooldown: 0.2s (increased fire rate, changed from 1.0s)
+    - Shoot cooldown: 1.0s
     - Projectile: Circle, dark red color
     - Projectile speed: 350
     - Special abilities:
@@ -190,7 +190,7 @@ The wave beam system supports these trigonometric patterns (currently only "sine
     - Maroon enemy (player clone)
     - HP: 5000 (fixed, does not scale, increased from 2000)
     - Speed: 240 (3x standard speed)
-    - Shoot cooldown: 0.2s (increased fire rate, changed from 1.0s)
+    - Shoot cooldown: 1.0s
     - Projectile: Circle, dark red color
     - Projectile speed: 350
     - Special abilities:
