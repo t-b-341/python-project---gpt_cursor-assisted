@@ -223,12 +223,12 @@
 #game; make an enemy that predicts and shoots ahead of player's location; dark maroon rhomboid
 #game; lower blocks amount, and make them bigger
 #Game; add controls at bottom of screen (wasd to move, mouse + click to aim and shoot) or (wasd to move, arrow keys to aim and shoot), grenade, and which weapon is mapped to which weapon slot with first letter of weapon name
-#--------------------------------------------------------
+#--------------------------------------------------------/
 #make player clone (maroon enemy) have 2000 health, and move 3x standard speed
 #add another block size - giant, super giant, which cannot be moved
 #make it so that player spawn and block spawn cannot overlap, player spawn takes priority
 #make lives 3 per wave, resetting at the beginning of each wave
-#--------------------------------------------------------
+#--------------------------------------------------------/
 #prevent blocks from spawning within a radius of 10x the player size, from the player
 #--------------------------------------------------------
 #create enemy classes; pawn = basic beam, basic movement speed
@@ -730,6 +730,20 @@ moveable_destructible_blocks = [
     {"rect": pygame.Rect(500, 900, 120, 120), "color": (200, 100, 150), "is_moveable": True},
 ]
 
+# Giant and super giant blocks (unmovable, indestructible)
+giant_blocks: list[dict] = [
+    # Giant blocks (200x200)
+    {"rect": pygame.Rect(200, 200, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
+    {"rect": pygame.Rect(1000, 400, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
+    {"rect": pygame.Rect(600, 800, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
+]
+
+super_giant_blocks: list[dict] = [
+    # Super giant blocks (300x300)
+    {"rect": pygame.Rect(500, 300, 300, 300), "color": (60, 60, 100), "is_moveable": False, "size": "super_giant"},
+    {"rect": pygame.Rect(1200, 700, 300, 300), "color": (60, 60, 100), "is_moveable": False, "size": "super_giant"},
+]
+
 # Border geometry: trapezoids and triangles (unmovable, indestructible)
 # Layout: 3 trapezoids left (spaced), 2 trapezoids right (adjacent), 
 #         5 trapezoids with 2 triangles each on top, line of triangles on bottom
@@ -901,6 +915,18 @@ grenade_cooldown = 2.0  # Cooldown between grenades (seconds)
 grenade_time_since_used = 999.0  # Time since last grenade
 grenade_damage = 500  # Damage to enemies and destructible blocks
 
+# Filter blocks to prevent them from spawning within 10x player size radius from player
+# This must be done after all blocks are defined
+player_center = pygame.Vector2(player.center)
+player_size = max(player.w, player.h)  # Use larger dimension (28)
+min_block_distance = player_size * 10  # 10x player size = 280 pixels
+
+# Filter all block lists to remove blocks too close to player
+destructible_blocks = [b for b in destructible_blocks if pygame.Vector2(b["rect"].center).distance_to(player_center) >= min_block_distance]
+moveable_destructible_blocks = [b for b in moveable_destructible_blocks if pygame.Vector2(b["rect"].center).distance_to(player_center) >= min_block_distance]
+giant_blocks = [b for b in giant_blocks if pygame.Vector2(b["rect"].center).distance_to(player_center) >= min_block_distance]
+super_giant_blocks = [b for b in super_giant_blocks if pygame.Vector2(b["rect"].center).distance_to(player_center) >= min_block_distance]
+
 # ----------------------------
 # Enemy templates + cloning
 # ----------------------------
@@ -1051,6 +1077,19 @@ enemy_templates: list[dict] = [
         "projectile_shape": "diamond",  # Rhomboid shape
         "speed": 80,
         "predicts_player": True,  # Marks this enemy as predictive
+    },
+    {
+        "type": "queen",
+        "rect": pygame.Rect(400, 400, 32, 32),
+        "color": (100, 0, 0),  # Dark maroon (player clone)
+        "hp": 2000,  # 2000 health
+        "max_hp": 2000,
+        "shoot_cooldown": 1.0,
+        "projectile_speed": 350,
+        "projectile_color": (150, 0, 0),
+        "projectile_shape": "circle",
+        "speed": 240,  # 3x standard speed (80 * 3)
+        "is_player_clone": True,  # Marks this as player clone
     },
 
 ]
@@ -1274,9 +1313,12 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
     moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
     trapezoid_rects = [tb["rect"] for tb in trapezoid_blocks]  # Now use rect instead of bounding_rect
     triangle_rects = [tr["rect"] for tr in triangle_blocks]  # Now use rect instead of bounding_rect
+    # Include giant and super giant blocks (unmovable) - player cannot pass through
+    giant_block_rects = [gb["rect"] for gb in giant_blocks]
+    super_giant_block_rects = [sgb["rect"] for sgb in super_giant_blocks]
     # Include friendly AI rects - player cannot pass through allies
     friendly_ai_rects = [f["rect"] for f in friendly_ai if f.get("hp", 1) > 0]
-    all_collision_rects = block_rects + destructible_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects + friendly_ai_rects
+    all_collision_rects = block_rects + destructible_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects + giant_block_rects + super_giant_block_rects + friendly_ai_rects
 
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -1326,6 +1368,19 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
                         hit_block = hazard
                         hit_is_unpushable = True  # Hazards are unmovable
                         break
+        # Check giant and super giant blocks (unmovable) - player cannot pass through or push
+        if hit_block is None:
+            for gb in giant_blocks:
+                if player_rect.colliderect(gb["rect"]):
+                    hit_block = gb
+                    hit_is_unpushable = True  # Can't push giant blocks
+                    break
+        if hit_block is None:
+            for sgb in super_giant_blocks:
+                if player_rect.colliderect(sgb["rect"]):
+                    hit_block = sgb
+                    hit_is_unpushable = True  # Can't push super giant blocks
+                    break
         # Check friendly AI (allies) - player cannot pass through or push
         if hit_block is None:
             for f in friendly_ai:
@@ -1505,18 +1560,47 @@ def rect_offscreen(r: pygame.Rect) -> bool:
     return r.right < 0 or r.left > WIDTH or r.bottom < 0 or r.top > HEIGHT
 
 
+def filter_blocks_too_close_to_player(block_list: list[dict], player_center: pygame.Vector2, player_size: int) -> list[dict]:
+    """Filter out blocks that are too close to the player (within 10x player size radius)."""
+    min_distance = player_size * 10  # 10x player size radius
+    filtered = []
+    for block in block_list:
+        block_center = pygame.Vector2(block["rect"].center)
+        distance = block_center.distance_to(player_center)
+        if distance >= min_distance:
+            filtered.append(block)
+    return filtered
+
+
 def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pygame.Rect:
-    """Find a spawn position not overlapping player or blocks."""
+    """Find a spawn position not overlapping player or blocks. Player spawn takes priority."""
     w, h = size
+    player_center = pygame.Vector2(player.center)
+    player_size = max(player.w, player.h)  # Use larger dimension for player size
+    min_distance = player_size * 10  # 10x player size radius
+    
     for _ in range(max_attempts):
         x = random.randint(0, WIDTH - w)
         y = random.randint(0, HEIGHT - h)
         candidate = pygame.Rect(x, y, w, h)
+        candidate_center = pygame.Vector2(candidate.center)
+        
+        # Check if too close to player (10x player size radius)
+        if candidate_center.distance_to(player_center) < min_distance:
+            continue
+        
+        # Player spawn takes priority - don't spawn blocks on player
         if candidate.colliderect(player):
             continue
         if any(candidate.colliderect(b["rect"]) for b in blocks):
             continue
         if any(candidate.colliderect(b["rect"]) for b in moveable_destructible_blocks):
+            continue
+        if any(candidate.colliderect(b["rect"]) for b in destructible_blocks):
+            continue
+        if any(candidate.colliderect(b["rect"]) for b in giant_blocks):
+            continue
+        if any(candidate.colliderect(b["rect"]) for b in super_giant_blocks):
             continue
         if any(candidate.colliderect(tb["bounding_rect"]) for tb in trapezoid_blocks):
             continue
@@ -1531,9 +1615,17 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
 
 def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
     # Apply 110% multipliers (1.1x) to all stats
-    hp = int(t["hp"] * hp_scale * 1.1)  # 110% health
-    # Cap HP at 300 maximum
-    hp = min(hp, 300)
+    # Exception: Queen (player clone) has fixed 2000 HP and 3x speed, not affected by scaling
+    if t.get("type") == "queen":
+        hp = 2000  # Fixed 2000 health for queen
+        base_speed = t.get("speed", 80)
+        final_speed = base_speed * 1.1  # Still apply 110% multiplier
+    else:
+        hp = int(t["hp"] * hp_scale * 1.1)  # 110% health
+        # Cap HP at 300 maximum (except queen)
+        hp = min(hp, 300)
+        final_speed = t.get("speed", 80) * speed_scale * 1.1  # 110% movement speed
+    
     enemy = {
         "type": t["type"],
         "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
@@ -1545,7 +1637,7 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> di
         "projectile_speed": t["projectile_speed"],
         "projectile_color": t.get("projectile_color", enemy_projectiles_color),
         "projectile_shape": t.get("projectile_shape", "circle"),
-        "speed": t.get("speed", 80) * speed_scale * 1.1,  # 110% movement speed
+        "speed": final_speed,  # Speed (queen gets 3x, others get normal scaling)
     }
     # Add shield properties if present
     if t.get("has_shield"):
@@ -1745,9 +1837,11 @@ def spawn_friendly_projectile(friendly: dict, target: dict):
 
 def start_wave(wave_num: int):
     """Spawn a new wave with scaling. Each level has 3 waves, boss on wave 3."""
-    global enemies, wave_active, boss_active, wave_in_level, current_level
+    global enemies, wave_active, boss_active, wave_in_level, current_level, lives
     enemies = []
     boss_active = False
+    # Reset lives to 3 at the beginning of each wave
+    lives = 3  # Reset to 3 lives at the beginning of each wave
     
     # Calculate level and wave within level (1-based)
     current_level = min(max_level, (wave_num - 1) // 3 + 1)
@@ -5602,6 +5696,32 @@ try:
             else:
                 # Indestructible block - draw silver wall texture
                 draw_silver_wall_texture(screen, db["rect"])
+        
+        # Draw giant blocks (unmovable, indestructible)
+        for gb in giant_blocks:
+            pygame.draw.rect(screen, gb["color"], gb["rect"])
+            # Draw border to indicate it's giant and unmovable
+            pygame.draw.rect(screen, (100, 100, 150), gb["rect"], 4)
+            # Draw "GIANT" text on block
+            giant_text = font.render("GIANT", True, (200, 200, 200))
+            text_x = gb["rect"].centerx - giant_text.get_width() // 2
+            text_y = gb["rect"].centery - giant_text.get_height() // 2
+            screen.blit(giant_text, (text_x, text_y))
+        
+        # Draw super giant blocks (unmovable, indestructible)
+        for sgb in super_giant_blocks:
+            pygame.draw.rect(screen, sgb["color"], sgb["rect"])
+            # Draw border to indicate it's super giant and unmovable
+            pygame.draw.rect(screen, (80, 80, 120), sgb["rect"], 6)
+            # Draw "SUPER GIANT" text on block
+            super_text = font.render("SUPER", True, (200, 200, 200))
+            text_x = sgb["rect"].centerx - super_text.get_width() // 2
+            text_y = sgb["rect"].centery - super_text.get_height() // 2 - 10
+            screen.blit(super_text, (text_x, text_y))
+            giant_text2 = font.render("GIANT", True, (200, 200, 200))
+            text_x2 = sgb["rect"].centerx - giant_text2.get_width() // 2
+            text_y2 = sgb["rect"].centery - giant_text2.get_height() // 2 + 10
+            screen.blit(giant_text2, (text_x2, text_y2))
         
         # Draw moveable destructible blocks (50% destructible with HP, 50% indestructible, all moveable)
         for mdb in moveable_destructible_blocks:
