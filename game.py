@@ -191,7 +191,8 @@
 #add texture into indestructible, moveable blocks that makes it looks like a silver wall
 #add texture into destructible, moveable blocks that makes it looks like a cracked brick wall
 #--------------------------------------------------------
-
+#fix issue where allies do not disappear after dying - FIXED: Added cleanup checks and hazard collision handling
+#--------------------------------------------------------
 
 
 import math
@@ -3997,16 +3998,52 @@ try:
                         kill_enemy(e)
                         break
 
+            # Check friendly AI collision with hazard obstacles (kill friendly AI)
+            for f in friendly_ai[:]:
+                friendly_center = pygame.Vector2(f["rect"].center)
+                for hazard in hazard_obstacles:
+                    if check_point_in_hazard(friendly_center, hazard["points"], hazard["bounding_rect"]):
+                        # Hazard kills friendly AI instantly
+                        if telemetry_enabled and telemetry:
+                            telemetry.log_friendly_death(
+                                FriendlyAIDeathEvent(
+                                    t=run_time,
+                                    friendly_type=f.get("type", "unknown"),
+                                    x=f["rect"].x,
+                                    y=f["rect"].y,
+                                    killed_by="hazard",
+                                )
+                            )
+                        friendly_ai.remove(f)
+                        break
+
             # Cleanup: Remove any enemies that somehow got stuck with HP <= 0
             # This is a safety check to prevent enemies from getting stuck alive
             for e in enemies[:]:
                 if e.get("hp", 1) <= 0:
                     kill_enemy(e)
 
+            # Cleanup: Remove any friendly AI that somehow got stuck with HP <= 0
+            # This is a safety check to prevent allies from getting stuck alive
+            for f in friendly_ai[:]:
+                if f.get("hp", 1) <= 0:
+                    # Log friendly AI death if telemetry is enabled
+                    if telemetry_enabled and telemetry:
+                        telemetry.log_friendly_death(
+                            FriendlyAIDeathEvent(
+                                t=run_time,
+                                friendly_type=f.get("type", "unknown"),
+                                x=f["rect"].x,
+                                y=f["rect"].y,
+                                killed_by="damage",
+                            )
+                        )
+                    friendly_ai.remove(f)
+
             # Friendly AI movement and behavior
             # Reuse block_rects from enemy movement (already computed above)
             for f in friendly_ai[:]:
-                if f["hp"] <= 0:
+                if f.get("hp", 1) <= 0:
                     friendly_ai.remove(f)
                     continue
                 
