@@ -224,7 +224,6 @@
 #game; lower blocks amount, and make them bigger
 #Game; add controls at bottom of screen (wasd to move, mouse + click to aim and shoot) or (wasd to move, arrow keys to aim and shoot), grenade, and which weapon is mapped to which weapon slot with first letter of weapon name
 #--------------------------------------------------------
-#grenade detonates where player is, and does not damage player
 #make player clone (maroon enemy) have 2000 health, and move 3x standard speed
 #add another block size - giant, super giant, which cannot be moved
 #make it so that player spawn and block spawn cannot overlap, player spawn takes priority
@@ -242,8 +241,6 @@
 #add in suicide enemy that goes towards player and detonates themselves with grenade, and disappears after detonating, and damages player
 #update WEAPON_AND_ENEMY_REFERNCE.md to reflect most recent weapons, their spawn order, enemies with their names, and their behavior patterns
 #make enemies prioritize player damage, unless player is over half the map away from them, then prioritize allies closeby
-#--------------------------------------------------------
-#on only my machine, always start game on my main display (display 2)
 #--------------------------------------------------------
 #game; add side quests, and goal tracking; complete wave without getting hit, get a bonus 10,000 points
 #prevent boxes from overlapping with allies, on other boxes, or player, on spawn
@@ -440,7 +437,8 @@ menu_section = 0  # 0 = difficulty, 1 = aiming, 2 = class, 3 = options, 4 = beam
 ui_show_metrics_selected = 1  # 0 = Show, 1 = Hide - Default: Hide (disabled)
 ui_options_selected = 0  # 0 = Metrics, 1 = Telemetry (which option is currently focused)
 endurance_mode_selected = 0  # 0 = Normal, 1 = Endurance Mode
-# Beam selection for testing
+# Beam selection for testing (harder to access - requires testing mode)
+testing_mode = False  # Set to True to enable weapon selection menu
 beam_selection_selected = 6  # 0 = wave_beam, 1 = rocket, etc., 6 = basic (default)
 beam_selection_pattern = "basic"  # Default weapon pattern
 
@@ -720,24 +718,16 @@ destructible_blocks = [
     {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "is_moveable": True},
 ]
 
-# Moveable destructible blocks: 50% destructible (with HP), 50% indestructible (no HP), all moveable
+# Moveable destructible blocks: Reduced amount, bigger size
 moveable_destructible_blocks = [
-    # First 7 blocks: Destructible (with HP)
-    {"rect": pygame.Rect(350, 400, 70, 70), "color": (200, 100, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(850, 500, 60, 60), "color": (100, 200, 100), "hp": 350, "max_hp": 350, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(650, 300, 80, 50), "color": (200, 150, 100), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(1050, 600, 60, 60), "color": (150, 100, 200), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(450, 800, 70, 50), "color": (200, 180, 120), "hp": 500, "max_hp": 500, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(1250, 900, 80, 40), "color": (100, 150, 200), "hp": 350, "max_hp": 350, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(550, 1100, 60, 60), "color": (180, 200, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    # Last 7 blocks: Indestructible (no HP)
-    {"rect": pygame.Rect(950, 1100, 70, 50), "color": (200, 120, 150), "is_moveable": True},
-    {"rect": pygame.Rect(200, 600, 60, 60), "color": (150, 150, 200), "is_moveable": True},
-    {"rect": pygame.Rect(300, 800, 70, 50), "color": (200, 100, 150), "is_moveable": True},
-    {"rect": pygame.Rect(700, 900, 60, 60), "color": (100, 200, 150), "is_moveable": True},
-    {"rect": pygame.Rect(1150, 700, 70, 50), "color": (200, 150, 100), "is_moveable": True},
-    {"rect": pygame.Rect(1350, 400, 60, 60), "color": (150, 200, 100), "is_moveable": True},
-    {"rect": pygame.Rect(500, 500, 70, 50), "color": (200, 100, 200), "is_moveable": True},
+    # First 3 blocks: Destructible (with HP) - bigger and fewer
+    {"rect": pygame.Rect(350, 400, 120, 120), "color": (200, 100, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(850, 500, 120, 120), "color": (100, 200, 100), "hp": 350, "max_hp": 350, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(650, 700, 120, 120), "color": (200, 150, 100), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    # Last 3 blocks: Indestructible (no HP) - bigger and fewer
+    {"rect": pygame.Rect(1050, 300, 120, 120), "color": (200, 120, 150), "is_moveable": True},
+    {"rect": pygame.Rect(200, 600, 120, 120), "color": (150, 150, 200), "is_moveable": True},
+    {"rect": pygame.Rect(500, 900, 120, 120), "color": (200, 100, 150), "is_moveable": True},
 ]
 
 # Border geometry: trapezoids and triangles (unmovable, indestructible)
@@ -1031,6 +1021,36 @@ enemy_templates: list[dict] = [
         "shield_length": 60,  # Length of shield
         "shield_hp": 0,  # Damage absorbed by shield (fires back)
         "turn_speed": 0.5,  # Radians per second turn speed
+    },
+    {
+        "type": "spawner",
+        "rect": pygame.Rect(500, 500, 40, 40),
+        "color": (150, 50, 150),  # Purple
+        "hp": 120,
+        "max_hp": 120,
+        "shoot_cooldown": 999.0,  # Doesn't shoot projectiles
+        "projectile_speed": 0,
+        "projectile_color": (150, 50, 150),
+        "projectile_shape": "circle",
+        "speed": 30,  # Slow movement
+        "is_spawner": True,  # Marks this as a spawner enemy
+        "spawn_cooldown": 5.0,  # Spawns enemies every 5 seconds
+        "time_since_spawn": 0.0,
+        "spawn_count": 0,  # Track how many enemies spawned
+        "max_spawns": 3,  # Maximum enemies to spawn per spawner
+    },
+    {
+        "type": "predictor",
+        "rect": pygame.Rect(400, 400, 34, 34),
+        "color": (100, 0, 0),  # Dark maroon
+        "hp": 90,
+        "max_hp": 90,
+        "shoot_cooldown": 1.5,
+        "projectile_speed": 400,
+        "projectile_color": (150, 0, 0),
+        "projectile_shape": "diamond",  # Rhomboid shape
+        "speed": 80,
+        "predicts_player": True,  # Marks this enemy as predictive
     },
 
 ]
@@ -2292,7 +2312,7 @@ def spawn_weapon_drop(enemy: dict):
         "heavy": "rocket",
         "baka": "triple",
         "neko neko desu": "bouncing",
-        "BIG NEKU": "giant",
+        "BIG NEKU": "wave_beam",  # Wave beam second to last
         "bouncer": "bouncing",
     }
     # 30% chance to drop weapon (exclude basic beam)
@@ -2675,6 +2695,26 @@ def spawn_enemy_projectile(enemy: dict):
         )
 
 
+def spawn_enemy_projectile_predictive(enemy: dict, direction: pygame.Vector2):
+    """Spawn projectile from predictive enemy in a specific direction (predicted player position)."""
+    r = pygame.Rect(
+        enemy["rect"].centerx - enemy_projectile_size[0] // 2,
+        enemy["rect"].centery - enemy_projectile_size[1] // 2,
+        enemy_projectile_size[0],
+        enemy_projectile_size[1],
+    )
+    proj_color = enemy.get("projectile_color", enemy_projectiles_color)
+    proj_shape = enemy.get("projectile_shape", "diamond")  # Rhomboid shape
+    enemy_projectiles.append({
+        "rect": r,
+        "vel": direction * enemy["projectile_speed"],
+        "enemy_type": enemy["type"],
+        "color": proj_color,
+        "shape": proj_shape,
+        "bounces": 0,
+    })
+
+
 def spawn_boss_projectile(boss: dict, direction: pygame.Vector2):
     """Spawn a projectile from the boss in a specific direction."""
     r = pygame.Rect(
@@ -2713,8 +2753,8 @@ def kill_enemy(enemy: dict):
     
     # If boss is killed, spawn level completion weapon in center
     if is_boss:
-        # Weapons unlock in order: basic (start), rocket (level 1), triple (level 2), laser (level 3)
-        weapon_unlock_order = {1: "rocket", 2: "triple", 3: "laser"}
+        # Weapons unlock in order: basic (start), rocket (level 1), triple (level 2), wave_beam (level 3), giant (level 4)
+        weapon_unlock_order = {1: "rocket", 2: "triple", 3: "wave_beam", 4: "giant"}
         if current_level in weapon_unlock_order:
             weapon_to_unlock = weapon_unlock_order[current_level]
             if weapon_to_unlock not in unlocked_weapons:
@@ -4318,6 +4358,20 @@ try:
                             if dy_f and can_move_rect(f["rect"], 0, dy_f, block_rects):
                                 f["rect"].y += dy_f
                         clamp_rect_to_screen(f["rect"])
+                
+                # Fix ally collision: push away from player if overlapping
+                if f["rect"].colliderect(player):
+                    player_center = pygame.Vector2(player.center)
+                    friendly_center = pygame.Vector2(f["rect"].center)
+                    separation_dir = friendly_center - player_center
+                    if separation_dir.length_squared() > 0:
+                        separation_dir = separation_dir.normalize()
+                        # Push ally away from player
+                        push_distance = 5.0  # Push 5 pixels per frame
+                        push_vec = separation_dir * push_distance
+                        f["rect"].x += int(push_vec.x)
+                        f["rect"].y += int(push_vec.y)
+                        clamp_rect_to_screen(f["rect"])
 
             # Position sampling
             pos_timer += dt
@@ -4397,9 +4451,34 @@ try:
                     else:
                         f["target"] = None
 
-            # Enemy shooting
+            # Enemy shooting and special behaviors
             for e in enemies:
                 e["time_since_shot"] += dt
+                
+                # Spawner enemy: spawns enemies during round
+                if e.get("is_spawner", False):
+                    e["time_since_spawn"] = e.get("time_since_spawn", 0.0) + dt
+                    spawn_count = e.get("spawn_count", 0)
+                    max_spawns = e.get("max_spawns", 3)
+                    
+                    if e["time_since_spawn"] >= e.get("spawn_cooldown", 5.0) and spawn_count < max_spawns:
+                        # Spawn a random enemy near the spawner
+                        spawn_templates = [t for t in enemy_templates if t["type"] not in ["spawner", "predictor"]]
+                        if spawn_templates:
+                            tmpl = random.choice(spawn_templates)
+                            hp_scale = 1.0
+                            speed_scale = 1.0
+                            spawned_enemy = make_enemy_from_template(tmpl, hp_scale, speed_scale)
+                            # Spawn near the spawner (within 100 pixels)
+                            offset_x = random.randint(-100, 100)
+                            offset_y = random.randint(-100, 100)
+                            spawned_enemy["rect"].x = e["rect"].x + offset_x
+                            spawned_enemy["rect"].y = e["rect"].y + offset_y
+                            clamp_rect_to_screen(spawned_enemy["rect"])
+                            enemies.append(spawned_enemy)
+                            e["spawn_count"] = spawn_count + 1
+                            e["time_since_spawn"] = 0.0
+                            log_enemy_spawns([spawned_enemy])
                 
                 # Boss phase detection and special shooting
                 if e.get("is_boss", False):
@@ -4448,7 +4527,22 @@ try:
                     # Regular enemy shooting (non-boss)
                     # Reflective shield enemies don't shoot
                     if not e.get("has_reflective_shield", False):
-                        spawn_enemy_projectile(e)
+                        # Predictive enemy: predicts player position
+                        if e.get("predicts_player", False):
+                            # Calculate predicted position based on player velocity
+                            player_vel = last_move_velocity
+                            player_pos = pygame.Vector2(player.center)
+                            enemy_pos = pygame.Vector2(e["rect"].center)
+                            
+                            # Predict where player will be in ~0.5 seconds
+                            prediction_time = 0.5
+                            predicted_pos = player_pos + player_vel * prediction_time
+                            
+                            # Shoot at predicted position
+                            dir_to_predicted = vec_toward(enemy_pos.x, enemy_pos.y, predicted_pos.x, predicted_pos.y)
+                            spawn_enemy_projectile_predictive(e, dir_to_predicted)
+                        else:
+                            spawn_enemy_projectile(e)
                         e["time_since_shot"] = 0.0
 
             # Pickup spawning (affected by difficulty)
@@ -5934,6 +6028,40 @@ try:
             y_offset += 22
             screen.blit(font.render("Press 1-6 to switch weapons (if unlocked)", True, (150, 150, 150)), (10, y_offset))
             y_offset += 22
+            
+            # Controls display at bottom of screen
+            controls_y = HEIGHT - 60
+            controls_bg = pygame.Surface((WIDTH, 50), pygame.SRCALPHA)
+            controls_bg.fill((0, 0, 0, 180))  # Semi-transparent black background
+            screen.blit(controls_bg, (0, controls_y))
+            
+            # Build controls text based on aiming mode
+            if aiming_mode == AIM_MOUSE:
+                move_text = "WASD: Move"
+                aim_text = "Mouse: Aim"
+                shoot_text = "Click: Shoot"
+            else:
+                move_text = "WASD: Move"
+                aim_text = "Arrow Keys: Aim"
+                shoot_text = "Space: Shoot"
+            
+            grenade_text = "E: Grenade"
+            
+            # Weapon slot indicators with first letter
+            weapon_slots = []
+            for key, weapon in WEAPON_KEY_MAP.items():
+                if weapon in unlocked_weapons or weapon == "basic":
+                    weapon_name = weapon.replace("_", " ").title()
+                    first_letter = weapon_name[0].upper()
+                    weapon_slots.append(f"{first_letter}:{weapon_name}")
+            
+            weapon_text = " | ".join(weapon_slots) if weapon_slots else "No weapons unlocked"
+            
+            # Draw controls text
+            controls_text = f"{move_text} | {aim_text} | {shoot_text} | {grenade_text} | Weapons: {weapon_text}"
+            controls_surf = font.render(controls_text, True, (200, 200, 200))
+            controls_x = (WIDTH - controls_surf.get_width()) // 2
+            screen.blit(controls_surf, (controls_x, controls_y + 15))
             
             # Only show metrics if enabled
             if ui_show_metrics:
