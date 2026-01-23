@@ -184,6 +184,13 @@
 #metrics menu: show and hide, independent from telemetry
 #telemetry menu:  enable and disable, independent from metrics
 #--------------------------------------------------------
+#make all blocks moveable, and indestructible, and the player can push them around
+#--------------------------------------------------------
+#add destructible, moveable blocks back in. Make blocks 50% of all blocks, and the other 50% be indestructible, moveable blocks
+#--------------------------------------------------------
+#add texture into indestructible, moveable blocks that makes it looks like a silver wall
+#add texture into destructible, moveable blocks that makes it looks like a cracked brick wall
+#--------------------------------------------------------
 
 
 
@@ -597,39 +604,42 @@ hazard_obstacles = [
 
 blocks = []  # Empty - no moveable indestructible blocks
 
-# Destructible blocks (unmovable, destructible)
+# Destructible blocks: 50% destructible (with HP), 50% indestructible (no HP), all moveable
 destructible_blocks = [
-    {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 500, "max_hp": 500, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 600, "max_hp": 600, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1100, 300, 90, 90), "color": (180, 120, 180), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1300, 500, 70, 70), "color": (120, 180, 120), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1000, 800, 80, 60), "color": (200, 120, 100), "hp": 500, "max_hp": 500, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(400, 1000, 100, 50), "color": (150, 150, 220), "hp": 600, "max_hp": 600, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0},
+    # First 6 blocks: Destructible (with HP)
+    {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 500, "max_hp": 500, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 600, "max_hp": 600, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(1100, 300, 90, 90), "color": (180, 120, 180), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    # Last 6 blocks: Indestructible (no HP)
+    {"rect": pygame.Rect(1300, 500, 70, 70), "color": (120, 180, 120), "is_moveable": True},
+    {"rect": pygame.Rect(1000, 800, 80, 60), "color": (200, 120, 100), "is_moveable": True},
+    {"rect": pygame.Rect(400, 1000, 100, 50), "color": (150, 150, 220), "is_moveable": True},
+    {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "is_moveable": True},
+    {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "is_moveable": True},
+    {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "is_moveable": True},
 ]
 
-# Moveable destructible blocks (can be pushed by player AND destroyed by player/enemy bullets)
+# Moveable destructible blocks: 50% destructible (with HP), 50% indestructible (no HP), all moveable
 moveable_destructible_blocks = [
-    {"rect": pygame.Rect(350, 400, 70, 70), "color": (200, 100, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(850, 500, 60, 60), "color": (100, 200, 100), "hp": 350, "max_hp": 350, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(650, 300, 80, 50), "color": (200, 150, 100), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(1050, 600, 60, 60), "color": (150, 100, 200), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(450, 800, 70, 50), "color": (200, 180, 120), "hp": 500, "max_hp": 500, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(1250, 900, 80, 40), "color": (100, 150, 200), "hp": 350, "max_hp": 350, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(550, 1100, 60, 60), "color": (180, 200, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(950, 1100, 70, 50), "color": (200, 120, 150), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    # Add more moveable destructible blocks to fill the map
-    {"rect": pygame.Rect(200, 600, 60, 60), "color": (150, 150, 200), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(300, 800, 70, 50), "color": (200, 100, 150), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(700, 900, 60, 60), "color": (100, 200, 150), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(1150, 700, 70, 50), "color": (200, 150, 100), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(1350, 400, 60, 60), "color": (150, 200, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0, "is_moveable": True},
-    {"rect": pygame.Rect(500, 500, 70, 50), "color": (200, 100, 200), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0, "is_moveable": True},
+    # First 7 blocks: Destructible (with HP)
+    {"rect": pygame.Rect(350, 400, 70, 70), "color": (200, 100, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(850, 500, 60, 60), "color": (100, 200, 100), "hp": 350, "max_hp": 350, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(650, 300, 80, 50), "color": (200, 150, 100), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(1050, 600, 60, 60), "color": (150, 100, 200), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(450, 800, 70, 50), "color": (200, 180, 120), "hp": 500, "max_hp": 500, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(1250, 900, 80, 40), "color": (100, 150, 200), "hp": 350, "max_hp": 350, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(550, 1100, 60, 60), "color": (180, 200, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    # Last 7 blocks: Indestructible (no HP)
+    {"rect": pygame.Rect(950, 1100, 70, 50), "color": (200, 120, 150), "is_moveable": True},
+    {"rect": pygame.Rect(200, 600, 60, 60), "color": (150, 150, 200), "is_moveable": True},
+    {"rect": pygame.Rect(300, 800, 70, 50), "color": (200, 100, 150), "is_moveable": True},
+    {"rect": pygame.Rect(700, 900, 60, 60), "color": (100, 200, 150), "is_moveable": True},
+    {"rect": pygame.Rect(1150, 700, 70, 50), "color": (200, 150, 100), "is_moveable": True},
+    {"rect": pygame.Rect(1350, 400, 60, 60), "color": (150, 200, 100), "is_moveable": True},
+    {"rect": pygame.Rect(500, 500, 70, 50), "color": (200, 100, 200), "is_moveable": True},
 ]
 
 # Border geometry: trapezoids and triangles (unmovable, indestructible)
@@ -647,12 +657,13 @@ left_trap_width = 100  # Width of trapezoid hanging into screen
 for i in range(3):
     y_start = i * (left_trap_height + left_gap)
     y_end = y_start + left_trap_height
+    trap_rect = pygame.Rect(-60, y_start, left_trap_width + 60, y_end - y_start)
     trapezoid_blocks.append({
         "points": [(-60, y_start), (left_trap_width, y_start + 20), (left_trap_width, y_end - 20), (-60, y_end)],
-        "bounding_rect": pygame.Rect(-60, y_start, left_trap_width + 60, y_end - y_start),
+        "bounding_rect": trap_rect,
+        "rect": trap_rect,  # Add rect for pushing support
         "color": (140, 110, 170),
-        "hp": None,
-        "max_hp": None,
+        "is_moveable": True,
         "side": "left"
     })
 
@@ -662,21 +673,23 @@ right_trap_width = 100
 right_y1 = 0
 right_y2 = right_trap_height + 20  # Small gap
 
+trap_rect1 = pygame.Rect(WIDTH - right_trap_width, right_y1, right_trap_width + 60, right_trap_height)
 trapezoid_blocks.append({
     "points": [(WIDTH - right_trap_width, right_y1 + 20), (WIDTH + 60, right_y1), (WIDTH + 60, right_y1 + right_trap_height), (WIDTH - right_trap_width, right_y1 + right_trap_height - 20)],
-    "bounding_rect": pygame.Rect(WIDTH - right_trap_width, right_y1, right_trap_width + 60, right_trap_height),
+    "bounding_rect": trap_rect1,
+    "rect": trap_rect1,  # Add rect for pushing support
     "color": (110, 130, 190),
-    "hp": None,
-    "max_hp": None,
+    "is_moveable": True,
     "side": "right"
 })
 
+trap_rect2 = pygame.Rect(WIDTH - right_trap_width, right_y2, right_trap_width + 60, right_trap_height)
 trapezoid_blocks.append({
     "points": [(WIDTH - right_trap_width, right_y2 + 20), (WIDTH + 60, right_y2), (WIDTH + 60, right_y2 + right_trap_height), (WIDTH - right_trap_width, right_y2 + right_trap_height - 20)],
-    "bounding_rect": pygame.Rect(WIDTH - right_trap_width, right_y2, right_trap_width + 60, right_trap_height),
+    "bounding_rect": trap_rect2,
+    "rect": trap_rect2,  # Add rect for pushing support
     "color": (110, 130, 190),
-    "hp": None,
-    "max_hp": None,
+    "is_moveable": True,
     "side": "right"
 })
 
@@ -690,12 +703,13 @@ for i in range(5):
     x_end = x_start + top_trap_width
     
     # Trapezoid hanging down
+    trap_rect = pygame.Rect(x_start, -60, x_end - x_start, top_trap_height + 60)
     trapezoid_blocks.append({
         "points": [(x_start, -60), (x_end, -60), (x_end - 20, top_trap_height), (x_start + 20, top_trap_height)],
-        "bounding_rect": pygame.Rect(x_start, -60, x_end - x_start, top_trap_height + 60),
+        "bounding_rect": trap_rect,
+        "rect": trap_rect,  # Add rect for pushing support
         "color": (100, 120, 180),
-        "hp": None,
-        "max_hp": None,
+        "is_moveable": True,
         "side": "top"
     })
     
@@ -704,22 +718,24 @@ for i in range(5):
     triangle_size = 30
     
     # Triangle 1 (left)
+    tri_rect1 = pygame.Rect(triangle_center_x - triangle_size, -100, triangle_size, 40)
     triangle_blocks.append({
         "points": [(triangle_center_x - triangle_size, -60), (triangle_center_x, -100), (triangle_center_x - triangle_size // 2, -60)],
-        "bounding_rect": pygame.Rect(triangle_center_x - triangle_size, -100, triangle_size, 40),
+        "bounding_rect": tri_rect1,
+        "rect": tri_rect1,  # Add rect for pushing support
         "color": (120, 140, 200),
-        "hp": None,
-        "max_hp": None,
+        "is_moveable": True,
         "side": "top"
     })
     
     # Triangle 2 (right)
+    tri_rect2 = pygame.Rect(triangle_center_x, -100, triangle_size, 40)
     triangle_blocks.append({
         "points": [(triangle_center_x + triangle_size // 2, -60), (triangle_center_x, -100), (triangle_center_x + triangle_size, -60)],
-        "bounding_rect": pygame.Rect(triangle_center_x, -100, triangle_size, 40),
+        "bounding_rect": tri_rect2,
+        "rect": tri_rect2,  # Add rect for pushing support
         "color": (120, 140, 200),
-        "hp": None,
-        "max_hp": None,
+        "is_moveable": True,
         "side": "top"
     })
 
@@ -730,29 +746,32 @@ bottom_triangle_height = 40
 
 for i in range(bottom_triangle_count):
     x_center = i * bottom_triangle_width + bottom_triangle_width // 2
+    tri_rect = pygame.Rect(x_center - bottom_triangle_width // 2, HEIGHT, bottom_triangle_width, bottom_triangle_height)
     triangle_blocks.append({
         "points": [(x_center - bottom_triangle_width // 2, HEIGHT), (x_center, HEIGHT + bottom_triangle_height), (x_center + bottom_triangle_width // 2, HEIGHT)],
-        "bounding_rect": pygame.Rect(x_center - bottom_triangle_width // 2, HEIGHT, bottom_triangle_width, bottom_triangle_height),
+        "bounding_rect": tri_rect,
+        "rect": tri_rect,  # Add rect for pushing support
         "color": (120, 100, 160),
-        "hp": None,
-        "max_hp": None,
+        "is_moveable": True,
         "side": "bottom"
     })
 
-# Add more destructible blocks to fill the map
+# Add more blocks: 50% destructible, 50% indestructible, all moveable
 destructible_blocks.extend([
-    {"rect": pygame.Rect(240, 360, 70, 70), "color": (160, 110, 210), "hp": 500, "max_hp": 500, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(400, 520, 60, 60), "color": (110, 210, 160), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(560, 680, 80, 50), "color": (210, 160, 110), "hp": 600, "max_hp": 600, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(720, 840, 70, 70), "color": (160, 160, 210), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(880, 1000, 60, 60), "color": (210, 210, 110), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1040, 1160, 80, 50), "color": (190, 130, 190), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1200, 1320, 70, 70), "color": (130, 190, 130), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1360, 1160, 60, 60), "color": (210, 130, 110), "hp": 500, "max_hp": 500, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1520, 1000, 80, 50), "color": (160, 160, 230), "hp": 600, "max_hp": 600, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1680, 840, 70, 70), "color": (230, 210, 130), "hp": 450, "max_hp": 450, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(1840, 680, 60, 60), "color": (200, 160, 210), "hp": 550, "max_hp": 550, "is_destructible": True, "crack_level": 0},
-    {"rect": pygame.Rect(200, 840, 80, 50), "color": (110, 210, 210), "hp": 400, "max_hp": 400, "is_destructible": True, "crack_level": 0},
+    # First 6 blocks: Indestructible (no HP)
+    {"rect": pygame.Rect(240, 360, 70, 70), "color": (160, 110, 210), "is_moveable": True},
+    {"rect": pygame.Rect(400, 520, 60, 60), "color": (110, 210, 160), "is_moveable": True},
+    {"rect": pygame.Rect(560, 680, 80, 50), "color": (210, 160, 110), "is_moveable": True},
+    {"rect": pygame.Rect(720, 840, 70, 70), "color": (160, 160, 210), "is_moveable": True},
+    {"rect": pygame.Rect(880, 1000, 60, 60), "color": (210, 210, 110), "is_moveable": True},
+    {"rect": pygame.Rect(1040, 1160, 80, 50), "color": (190, 130, 190), "is_moveable": True},
+    # Last 6 blocks: Destructible (with HP)
+    {"rect": pygame.Rect(1200, 1320, 70, 70), "color": (130, 190, 130), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(1360, 1160, 60, 60), "color": (210, 130, 110), "hp": 500, "max_hp": 500, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(1520, 1000, 80, 50), "color": (160, 160, 230), "hp": 600, "max_hp": 600, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(1680, 840, 70, 70), "color": (230, 210, 130), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(1840, 680, 60, 60), "color": (200, 160, 210), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(200, 840, 80, 50), "color": (110, 210, 210), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
 ])
 
 # Single moving health recovery zone
@@ -1126,13 +1145,14 @@ def can_move_rect(rect: pygame.Rect, dx: int, dy: int, other_rects: list[pygame.
 def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict]):
     """Solid collision + pushing blocks (single block push; no chain pushing)."""
     block_rects = [b["rect"] for b in block_list]
-    # Also include moveable destructible blocks, trapezoid and triangle bounding rects
+    # Include all moveable blocks: destructible, moveable_destructible, trapezoid, and triangle blocks
+    destructible_rects = [b["rect"] for b in destructible_blocks]
     moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
-    trapezoid_rects = [tb["bounding_rect"] for tb in trapezoid_blocks]
-    triangle_rects = [tr["bounding_rect"] for tr in triangle_blocks]
+    trapezoid_rects = [tb["rect"] for tb in trapezoid_blocks]  # Now use rect instead of bounding_rect
+    triangle_rects = [tr["rect"] for tr in triangle_blocks]  # Now use rect instead of bounding_rect
     # Include friendly AI rects - player cannot pass through allies
     friendly_ai_rects = [f["rect"] for f in friendly_ai if f.get("hp", 1) > 0]
-    all_collision_rects = block_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects + friendly_ai_rects
+    all_collision_rects = block_rects + destructible_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects + friendly_ai_rects
 
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -1142,33 +1162,37 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
         player_rect.y += axis_dy
 
         hit_block = None
-        hit_is_trapezoid = False
+        hit_is_unpushable = False
         # Check regular blocks first
         for b in block_list:
             if player_rect.colliderect(b["rect"]):
                 hit_block = b
                 break
+        # Check destructible blocks (now moveable)
+        if hit_block is None:
+            for b in destructible_blocks:
+                if player_rect.colliderect(b["rect"]):
+                    hit_block = b
+                    break
         # Check moveable destructible blocks
         if hit_block is None:
             for b in moveable_destructible_blocks:
                 if player_rect.colliderect(b["rect"]):
                     hit_block = b
                     break
-        # Check trapezoid blocks (unmovable, so player can't push them)
+        # Check trapezoid blocks (now moveable)
         if hit_block is None:
             for tb in trapezoid_blocks:
-                if player_rect.colliderect(tb["bounding_rect"]):
+                if player_rect.colliderect(tb["rect"]):
                     hit_block = tb
-                    hit_is_trapezoid = True
                     break
-        # Check triangle blocks (unmovable, so player can't push them)
+        # Check triangle blocks (now moveable)
         if hit_block is None:
             for tr in triangle_blocks:
-                if player_rect.colliderect(tr["bounding_rect"]):
+                if player_rect.colliderect(tr["rect"]):
                     hit_block = tr
-                    hit_is_trapezoid = True
                     break
-        # Check hazard obstacles (paraboloids/trapezoids) - player cannot pass through
+        # Check hazard obstacles (paraboloids/trapezoids) - player cannot pass through or push
         if hit_block is None:
             for hazard in hazard_obstacles:
                 if hazard.get("points") and len(hazard["points"]) > 2:
@@ -1176,21 +1200,21 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
                     player_center = pygame.Vector2(player_rect.center)
                     if check_point_in_hazard(player_center, hazard["points"], hazard["bounding_rect"]):
                         hit_block = hazard
-                        hit_is_trapezoid = True  # Treat as unmovable
+                        hit_is_unpushable = True  # Hazards are unmovable
                         break
-        # Check friendly AI (allies) - player cannot pass through
+        # Check friendly AI (allies) - player cannot pass through or push
         if hit_block is None:
             for f in friendly_ai:
                 if f.get("hp", 1) > 0 and player_rect.colliderect(f["rect"]):
                     hit_block = f
-                    hit_is_trapezoid = True  # Treat as unmovable (can't push allies)
+                    hit_is_unpushable = True  # Can't push allies
                     break
 
         if hit_block is None:
             continue
 
-        # Trapezoids are unmovable, so just block player movement
-        if hit_is_trapezoid:
+        # Hazards and allies are unmovable, so just block player movement
+        if hit_is_unpushable:
             player_rect.x -= axis_dx
             player_rect.y -= axis_dy
             continue
@@ -1201,6 +1225,10 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
         if can_move_rect(hit_rect, axis_dx, axis_dy, other_rects):
             hit_rect.x += axis_dx
             hit_rect.y += axis_dy
+            # Update bounding_rect for trapezoid/triangle blocks to match rect position
+            if "bounding_rect" in hit_block:
+                hit_block["bounding_rect"].x = hit_rect.x
+                hit_block["bounding_rect"].y = hit_rect.y
         else:
             player_rect.x -= axis_dx
             player_rect.y -= axis_dy
@@ -1209,14 +1237,14 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
 
 
 def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict]):
-    """Enemy movement with block pushing (similar to player, but enemies can push blocks to chase player)."""
+    """Enemy movement with block pushing (enemies can push all blocks to chase player)."""
     block_rects = [b["rect"] for b in block_list]
-    # Also include moveable destructible blocks (enemies can push these too)
+    # Include all moveable blocks: destructible, moveable_destructible, trapezoid, and triangle blocks
+    destructible_rects = [b["rect"] for b in destructible_blocks]
     moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
-    # Trapezoids and triangles are unmovable, so enemies can't push them
-    trapezoid_rects = [tb["bounding_rect"] for tb in trapezoid_blocks]
-    triangle_rects = [tr["bounding_rect"] for tr in triangle_blocks]
-    all_collision_rects = block_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects
+    trapezoid_rects = [tb["rect"] for tb in trapezoid_blocks]  # Now use rect instead of bounding_rect
+    triangle_rects = [tr["rect"] for tr in triangle_blocks]  # Now use rect instead of bounding_rect
+    all_collision_rects = block_rects + destructible_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects
 
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -1226,42 +1254,37 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
         enemy_rect.y += axis_dy
 
         hit_block = None
-        hit_is_trapezoid = False
-        hit_is_moveable_destructible = False
         # Check regular blocks first
         for b in block_list:
             if enemy_rect.colliderect(b["rect"]):
                 hit_block = b
                 break
+        # Check destructible blocks (now moveable)
+        if hit_block is None:
+            for b in destructible_blocks:
+                if enemy_rect.colliderect(b["rect"]):
+                    hit_block = b
+                    break
         # Check moveable destructible blocks
         if hit_block is None:
             for b in moveable_destructible_blocks:
                 if enemy_rect.colliderect(b["rect"]):
                     hit_block = b
-                    hit_is_moveable_destructible = True
                     break
-        # Check trapezoid blocks (unmovable, so enemy can't push them)
+        # Check trapezoid blocks (now moveable)
         if hit_block is None:
             for tb in trapezoid_blocks:
-                if enemy_rect.colliderect(tb["bounding_rect"]):
+                if enemy_rect.colliderect(tb["rect"]):
                     hit_block = tb
-                    hit_is_trapezoid = True
                     break
-        # Check triangle blocks (unmovable, so enemy can't push them)
+        # Check triangle blocks (now moveable)
         if hit_block is None:
             for tr in triangle_blocks:
-                if enemy_rect.colliderect(tr["bounding_rect"]):
+                if enemy_rect.colliderect(tr["rect"]):
                     hit_block = tr
-                    hit_is_trapezoid = True
                     break
 
         if hit_block is None:
-            continue
-
-        # Trapezoids are unmovable, so just block enemy movement
-        if hit_is_trapezoid:
-            enemy_rect.x -= axis_dx
-            enemy_rect.y -= axis_dy
             continue
 
         hit_rect = hit_block["rect"]
@@ -1271,6 +1294,10 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
         if can_move_rect(hit_rect, axis_dx, axis_dy, other_rects):
             hit_rect.x += axis_dx
             hit_rect.y += axis_dy
+            # Update bounding_rect for trapezoid/triangle blocks to match rect position
+            if "bounding_rect" in hit_block:
+                hit_block["bounding_rect"].x = hit_rect.x
+                hit_block["bounding_rect"].y = hit_rect.y
         else:
             # Block can't be pushed, so enemy can't move
             enemy_rect.x -= axis_dx
@@ -1285,8 +1312,10 @@ def move_enemy_with_push_cached(enemy_rect: pygame.Rect, move_x: int, move_y: in
                                  cached_triangle_rects: list):
     """Optimized enemy movement with block pushing using cached rect lists."""
     block_rects = [b["rect"] for b in block_list]
+    # Include destructible blocks in cached rects
+    cached_destructible_rects = [b["rect"] for b in destructible_blocks]
     # Use cached rects for all_collision_rects (main performance gain)
-    all_collision_rects = block_rects + cached_moveable_destructible_rects + cached_trapezoid_rects + cached_triangle_rects
+    all_collision_rects = block_rects + cached_destructible_rects + cached_moveable_destructible_rects + cached_trapezoid_rects + cached_triangle_rects
 
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -1296,42 +1325,37 @@ def move_enemy_with_push_cached(enemy_rect: pygame.Rect, move_x: int, move_y: in
         enemy_rect.y += axis_dy
 
         hit_block = None
-        hit_is_trapezoid = False
-        hit_is_moveable_destructible = False
         # Check regular blocks first
         for b in block_list:
             if enemy_rect.colliderect(b["rect"]):
                 hit_block = b
                 break
+        # Check destructible blocks (now moveable)
+        if hit_block is None:
+            for b in destructible_blocks:
+                if enemy_rect.colliderect(b["rect"]):
+                    hit_block = b
+                    break
         # Check moveable destructible blocks
         if hit_block is None:
             for b in moveable_destructible_blocks:
                 if enemy_rect.colliderect(b["rect"]):
                     hit_block = b
-                    hit_is_moveable_destructible = True
                     break
-        # Check trapezoid blocks (unmovable, so enemy can't push them)
+        # Check trapezoid blocks (now moveable)
         if hit_block is None:
             for tb in trapezoid_blocks:
-                if enemy_rect.colliderect(tb["bounding_rect"]):
+                if enemy_rect.colliderect(tb["rect"]):
                     hit_block = tb
-                    hit_is_trapezoid = True
                     break
-        # Check triangle blocks (unmovable, so enemy can't push them)
+        # Check triangle blocks (now moveable)
         if hit_block is None:
             for tr in triangle_blocks:
-                if enemy_rect.colliderect(tr["bounding_rect"]):
+                if enemy_rect.colliderect(tr["rect"]):
                     hit_block = tr
-                    hit_is_trapezoid = True
                     break
 
         if hit_block is None:
-            continue
-
-        # Trapezoids are unmovable, so just block enemy movement
-        if hit_is_trapezoid:
-            enemy_rect.x -= axis_dx
-            enemy_rect.y -= axis_dy
             continue
 
         hit_rect = hit_block["rect"]
@@ -1341,6 +1365,10 @@ def move_enemy_with_push_cached(enemy_rect: pygame.Rect, move_x: int, move_y: in
         if can_move_rect(hit_rect, axis_dx, axis_dy, other_rects):
             hit_rect.x += axis_dx
             hit_rect.y += axis_dy
+            # Update bounding_rect for trapezoid/triangle blocks to match rect position
+            if "bounding_rect" in hit_block:
+                hit_block["bounding_rect"].x = hit_rect.x
+                hit_block["bounding_rect"].y = hit_rect.y
         else:
             # Block can't be pushed, so enemy can't move
             enemy_rect.x -= axis_dx
@@ -2182,6 +2210,102 @@ def spawn_weapon_drop(enemy: dict):
             "age": 0.0,
             "is_weapon_drop": True,  # Mark as weapon drop
         })
+
+
+def draw_silver_wall_texture(screen, rect: pygame.Rect):
+    """Draw a silver wall texture for indestructible blocks."""
+    # Base silver color
+    silver_base = (192, 192, 192)
+    silver_dark = (160, 160, 160)
+    silver_light = (220, 220, 220)
+    
+    # Fill base
+    pygame.draw.rect(screen, silver_base, rect)
+    
+    # Draw metallic grid pattern (brick-like but metallic)
+    brick_width = max(8, rect.w // 4)
+    brick_height = max(6, rect.h // 3)
+    
+    # Horizontal mortar lines
+    for y in range(rect.top + brick_height, rect.bottom, brick_height):
+        pygame.draw.line(screen, silver_dark, (rect.left, y), (rect.right, y), 1)
+    
+    # Vertical mortar lines (staggered for brick pattern)
+    offset = 0
+    for y in range(rect.top, rect.bottom, brick_height * 2):
+        for x in range(rect.left + offset, rect.right, brick_width):
+            pygame.draw.line(screen, silver_dark, (x, y), (x, min(y + brick_height, rect.bottom)), 1)
+        offset = brick_width // 2 if offset == 0 else 0
+    
+    # Add highlights for metallic shine
+    for i in range(0, rect.w, brick_width):
+        for j in range(0, rect.h, brick_height):
+            highlight_x = rect.left + i + brick_width // 4
+            highlight_y = rect.top + j + brick_height // 4
+            if highlight_x < rect.right and highlight_y < rect.bottom:
+                pygame.draw.circle(screen, silver_light, (highlight_x, highlight_y), 2)
+
+
+def draw_cracked_brick_wall_texture(screen, rect: pygame.Rect, crack_level: int = 1):
+    """Draw a cracked brick wall texture for destructible blocks."""
+    # Brick colors
+    brick_red = (180, 80, 60)
+    brick_dark = (140, 60, 40)
+    brick_light = (200, 100, 80)
+    mortar = (100, 100, 100)
+    
+    # Fill base brick color
+    pygame.draw.rect(screen, brick_red, rect)
+    
+    # Draw brick pattern
+    brick_width = max(10, rect.w // 4)
+    brick_height = max(8, rect.h // 3)
+    
+    # Horizontal mortar lines
+    for y in range(rect.top + brick_height, rect.bottom, brick_height):
+        pygame.draw.line(screen, mortar, (rect.left, y), (rect.right, y), 2)
+    
+    # Vertical mortar lines (staggered brick pattern)
+    offset = 0
+    for y in range(rect.top, rect.bottom, brick_height * 2):
+        for x in range(rect.left + offset, rect.right, brick_width):
+            pygame.draw.line(screen, mortar, (x, y), (x, min(y + brick_height, rect.bottom)), 2)
+        offset = brick_width // 2 if offset == 0 else 0
+    
+    # Add individual brick highlights
+    offset = 0
+    for y in range(rect.top, rect.bottom, brick_height):
+        for x in range(rect.left + offset, rect.right, brick_width):
+            brick_rect = pygame.Rect(x + 1, y + 1, min(brick_width - 2, rect.right - x - 1), min(brick_height - 2, rect.bottom - y - 1))
+            if brick_rect.w > 0 and brick_rect.h > 0:
+                # Light highlight on top-left of each brick
+                pygame.draw.line(screen, brick_light, (brick_rect.left, brick_rect.top), (brick_rect.right, brick_rect.top), 1)
+                pygame.draw.line(screen, brick_light, (brick_rect.left, brick_rect.top), (brick_rect.left, brick_rect.bottom), 1)
+                # Dark shadow on bottom-right
+                pygame.draw.line(screen, brick_dark, (brick_rect.right, brick_rect.top), (brick_rect.right, brick_rect.bottom), 1)
+                pygame.draw.line(screen, brick_dark, (brick_rect.left, brick_rect.bottom), (brick_rect.right, brick_rect.bottom), 1)
+        offset = brick_width // 2 if offset == 0 else 0
+    
+    # Draw cracks based on damage level
+    if crack_level >= 1:
+        center = rect.center
+        crack_color = (40, 40, 40)
+        # Main crack from center
+        for i in range(crack_level):
+            angle = (i * 2.4) * math.pi / 3
+            end_x = center[0] + math.cos(angle) * (rect.w // 2)
+            end_y = center[1] + math.sin(angle) * (rect.h // 2)
+            pygame.draw.line(screen, crack_color, center, (end_x, end_y), 2)
+        
+        # Additional smaller cracks for higher damage
+        if crack_level >= 2:
+            for i in range(crack_level):
+                angle = (i * 1.8 + 0.5) * math.pi / 3
+                start_x = center[0] + math.cos(angle) * (rect.w // 4)
+                start_y = center[1] + math.sin(angle) * (rect.h // 4)
+                end_x = start_x + math.cos(angle) * (rect.w // 3)
+                end_y = start_y + math.sin(angle) * (rect.h // 3)
+                pygame.draw.line(screen, crack_color, (start_x, start_y), (end_x, end_y), 1)
 
 
 def draw_health_bar(x, y, w, h, hp, max_hp):
@@ -3365,7 +3489,7 @@ try:
                                     closest_hit = hit
                                     laser_end = hit
                         
-                        # Check collision with destructible blocks (can damage them)
+                        # Check collision with destructible blocks (can damage if destructible)
                         for db in destructible_blocks[:]:
                             hit = line_rect_intersection(player_center, laser_end, db["rect"])
                             if hit:
@@ -3374,12 +3498,13 @@ try:
                                     closest_dist = dist
                                     closest_hit = hit
                                     laser_end = hit
-                                # Damage destructible block
-                                db["hp"] -= laser_damage * dt * 60  # Damage per second
-                                if db["hp"] <= 0:
-                                    destructible_blocks.remove(db)
+                                # Damage destructible block if it has HP
+                                if db.get("is_destructible") and "hp" in db:
+                                    db["hp"] -= laser_damage * dt * 60  # Damage per second
+                                    if db["hp"] <= 0:
+                                        destructible_blocks.remove(db)
                         
-                        # Check collision with moveable destructible blocks (can damage them)
+                        # Check collision with moveable destructible blocks (can damage if destructible)
                         for mdb in moveable_destructible_blocks[:]:
                             hit = line_rect_intersection(player_center, laser_end, mdb["rect"])
                             if hit:
@@ -3388,10 +3513,11 @@ try:
                                     closest_dist = dist
                                     closest_hit = hit
                                     laser_end = hit
-                                # Damage moveable destructible block
-                                mdb["hp"] -= laser_damage * dt * 60  # Damage per second
-                                if mdb["hp"] <= 0:
-                                    moveable_destructible_blocks.remove(mdb)
+                                # Damage moveable destructible block if it has HP
+                                if mdb.get("is_destructible") and "hp" in mdb:
+                                    mdb["hp"] -= laser_damage * dt * 60  # Damage per second
+                                    if mdb["hp"] <= 0:
+                                        moveable_destructible_blocks.remove(mdb)
                         
                         # Check collision with enemies (can damage them)
                         for e in enemies[:]:
@@ -3478,7 +3604,7 @@ try:
                                 closest_hit = hit
                                 final_points = [p for p in beam_points if (p - player_center).length() <= dist]
                         
-                        # Check collision with destructible blocks (can damage them)
+                        # Check collision with destructible blocks (can damage if destructible)
                         for db in destructible_blocks[:]:
                             hit, dist = check_wave_beam_collision(beam_points, db["rect"], wave_beam_width)
                             if hit:
@@ -3486,12 +3612,13 @@ try:
                                     closest_dist = dist
                                     closest_hit = hit
                                     final_points = [p for p in beam_points if (p - player_center).length() <= dist]
-                                # Damage destructible block
-                                db["hp"] -= wave_beam_damage * dt * 60
-                                if db["hp"] <= 0:
-                                    destructible_blocks.remove(db)
+                                # Damage destructible block if it has HP
+                                if db.get("is_destructible") and "hp" in db:
+                                    db["hp"] -= wave_beam_damage * dt * 60
+                                    if db["hp"] <= 0:
+                                        destructible_blocks.remove(db)
                         
-                        # Check collision with moveable destructible blocks
+                        # Check collision with moveable destructible blocks (can damage if destructible)
                         for mdb in moveable_destructible_blocks[:]:
                             hit, dist = check_wave_beam_collision(beam_points, mdb["rect"], wave_beam_width)
                             if hit:
@@ -3499,10 +3626,11 @@ try:
                                     closest_dist = dist
                                     closest_hit = hit
                                     final_points = [p for p in beam_points if (p - player_center).length() <= dist]
-                                # Damage moveable destructible block
-                                mdb["hp"] -= wave_beam_damage * dt * 60
-                                if mdb["hp"] <= 0:
-                                    moveable_destructible_blocks.remove(mdb)
+                                # Damage moveable destructible block if it has HP
+                                if mdb.get("is_destructible") and "hp" in mdb:
+                                    mdb["hp"] -= wave_beam_damage * dt * 60
+                                    if mdb["hp"] <= 0:
+                                        moveable_destructible_blocks.remove(mdb)
                         
                         # Check collision with enemies (can damage them)
                         for e in enemies[:]:
@@ -3582,19 +3710,21 @@ try:
                 ds["rect"].x = max(0, min(ds["rect"].x, WIDTH - ds["rect"].w))
                 ds["rect"].y = max(0, min(ds["rect"].y, HEIGHT - ds["rect"].h))
                 
-                # Check collision with destructible blocks
+                # Check collision with destructible blocks (can damage if destructible)
                 for db in destructible_blocks[:]:
                     if ds["rect"].colliderect(db["rect"]):
-                        db["hp"] -= ds.get("damage", 50) * dt * 60
-                        if db["hp"] <= 0:
-                            destructible_blocks.remove(db)
+                        if db.get("is_destructible") and "hp" in db:
+                            db["hp"] -= ds.get("damage", 50) * dt * 60
+                            if db["hp"] <= 0:
+                                destructible_blocks.remove(db)
                 
-                # Check collision with moveable destructible blocks
+                # Check collision with moveable destructible blocks (can damage if destructible)
                 for mdb in moveable_destructible_blocks[:]:
                     if ds["rect"].colliderect(mdb["rect"]):
-                        mdb["hp"] -= ds.get("damage", 50) * dt * 60
-                        if mdb["hp"] <= 0:
-                            moveable_destructible_blocks.remove(mdb)
+                        if mdb.get("is_destructible") and "hp" in mdb:
+                            mdb["hp"] -= ds.get("damage", 50) * dt * 60
+                            if mdb["hp"] <= 0:
+                                moveable_destructible_blocks.remove(mdb)
                 
                 # Check collision with enemies
                 for e in enemies[:]:
@@ -3751,9 +3881,10 @@ try:
             
             # Cache block lists for enemy movement (reused in move_enemy_with_push)
             cached_block_rects = block_rects
+            cached_destructible_rects = [b["rect"] for b in destructible_blocks]
             cached_moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
-            cached_trapezoid_rects = [tb["bounding_rect"] for tb in trapezoid_blocks]
-            cached_triangle_rects = [tr["bounding_rect"] for tr in triangle_blocks]
+            cached_trapezoid_rects = [tb["rect"] for tb in trapezoid_blocks]  # Now use rect instead of bounding_rect
+            cached_triangle_rects = [tr["rect"] for tr in triangle_blocks]  # Now use rect instead of bounding_rect
             
             for enemy_idx, e in enumerate(enemies):
                 e_pos = pygame.Vector2(e["rect"].center)
@@ -4614,12 +4745,13 @@ try:
                     # Player bullets can destroy destructible blocks
                     for db in destructible_blocks[:]:
                         if r.colliderect(db["rect"]):
-                            # Apply random damage multiplier to base damage
-                            base_damage = b.get("damage", player_bullet_damage)
-                            bullet_damage = int(base_damage * random_damage_multiplier)
-                            db["hp"] -= bullet_damage
-                            if db["hp"] <= 0:
-                                destructible_blocks.remove(db)
+                            if db.get("is_destructible") and "hp" in db:
+                                # Apply random damage multiplier to base damage
+                                base_damage = b.get("damage", player_bullet_damage)
+                                bullet_damage = int(base_damage * random_damage_multiplier)
+                                db["hp"] -= bullet_damage
+                                if db["hp"] <= 0:
+                                    destructible_blocks.remove(db)
                             # Remove bullet unless it has penetration
                             if b.get("penetration", 0) == 0 and b in player_bullets:
                                 player_bullets.remove(b)
@@ -4628,10 +4760,11 @@ try:
                     # Player bullets can destroy moveable destructible blocks
                     for mdb in moveable_destructible_blocks[:]:
                         if r.colliderect(mdb["rect"]):
-                            bullet_damage = b.get("damage", player_bullet_damage)
-                            mdb["hp"] -= bullet_damage
-                            if mdb["hp"] <= 0:
-                                moveable_destructible_blocks.remove(mdb)
+                            if mdb.get("is_destructible") and "hp" in mdb:
+                                bullet_damage = b.get("damage", player_bullet_damage)
+                                mdb["hp"] -= bullet_damage
+                                if mdb["hp"] <= 0:
+                                    moveable_destructible_blocks.remove(mdb)
                             # Remove bullet unless it has penetration
                             if b.get("penetration", 0) == 0 and b in player_bullets:
                                 player_bullets.remove(b)
@@ -4677,9 +4810,10 @@ try:
                 # Enemy projectiles can damage destructible blocks
                 for db in destructible_blocks[:]:
                     if r.colliderect(db["rect"]):
-                        db["hp"] -= enemy_projectile_damage
-                        if db["hp"] <= 0:
-                            destructible_blocks.remove(db)
+                        if db.get("is_destructible") and "hp" in db:
+                            db["hp"] -= enemy_projectile_damage
+                            if db["hp"] <= 0:
+                                destructible_blocks.remove(db)
                         if p in enemy_projectiles:
                             enemy_projectiles.remove(p)
                         break
@@ -4689,9 +4823,10 @@ try:
                 # Enemy projectiles can damage moveable destructible blocks
                 for mdb in moveable_destructible_blocks[:]:
                     if r.colliderect(mdb["rect"]):
-                        mdb["hp"] -= enemy_projectile_damage
-                        if mdb["hp"] <= 0:
-                            moveable_destructible_blocks.remove(mdb)
+                        if mdb.get("is_destructible") and "hp" in mdb:
+                            mdb["hp"] -= enemy_projectile_damage
+                            if mdb["hp"] <= 0:
+                                moveable_destructible_blocks.remove(mdb)
                         if p in enemy_projectiles:
                             enemy_projectiles.remove(p)
                         break
@@ -5019,70 +5154,56 @@ try:
         border_color = (50, 255, 50)
         pygame.draw.rect(screen, border_color, zone["rect"], 3)
         
-        # Draw destructible blocks with textures (cracked appearance)
+        # Draw destructible blocks (50% destructible with HP, 50% indestructible, all moveable)
         for db in destructible_blocks:
-            # Calculate crack level based on HP
-            hp_ratio = db["hp"] / db["max_hp"]
-            if hp_ratio < 0.33:
-                crack_level = 3  # Heavily cracked
-            elif hp_ratio < 0.66:
-                crack_level = 2  # Moderately cracked
+            # Check if block is destructible (has HP)
+            if db.get("is_destructible") and "hp" in db:
+                # Calculate crack level based on HP
+                hp_ratio = db["hp"] / db["max_hp"]
+                if hp_ratio < 0.33:
+                    crack_level = 3  # Heavily cracked
+                elif hp_ratio < 0.66:
+                    crack_level = 2  # Moderately cracked
+                else:
+                    crack_level = 1  # Slightly cracked
+                
+                # Draw cracked brick wall texture
+                draw_cracked_brick_wall_texture(screen, db["rect"], crack_level)
+                
+                # Health bar only if enabled
+                if ui_show_block_health_bars:
+                    draw_health_bar(db["rect"].x, db["rect"].y - 10, db["rect"].w, 6, db["hp"], db["max_hp"])
             else:
-                crack_level = 1  # Slightly cracked
-            
-            # Base color with cracks
-            base_color = db["color"]
-            pygame.draw.rect(screen, base_color, db["rect"])
-            
-            # Draw crack texture
-            if crack_level >= 2:
-                # Draw crack lines
-                crack_color = (50, 50, 50)
-                center = db["rect"].center
-                # Random crack pattern
-                for i in range(crack_level):
-                    angle = (i * 2.4) * math.pi / 3
-                    end_x = center[0] + math.cos(angle) * (db["rect"].w // 2)
-                    end_y = center[1] + math.sin(angle) * (db["rect"].h // 2)
-                    pygame.draw.line(screen, crack_color, center, (end_x, end_y), 2)
-            
-            # Health bar only if enabled
-            if ui_show_block_health_bars:
-                draw_health_bar(db["rect"].x, db["rect"].y - 10, db["rect"].w, 6, db["hp"], db["max_hp"])
+                # Indestructible block - draw silver wall texture
+                draw_silver_wall_texture(screen, db["rect"])
         
-        # Draw moveable destructible blocks (can be pushed and destroyed)
+        # Draw moveable destructible blocks (50% destructible with HP, 50% indestructible, all moveable)
         for mdb in moveable_destructible_blocks:
-            # Calculate crack level based on HP
-            hp_ratio = mdb["hp"] / mdb["max_hp"]
-            if hp_ratio < 0.33:
-                crack_level = 3  # Heavily cracked
-            elif hp_ratio < 0.66:
-                crack_level = 2  # Moderately cracked
+            # Check if block is destructible (has HP)
+            if mdb.get("is_destructible") and "hp" in mdb:
+                # Calculate crack level based on HP
+                hp_ratio = mdb["hp"] / mdb["max_hp"]
+                if hp_ratio < 0.33:
+                    crack_level = 3  # Heavily cracked
+                elif hp_ratio < 0.66:
+                    crack_level = 2  # Moderately cracked
+                else:
+                    crack_level = 1  # Slightly cracked
+                
+                # Draw cracked brick wall texture
+                draw_cracked_brick_wall_texture(screen, mdb["rect"], crack_level)
+                
+                # Draw border to indicate it's moveable (different from regular destructible)
+                pygame.draw.rect(screen, (255, 200, 100), mdb["rect"], 2)  # Orange border for moveable
+                
+                # Health bar only if enabled
+                if ui_show_block_health_bars:
+                    draw_health_bar(mdb["rect"].x, mdb["rect"].y - 10, mdb["rect"].w, 6, mdb["hp"], mdb["max_hp"])
             else:
-                crack_level = 1  # Slightly cracked
-            
-            # Base color with cracks
-            base_color = mdb["color"]
-            pygame.draw.rect(screen, base_color, mdb["rect"])
-            
-            # Draw crack texture
-            if crack_level >= 2:
-                # Draw crack lines
-                crack_color = (50, 50, 50)
-                center = mdb["rect"].center
-                # Random crack pattern
-                for i in range(crack_level):
-                    angle = (i * 2.4) * math.pi / 3
-                    end_x = center[0] + math.cos(angle) * (mdb["rect"].w // 2)
-                    end_y = center[1] + math.sin(angle) * (mdb["rect"].h // 2)
-                    pygame.draw.line(screen, crack_color, center, (end_x, end_y), 2)
-            
-            # Draw border to indicate it's moveable (different from regular destructible)
-            pygame.draw.rect(screen, (255, 200, 100), mdb["rect"], 2)  # Orange border for moveable
-            
-            # Health bar only if enabled
-            if ui_show_block_health_bars:
-                draw_health_bar(mdb["rect"].x, mdb["rect"].y - 10, mdb["rect"].w, 6, mdb["hp"], mdb["max_hp"])
+                # Indestructible block - draw silver wall texture
+                draw_silver_wall_texture(screen, mdb["rect"])
+                # Draw border to indicate it's moveable
+                pygame.draw.rect(screen, (255, 200, 100), mdb["rect"], 2)  # Orange border for moveable
         
         # Draw indestructible blocks with texture (solid appearance)
         for blk in blocks:
