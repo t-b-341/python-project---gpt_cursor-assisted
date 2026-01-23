@@ -267,22 +267,19 @@
 #change hud and telemetry to two different pages, rather than sharing the same page
 #change triple shot to basic beam, with three beams in total, offset by an equal arc
 #delete second HUD menu on options menu
-#--------------------------------------------------------
+#--------------------------------------------------------/
 #prevent any blocks from overlapping with each other
 #make health bar and HP amount above the control information at bottom of screen in-game
-#in last screen before starting game, state "press enter/spacebar to start! :D"
 #increase "queen" rate of fire, and raise health to 5000, and give shield like "shield enemy" that activates and deactivates at rates of 10-20 seconds each phase, enabled for 5-10 seconds
 #increase base enemy spawn amount by 3x
 #make an enemy "patrol" that patrols the outside border of the map, with the wave beam
-#exit to main menu option added
-#add a first menu named "main menu": has "press enter/spacebar to start" and a welcome message "GREETINGS, OH GREAT PLAYER"
 #if enemies haven't moved for 5 seconds, have them change direction away from an object they are stuck on
 #fix game slowdown when many shots are on screen
-#remove printed message when starting the game of which monitor is selected
 #change queen shoot cooldown to 0.2s, and update in WEAPON_AND_ENEMY_REFERENCE.md
-#change weapon mapping message at bottom to be 1: basic, 2: (next weapon), ... listing the weapon names, and showing that the weapons are available and mapped to their respective key
-#--------------------------------------------------------
-
+#--------------------------------------------------------/
+#make it so that the health and other objects do not overlap with each other
+#give player 3x health, 1.5x movement speed
+#remove giant and super giant labels from obstacles
 
 
 
@@ -992,10 +989,11 @@ def filter_blocks_no_overlap(block_list: list[dict], all_other_blocks: list[list
     return filtered
 
 # Filter blocks to prevent overlaps (allies checked at runtime in random_spawn_position)
-destructible_blocks = filter_blocks_no_overlap(destructible_blocks, [moveable_destructible_blocks, giant_blocks, super_giant_blocks], player)
-moveable_destructible_blocks = filter_blocks_no_overlap(moveable_destructible_blocks, [destructible_blocks, giant_blocks, super_giant_blocks], player)
-giant_blocks = filter_blocks_no_overlap(giant_blocks, [destructible_blocks, moveable_destructible_blocks, super_giant_blocks], player)
-super_giant_blocks = filter_blocks_no_overlap(super_giant_blocks, [destructible_blocks, moveable_destructible_blocks, giant_blocks], player)
+# Note: trapezoid_blocks and triangle_blocks are border elements and don't need overlap filtering
+destructible_blocks = filter_blocks_no_overlap(destructible_blocks, [moveable_destructible_blocks, giant_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], player)
+moveable_destructible_blocks = filter_blocks_no_overlap(moveable_destructible_blocks, [destructible_blocks, giant_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], player)
+giant_blocks = filter_blocks_no_overlap(giant_blocks, [destructible_blocks, moveable_destructible_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], player)
+super_giant_blocks = filter_blocks_no_overlap(super_giant_blocks, [destructible_blocks, moveable_destructible_blocks, giant_blocks, trapezoid_blocks, triangle_blocks], player)
 
 # ----------------------------
 # Enemy templates + cloning
@@ -1168,9 +1166,9 @@ enemy_templates: list[dict] = [
         "name": "queen",  # Explicit name
         "rect": pygame.Rect(400, 400, 32, 32),
         "color": (100, 0, 0),  # Dark maroon (player clone)
-        "hp": 2000,  # 2000 health
-        "max_hp": 2000,
-        "shoot_cooldown": 1.0,
+        "hp": 5000,  # 5000 health (increased from 2000)
+        "max_hp": 5000,
+        "shoot_cooldown": 0.2,  # 0.2s cooldown (increased fire rate)
         "projectile_speed": 350,
         "projectile_color": (150, 0, 0),
         "projectile_shape": "circle",
@@ -1193,14 +1191,30 @@ enemy_templates: list[dict] = [
         "type": "queen",
         "rect": pygame.Rect(400, 400, 32, 32),
         "color": (100, 0, 0),  # Dark maroon (player clone)
-        "hp": 2000,  # 2000 health
-        "max_hp": 2000,
-        "shoot_cooldown": 1.0,
+        "hp": 5000,  # 5000 health (increased from 2000)
+        "max_hp": 5000,
+        "shoot_cooldown": 0.2,  # 0.2s cooldown (increased fire rate)
         "projectile_speed": 350,
         "projectile_color": (150, 0, 0),
         "projectile_shape": "circle",
         "speed": 240,  # 3x standard speed (80 * 3)
         "is_player_clone": True,  # Marks this as player clone
+    },
+    {
+        "type": "patrol",
+        "rect": pygame.Rect(0, 0, 32, 32),
+        "color": (150, 100, 200),  # Purple
+        "hp": 150,
+        "max_hp": 150,
+        "shoot_cooldown": 0.5,
+        "projectile_speed": 400,
+        "projectile_color": (200, 150, 255),
+        "projectile_shape": "circle",
+        "speed": 100,
+        "is_patrol": True,  # Marks this as patrol enemy
+        "patrol_side": 0,  # 0=top, 1=right, 2=bottom, 3=left
+        "patrol_progress": 0.0,  # Progress along current side (0.0 to 1.0)
+        "uses_wave_beam": True,  # Uses wave beam weapon
     },
 
 ]
@@ -1731,7 +1745,7 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> di
     # Apply 110% multipliers (1.1x) to all stats
     # Exception: Queen (player clone) has fixed 2000 HP and 3x speed, not affected by scaling
     if t.get("type") == "queen":
-        hp = 2000  # Fixed 2000 health for queen
+        hp = 5000  # Fixed 5000 health for queen
         base_speed = t.get("speed", 80)
         final_speed = base_speed * 1.1  # Still apply 110% multiplier
     else:
@@ -2030,7 +2044,7 @@ def start_wave(wave_num: int):
     speed_scale = (1.0 + 0.05 * (wave_num - 1)) * diff_mult["enemy_speed"] * level_mult * wave_in_level_mult
     # Apply difficulty to enemy count
     base_count = base_enemies_per_wave + enemy_spawn_boost_level + 2 * (wave_num - 1)
-    count = min(int(base_count * diff_mult["enemy_spawn"] * 2.0), max_enemies_per_wave)  # 2.0x multiplier for more enemies
+    count = min(int(base_count * diff_mult["enemy_spawn"] * 3.0), max_enemies_per_wave)  # 3.0x multiplier (increased from 2.0x)
 
     spawned: list[dict] = []
     # Track enemy types for this wave
@@ -4626,6 +4640,31 @@ try:
                         else:
                             e["shield_angle"] = target_angle
                 
+                # Track enemy position for stuck detection
+                if "last_position" not in e:
+                    e["last_position"] = pygame.Vector2(e["rect"].center)
+                    e["stuck_timer"] = 0.0
+                
+                current_pos = pygame.Vector2(e["rect"].center)
+                distance_moved = current_pos.distance_to(e["last_position"])
+                
+                # Update stuck timer if enemy hasn't moved much
+                if distance_moved < 5.0:  # Less than 5 pixels moved
+                    e["stuck_timer"] += dt
+                else:
+                    e["stuck_timer"] = 0.0
+                    e["last_position"] = current_pos
+                
+                # If stuck for 5 seconds, change direction away from obstacle
+                if e["stuck_timer"] >= 5.0:
+                    # Try to move away from current position (random direction)
+                    escape_dir = pygame.Vector2(random.uniform(-1, 1), random.uniform(-1, 1))
+                    if escape_dir.length_squared() > 0:
+                        escape_dir = escape_dir.normalize()
+                        final_dir = escape_dir  # Override movement direction
+                        e["stuck_timer"] = 0.0  # Reset timer
+                        e["last_position"] = current_pos  # Update position
+                
                 move_vec = final_dir * e["speed"] * dt
                 dx_e = int(move_vec.x)
                 dy_e = int(move_vec.y)
@@ -4633,10 +4672,16 @@ try:
                 if dx_e or dy_e:
                     # Enemies can push blocks out of the way to chase the player
                     # Pass cached block rects to avoid recreating lists
+                    old_center = pygame.Vector2(e["rect"].center)
                     move_enemy_with_push_cached(e["rect"], dx_e, dy_e, blocks, 
                                                  cached_moveable_destructible_rects,
                                                  cached_trapezoid_rects,
                                                  cached_triangle_rects)
+                    # Update last position after movement
+                    new_center = pygame.Vector2(e["rect"].center)
+                    if new_center.distance_to(old_center) > 5.0:
+                        e["last_position"] = new_center
+                        e["stuck_timer"] = 0.0
 
             # Check enemy collision with hazard obstacles (kill enemies)
             for e in enemies[:]:
@@ -4879,13 +4924,38 @@ try:
                     # Update grenade cooldown
                     e["time_since_grenade"] = e.get("time_since_grenade", 999.0) + dt
                     
-                    # Shield rotation (always active)
+                    # Shield toggle logic (like shield enemy: 10-20s phases, active for 5-10s)
                     if e.get("has_shield", False):
-                        # Rotate shield to face player
-                        player_pos = pygame.Vector2(player.center)
-                        queen_pos = pygame.Vector2(e["rect"].center)
-                        angle_to_player = math.atan2(player_pos.y - queen_pos.y, player_pos.x - queen_pos.x)
-                        e["shield_angle"] = angle_to_player
+                        # Initialize shield timing if not present
+                        if "shield_toggle_timer" not in e:
+                            e["shield_toggle_timer"] = random.uniform(10.0, 20.0)  # Random phase duration
+                            e["shield_active"] = False
+                            e["shield_active_duration"] = random.uniform(5.0, 10.0)  # Active duration
+                            e["shield_active_timer"] = 0.0
+                        
+                        if e.get("shield_active", False):
+                            # Shield is active - count down active timer
+                            e["shield_active_timer"] += dt
+                            if e["shield_active_timer"] >= e["shield_active_duration"]:
+                                # Deactivate shield and start cooldown
+                                e["shield_active"] = False
+                                e["shield_toggle_timer"] = random.uniform(10.0, 20.0)  # Random cooldown
+                                e["shield_active_timer"] = 0.0
+                        else:
+                            # Shield is inactive - count down toggle timer
+                            e["shield_toggle_timer"] -= dt
+                            if e["shield_toggle_timer"] <= 0:
+                                # Activate shield
+                                e["shield_active"] = True
+                                e["shield_active_duration"] = random.uniform(5.0, 10.0)  # Random active duration
+                                e["shield_active_timer"] = 0.0
+                        
+                        # Rotate shield to face player (only when active)
+                        if e.get("shield_active", False):
+                            player_pos = pygame.Vector2(player.center)
+                            queen_pos = pygame.Vector2(e["rect"].center)
+                            angle_to_player = math.atan2(player_pos.y - queen_pos.y, player_pos.x - queen_pos.x)
+                            e["shield_angle"] = angle_to_player
                     
                     # Grenade logic: use grenade if player is close and cooldown ready, or in rage mode
                     if e.get("can_use_grenades", False):
@@ -4924,6 +4994,70 @@ try:
                                         if dist_to_block <= grenade_range * 1.5 and mdb.get("is_destructible"):
                                             # Destroy block
                                             moveable_destructible_blocks.remove(mdb)
+                
+                # Patrol enemy: patrols the outside border of the map
+                if e.get("is_patrol", False):
+                    # Initialize patrol state if not present
+                    if "patrol_side" not in e:
+                        e["patrol_side"] = random.randint(0, 3)  # 0=top, 1=right, 2=bottom, 3=left
+                        e["patrol_progress"] = random.uniform(0.0, 1.0)  # Random starting position
+                    
+                    # Calculate patrol position based on side and progress
+                    border_margin = 20  # Distance from edge
+                    patrol_speed = e.get("speed", 100) * dt * 0.001  # Convert to progress per frame
+                    
+                    if e["patrol_side"] == 0:  # Top
+                        e["rect"].x = border_margin + (WIDTH - 2 * border_margin) * e["patrol_progress"]
+                        e["rect"].y = border_margin
+                        e["patrol_progress"] += patrol_speed
+                        if e["patrol_progress"] >= 1.0:
+                            e["patrol_side"] = 1  # Move to right side
+                            e["patrol_progress"] = 0.0
+                    elif e["patrol_side"] == 1:  # Right
+                        e["rect"].x = WIDTH - border_margin - e["rect"].w
+                        e["rect"].y = border_margin + (HEIGHT - 2 * border_margin) * e["patrol_progress"]
+                        e["patrol_progress"] += patrol_speed
+                        if e["patrol_progress"] >= 1.0:
+                            e["patrol_side"] = 2  # Move to bottom side
+                            e["patrol_progress"] = 0.0
+                    elif e["patrol_side"] == 2:  # Bottom
+                        e["rect"].x = WIDTH - border_margin - e["rect"].w - (WIDTH - 2 * border_margin) * e["patrol_progress"]
+                        e["rect"].y = HEIGHT - border_margin - e["rect"].h
+                        e["patrol_progress"] += patrol_speed
+                        if e["patrol_progress"] >= 1.0:
+                            e["patrol_side"] = 3  # Move to left side
+                            e["patrol_progress"] = 0.0
+                    else:  # Left
+                        e["rect"].x = border_margin
+                        e["rect"].y = HEIGHT - border_margin - e["rect"].h - (HEIGHT - 2 * border_margin) * e["patrol_progress"]
+                        e["patrol_progress"] += patrol_speed
+                        if e["patrol_progress"] >= 1.0:
+                            e["patrol_side"] = 0  # Move to top side
+                            e["patrol_progress"] = 0.0
+                    
+                    # Patrol enemy uses wave beam
+                    if e.get("uses_wave_beam", False):
+                        e["time_since_shot"] = e.get("time_since_shot", 999.0) + dt
+                        if e["time_since_shot"] >= e.get("shoot_cooldown", 0.5):
+                            # Fire wave beam toward player
+                            player_pos = pygame.Vector2(player.center)
+                            patrol_pos = pygame.Vector2(e["rect"].center)
+                            direction = (player_pos - patrol_pos)
+                            if direction.length_squared() > 0:
+                                direction = direction.normalize()
+                                # Spawn wave beam (similar to player wave beam)
+                                wave_beam_points = generate_wave_beam_points(
+                                    patrol_pos, direction, "sine", wave_beam_length, 
+                                    amplitude=50.0, frequency=0.02, time_offset=run_time
+                                )
+                                wave_beams.append({
+                                    "points": wave_beam_points,
+                                    "color": e.get("projectile_color", (100, 255, 100)),
+                                    "width": wave_beam_width,
+                                    "damage": wave_beam_damage,
+                                    "source_type": "patrol",
+                                })
+                                e["time_since_shot"] = 0.0
                 
                 # Spawner enemy: spawns enemies during round
                 if e.get("is_spawner", False):
@@ -5327,34 +5461,39 @@ try:
                         
                         # Check for shield enemies
                         if e.get("has_shield"):
-                            # Check if bullet hit the shield (front-facing line)
-                            shield_angle = e.get("shield_angle", 0.0)
-                            shield_length = e.get("shield_length", 50)
-                            enemy_center = pygame.Vector2(e["rect"].center)
-                            bullet_pos = pygame.Vector2(r.center)
-                            
-                            # Calculate shield line endpoints
-                            shield_dir = pygame.Vector2(math.cos(shield_angle), math.sin(shield_angle))
-                            shield_start = enemy_center + shield_dir * (e["rect"].w // 2)
-                            shield_end = enemy_center + shield_dir * (e["rect"].w // 2 + shield_length)
-                            
-                            # Check if bullet is in front of enemy (shield side)
-                            to_bullet = bullet_pos - enemy_center
-                            dot_product = to_bullet.dot(shield_dir)
-                            
-                            if dot_product > 0:  # Bullet is in front
-                                # Check distance to shield line
-                                line_vec = shield_end - shield_start
-                                if line_vec.length_squared() > 0:
-                                    t = max(0, min(1, (bullet_pos - shield_start).dot(line_vec) / line_vec.length_squared()))
-                                    closest_point = shield_start + line_vec * t
-                                    dist_to_shield = (bullet_pos - closest_point).length()
-                                    
-                                    if dist_to_shield < 15:  # Bullet hit shield
-                                        # Shield blocks damage, remove bullet
-                                        if b in player_bullets:
-                                            player_bullets.remove(b)
-                                        continue
+                            # Queen shield only blocks when active
+                            if e.get("type") == "queen" and not e.get("shield_active", False):
+                                # Queen shield inactive, allow damage through (fall through to damage code)
+                                pass
+                            else:
+                                # Check if bullet hit the shield (front-facing line)
+                                shield_angle = e.get("shield_angle", 0.0)
+                                shield_length = e.get("shield_length", 50)
+                                enemy_center = pygame.Vector2(e["rect"].center)
+                                bullet_pos = pygame.Vector2(r.center)
+                                
+                                # Calculate shield line endpoints
+                                shield_dir = pygame.Vector2(math.cos(shield_angle), math.sin(shield_angle))
+                                shield_start = enemy_center + shield_dir * (e["rect"].w // 2)
+                                shield_end = enemy_center + shield_dir * (e["rect"].w // 2 + shield_length)
+                                
+                                # Check if bullet is in front of enemy (shield side)
+                                to_bullet = bullet_pos - enemy_center
+                                dot_product = to_bullet.dot(shield_dir)
+                                
+                                if dot_product > 0:  # Bullet is in front
+                                    # Check distance to shield line
+                                    line_vec = shield_end - shield_start
+                                    if line_vec.length_squared() > 0:
+                                        t = max(0, min(1, (bullet_pos - shield_start).dot(line_vec) / line_vec.length_squared()))
+                                        closest_point = shield_start + line_vec * t
+                                        dist_to_shield = (bullet_pos - closest_point).length()
+                                        
+                                        if dist_to_shield < 15:  # Bullet hit shield
+                                            # Shield blocks damage, remove bullet
+                                            if b in player_bullets:
+                                                player_bullets.remove(b)
+                                            continue
                             
                             # Bullet hit from behind/side, apply damage normally
                             e["hp"] -= bullet_damage
@@ -6374,8 +6513,12 @@ try:
             text_rect = weapon_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
             screen.blit(weapon_text, text_rect)
 
-            # Draw shield for shielded enemies
+            # Draw shield for shielded enemies (only when active for queen)
             if e.get("has_shield"):
+                # Queen shield only shows when active
+                if e.get("type") == "queen":
+                    if not e.get("shield_active", False):
+                        continue  # Don't draw shield if inactive
                 shield_angle = e.get("shield_angle", 0.0)
                 shield_length = e.get("shield_length", 50)
                 enemy_center = pygame.Vector2(e["rect"].center)
@@ -6527,24 +6670,29 @@ try:
                 # Draw the wave beam as a solid continuous lime green line (on top of glow)
                 pygame.draw.lines(screen, wave_beam["color"], False, point_tuples, wave_beam["width"])
 
+        # Optimize bullet rendering: only draw bullets on screen
         for b in player_bullets:
-            draw_projectile(b["rect"], b.get("color", player_bullets_color), b.get("shape", "square"))
-            # Draw explosion radius indicator if bullet has explosion
-            if b.get("explosion_radius", 0.0) > 0.0:
-                exp_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-                radius = int(b["explosion_radius"])
-                pygame.draw.circle(exp_surf, (255, 200, 0, 30), b["rect"].center, radius, 2)
-                screen.blit(exp_surf, (0, 0))
+            # Skip off-screen bullets to improve performance
+            if not (b["rect"].right < 0 or b["rect"].left > WIDTH or b["rect"].bottom < 0 or b["rect"].top > HEIGHT):
+                draw_projectile(b["rect"], b.get("color", player_bullets_color), b.get("shape", "square"))
+                # Draw explosion radius indicator if bullet has explosion
+                if b.get("explosion_radius", 0.0) > 0.0:
+                    exp_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                    radius = int(b["explosion_radius"])
+                    pygame.draw.circle(exp_surf, (255, 200, 0, 30), b["rect"].center, radius, 2)
+                    screen.blit(exp_surf, (0, 0))
         for p in enemy_projectiles:
-            draw_projectile(p["rect"], p.get("color", enemy_projectiles_color), p.get("shape", "circle"))
+            # Skip off-screen projectiles to improve performance
+            if not (p["rect"].right < 0 or p["rect"].left > WIDTH or p["rect"].bottom < 0 or p["rect"].top > HEIGHT):
+                draw_projectile(p["rect"], p.get("color", enemy_projectiles_color), p.get("shape", "circle"))
 
         # HUD (only if UI and HUD are enabled)
         if ui_show_all_ui and ui_show_hud and ui_show_metrics:
-            # Draw health bar at the bottom of the screen
+            # Draw health bar above controls (controls are at HEIGHT - 60, so health bar goes above that)
             hp_bar_width = 400
             hp_bar_height = 30
             hp_bar_x = (WIDTH - hp_bar_width) // 2  # Center horizontally
-            hp_bar_y = HEIGHT - hp_bar_height - 20  # 20 pixels from bottom
+            hp_bar_y = HEIGHT - 120  # Above controls (controls_y = HEIGHT - 60, so 60 pixels above that)
             
             # Draw overshield bar (above HP bar at bottom)
             if overshield > 0:
@@ -6671,13 +6819,14 @@ try:
             
             grenade_text = "E: Grenade"
             
-            # Weapon slot indicators with first letter
+            # Weapon slot indicators: 1: basic, 2: (next weapon), etc.
             weapon_slots = []
-            for key, weapon in WEAPON_KEY_MAP.items():
+            key_to_number = {pygame.K_1: "1", pygame.K_2: "2", pygame.K_3: "3", pygame.K_4: "4", pygame.K_5: "5", pygame.K_6: "6", pygame.K_7: "7"}
+            for key, weapon in sorted(WEAPON_KEY_MAP.items()):  # Sort by key to maintain order
                 if weapon in unlocked_weapons or weapon == "basic":
                     weapon_name = weapon.replace("_", " ").title()
-                    first_letter = weapon_name[0].upper()
-                    weapon_slots.append(f"{first_letter}:{weapon_name}")
+                    key_num = key_to_number.get(key, "?")
+                    weapon_slots.append(f"{key_num}: {weapon_name}")
             
             weapon_text = " | ".join(weapon_slots) if weapon_slots else "No weapons unlocked"
             

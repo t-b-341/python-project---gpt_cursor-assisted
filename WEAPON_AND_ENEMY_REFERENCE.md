@@ -153,13 +153,14 @@ The wave beam system supports these trigonometric patterns (currently only "sine
 
 12. **queen**
     - Maroon enemy (player clone)
-    - HP: 2000 (fixed, does not scale)
+    - HP: 5000 (fixed, does not scale, increased from 2000)
     - Speed: 240 (3x standard speed)
-    - Shoot cooldown: 1.0s
+    - Shoot cooldown: 0.2s (increased fire rate, changed from 1.0s)
     - Projectile: Circle, dark red color
     - Projectile speed: 350
     - Special abilities:
-      - Has a shield that rotates to face the player
+      - Has a shield that activates and deactivates (10-20s phases, active for 5-10s)
+      - Shield rotates to face the player when active
       - Can use grenades (5 second cooldown)
       - Rage mode: Activates after taking 300-500 damage, lasts 5 seconds
       - In rage mode: Uses grenades aggressively and destroys nearby destructible blocks
@@ -187,13 +188,14 @@ The wave beam system supports these trigonometric patterns (currently only "sine
 
 11. **queen**
     - Maroon enemy (player clone)
-    - HP: 2000 (fixed, does not scale)
+    - HP: 5000 (fixed, does not scale, increased from 2000)
     - Speed: 240 (3x standard speed)
-    - Shoot cooldown: 1.0s
+    - Shoot cooldown: 0.2s (increased fire rate, changed from 1.0s)
     - Projectile: Circle, dark red color
     - Projectile speed: 350
     - Special abilities:
-      - Has a shield that rotates to face the player
+      - Has a shield that activates and deactivates (10-20s phases, active for 5-10s)
+      - Shield rotates to face the player when active
       - Can use grenades (5 second cooldown)
       - Rage mode: Activates after taking 300-500 damage, lasts 5 seconds
       - In rage mode: Uses grenades aggressively and destroys nearby destructible blocks
