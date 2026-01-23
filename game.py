@@ -126,6 +126,45 @@
 #--------------------------------------------------------
 #set default telemetry to disabled in the menu
 #--------------------------------------------------------
+#add a high score board after each death, and the ability to type in a name
+#verify all code in repo is working correctly, and all features are implemented correctly, and all code is optimized for performance
+#--------------------------------------------------------
+#increase player base health to 250
+#--------------------------------------------------------
+#health pickups are worth 100 health
+#--------------------------------------------------------
+#add a beam that fires in a sine wave pattern, and the beam is a line that is 10 pixels wide, and 1000 pixels long, and the beam is fired from the player's position, and the beam is fired in a sine wave pattern, and the beam is fired in a cosine wave pattern, and the beam is fired in a tangent wave pattern, and the beam is fired in a cotangent wave pattern, and the beam is fired in a secant wave pattern, and the beam is fired in a cosecant wave pattern, and the beam is fired in a arcsecant wave pattern, and the beam is fired in a arccosecant wave pattern, and the beam is fired in a arcsecant wave pattern, and the beam is fired in a arccosecant wave pattern
+#--------------------------------------------------------
+#add a rotating paraboloid that slowly rotates around the stage, that is 500 pixels wide, and 500 pixels tall, and is a hazard that does damage to the player, and the player has to avoid it
+#--------------------------------------------------------
+#add in two more paraboloids with collision physics, so that they'll bounce off each other, and that do damage to the player at 10 damage/second
+#--------------------------------------------------------
+#make the paraboloids half size, add another one, and have them start at the corners of the map
+#on the second level, turn the paraboloids into trapezoids that do the same function as the paraboloid
+#make it so that the player can "bully" the obstacles by shooting them and they move in response to being shot, and make the obstacles kill the enemies when they collide with the hazard
+#--------------------------------------------------------
+#add in a pickup that randomizes, with an on screen element on the HUD, how much base damage is multiplied by
+#add in a beam selection option in the pre-game menu (useful for testing beams)
+#make it so that the player cannot fly through the hazards (paraboloid, trapezoids, and all future hazards)
+#--------------------------------------------------------
+#beam selection controls don't work
+#make shots from players move the hazards
+#make damage done to enemies displayed over their health bar as an integer
+#--------------------------------------------------------
+#make it so that after the player damages an enemy, the damage given number goes away after 2 seconds
+#make it so I cannot fly through allies
+#make it so that allies disappear after dying
+#change beam selections to only be sine beam (instead of the other trig functions), and change beam selection to include rockets, bounce beam, etc., for ease of testing
+#--------------------------------------------------------
+#make aoe bigger for rocket beam
+#make a weapon name document for reference, with enemy names
+#spawn with wave_beam in slot 2, in addition to basic
+#--------------------------------------------------------
+#make wave beam a solid line rather than dots, and turn the beam lime green
+#--------------------------------------------------------
+#make wave beam an undulating wave, with a period of 1 second, and a amplitude of 10 pixels
+#--------------------------------------------------------
+
 
 
 
@@ -142,6 +181,7 @@ import json
 import os
 
 import pygame
+import sqlite3
 from datetime import datetime, timezone
 
 # Try to import C extension for performance, fallback to Python if not available
@@ -268,13 +308,18 @@ STATE_PAUSED = "PAUSED"
 STATE_CONTINUE = "CONTINUE"
 STATE_ENDURANCE = "ENDURANCE"
 STATE_GAME_OVER = "GAME_OVER"
+STATE_NAME_INPUT = "NAME_INPUT"  # High score name input screen
+STATE_HIGH_SCORES = "HIGH_SCORES"  # High score board display
 STATE_VICTORY = "VICTORY"  # Game completed - all levels cleared
 STATE_MODS = "MODS"  # Mod settings menu
 STATE_WAVE_BUILDER = "WAVE_BUILDER"  # Custom wave builder
 
 state = STATE_MENU
-menu_section = 0  # 0 = difficulty, 1 = aiming, 2 = class, 3 = options, 4 = start
+menu_section = 0  # 0 = difficulty, 1 = aiming, 2 = class, 3 = options, 4 = beam_selection, 5 = start
 ui_show_metrics_selected = 0  # 0 = Show, 1 = Hide
+# Beam selection for testing
+beam_selection_selected = 0  # 0 = wave_beam, 1 = rocket, etc.
+beam_selection_pattern = "wave_beam"  # Default weapon pattern
 
 # Level system - 3 levels, each with 3 waves (boss on wave 3)
 current_level = 1
@@ -350,7 +395,7 @@ controls_rebinding = False
 # ----------------------------
 player = pygame.Rect((WIDTH - 25) // 2, (HEIGHT - 25) // 2, 25, 25)
 player_speed = 300  # px/s (base speed, modified by class)
-player_max_hp = 100  # base HP (modified by class)
+player_max_hp = 250  # base HP (modified by class)
 player_hp = player_max_hp
 
 # Player class stat modifiers
@@ -416,12 +461,19 @@ player_stat_multipliers = {
     "bullet_explosion_radius": 0.0,  # explosion radius in pixels (0 = no explosion)
 }
 
+# Random damage multiplier (from "random_damage" pickup)
+# This multiplies the base damage, and changes randomly when pickup is collected
+random_damage_multiplier = 1.0  # Starts at 1.0x
+
+# Damage number display system (floating damage numbers over enemies)
+damage_numbers: list[dict] = []  # List of {x, y, damage, timer, color}
+
 # Weapon mode system (keys 1-6 to switch)
 # "basic" = normal bullets, "rocket" = rocket launcher, "triple" = triple shot,
 # "bouncing" = bouncing bullets, "giant" = giant bullets, "laser" = laser beam
 current_weapon_mode = "basic"
 previous_weapon_mode = "basic"  # Track for telemetry
-unlocked_weapons: set[str] = {"basic"}  # Weapons player has unlocked (starts with basic)
+unlocked_weapons: set[str] = {"basic", "wave_beam"}  # Weapons player has unlocked (starts with basic and wave_beam)
 
 # Laser beam system
 laser_beams: list[dict] = []  # List of active laser beams
@@ -429,6 +481,91 @@ laser_length = 800  # Maximum laser length in pixels
 laser_damage = 50  # Damage per frame while on target
 laser_cooldown = 0.3  # Cooldown between laser shots
 laser_time_since_shot = 999.0
+
+# Wave beam system (trigonometric wave patterns)
+wave_beams: list[dict] = []  # List of active wave beams
+wave_beam_length = 1000  # Beam length in pixels
+wave_beam_width = 10  # Beam width in pixels
+wave_beam_damage = 30  # Damage per frame while on target
+wave_beam_cooldown = 0.5  # Cooldown between wave beam shots
+wave_beam_time_since_shot = 999.0
+wave_beam_pattern_index = 0  # Current wave pattern (cycles through patterns)
+wave_beam_patterns = ["sine"]  # Only wave beam pattern for testing
+# Weapon selection for testing (replaces beam selection)
+weapon_selection_options = ["wave_beam", "rocket", "bouncing", "laser", "triple", "giant", "basic"]
+
+# Rotating paraboloid/trapezoid hazard system
+# On level 1: paraboloids, on level 2+: trapezoids
+hazard_obstacles = [
+    {
+        "center": pygame.Vector2(250, 250),  # Top-left corner area
+        "width": 250,  # Half size (250x250)
+        "height": 250,
+        "rotation_angle": 0.0,
+        "rotation_speed": 0.3,
+        "orbit_center": pygame.Vector2(250, 250),
+        "orbit_radius": 100,
+        "orbit_angle": 0.0,
+        "orbit_speed": 0.2,
+        "velocity": pygame.Vector2(50, 30),
+        "damage": 20,
+        "color": (255, 100, 100),
+        "points": [],
+        "bounding_rect": pygame.Rect(0, 0, 250, 250),
+        "shape": "paraboloid",  # Shape type
+    },
+    {
+        "center": pygame.Vector2(WIDTH - 250, 250),  # Top-right corner area
+        "width": 250,
+        "height": 250,
+        "rotation_angle": 1.0,
+        "rotation_speed": 0.25,
+        "orbit_center": pygame.Vector2(WIDTH - 250, 250),
+        "orbit_radius": 100,
+        "orbit_angle": 1.5,
+        "orbit_speed": 0.15,
+        "velocity": pygame.Vector2(-40, 50),
+        "damage": 10,
+        "color": (255, 150, 100),
+        "points": [],
+        "bounding_rect": pygame.Rect(0, 0, 250, 250),
+        "shape": "paraboloid",
+    },
+    {
+        "center": pygame.Vector2(250, HEIGHT - 250),  # Bottom-left corner area
+        "width": 250,
+        "height": 250,
+        "rotation_angle": 2.0,
+        "rotation_speed": 0.35,
+        "orbit_center": pygame.Vector2(250, HEIGHT - 250),
+        "orbit_radius": 100,
+        "orbit_angle": 3.0,
+        "orbit_speed": 0.18,
+        "velocity": pygame.Vector2(30, -45),
+        "damage": 10,
+        "color": (255, 120, 120),
+        "points": [],
+        "bounding_rect": pygame.Rect(0, 0, 250, 250),
+        "shape": "paraboloid",
+    },
+    {
+        "center": pygame.Vector2(WIDTH - 250, HEIGHT - 250),  # Bottom-right corner area
+        "width": 250,
+        "height": 250,
+        "rotation_angle": 1.5,
+        "rotation_speed": 0.28,
+        "orbit_center": pygame.Vector2(WIDTH - 250, HEIGHT - 250),
+        "orbit_radius": 100,
+        "orbit_angle": 2.5,
+        "orbit_speed": 0.22,
+        "velocity": pygame.Vector2(-35, -40),
+        "damage": 10,
+        "color": (255, 130, 110),
+        "points": [],
+        "bounding_rect": pygame.Rect(0, 0, 250, 250),
+        "shape": "paraboloid",
+    },
+]
 
 # ----------------------------
 # World blocks
@@ -874,6 +1011,12 @@ deaths = 0
 score = 0
 survival_time = 0.0  # Total time survived in seconds
 
+# High score system
+HIGH_SCORES_DB = "high_scores.db"
+player_name_input = ""  # Current name being typed
+name_input_active = False  # Whether we're in name input mode
+final_score_for_high_score = 0  # Score to save when name is entered
+
 POS_SAMPLE_INTERVAL = 0.25  # Reduced frequency for better performance (was 0.10)
 pos_timer = 0.0
 
@@ -905,6 +1048,7 @@ WEAPON_KEY_MAP = {
     pygame.K_4: "bouncing",
     pygame.K_5: "giant",
     pygame.K_6: "laser",
+    pygame.K_7: "wave_beam",  # Wave pattern beam weapon
 }
 enemy_spawn_boost_level = 0  # enemies can increase this by collecting "spawn_boost" pickups
 
@@ -967,7 +1111,9 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
     moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
     trapezoid_rects = [tb["bounding_rect"] for tb in trapezoid_blocks]
     triangle_rects = [tr["bounding_rect"] for tr in triangle_blocks]
-    all_collision_rects = block_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects
+    # Include friendly AI rects - player cannot pass through allies
+    friendly_ai_rects = [f["rect"] for f in friendly_ai if f.get("hp", 1) > 0]
+    all_collision_rects = block_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects + friendly_ai_rects
 
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -1002,7 +1148,24 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
                 if player_rect.colliderect(tr["bounding_rect"]):
                     hit_block = tr
                     hit_is_trapezoid = True
-                break
+                    break
+        # Check hazard obstacles (paraboloids/trapezoids) - player cannot pass through
+        if hit_block is None:
+            for hazard in hazard_obstacles:
+                if hazard.get("points") and len(hazard["points"]) > 2:
+                    # Use point-in-polygon check for accurate collision
+                    player_center = pygame.Vector2(player_rect.center)
+                    if check_point_in_hazard(player_center, hazard["points"], hazard["bounding_rect"]):
+                        hit_block = hazard
+                        hit_is_trapezoid = True  # Treat as unmovable
+                        break
+        # Check friendly AI (allies) - player cannot pass through
+        if hit_block is None:
+            for f in friendly_ai:
+                if f.get("hp", 1) > 0 and player_rect.colliderect(f["rect"]):
+                    hit_block = f
+                    hit_is_trapezoid = True  # Treat as unmovable (can't push allies)
+                    break
 
         if hit_block is None:
             continue
@@ -1506,6 +1669,410 @@ def start_wave(wave_num: int):
     )
 
 
+def init_high_scores_db():
+    """Initialize the high scores database."""
+    conn = sqlite3.connect(HIGH_SCORES_DB)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS high_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_name TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            waves_survived INTEGER NOT NULL,
+            time_survived REAL NOT NULL,
+            enemies_killed INTEGER NOT NULL,
+            difficulty TEXT NOT NULL,
+            date_achieved TEXT NOT NULL
+        );
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_score ON high_scores(score DESC);")
+    conn.commit()
+    conn.close()
+
+
+def get_high_scores(limit: int = 10) -> list[dict]:
+    """Get top high scores from database."""
+    conn = sqlite3.connect(HIGH_SCORES_DB)
+    cursor = conn.execute("""
+        SELECT player_name, score, waves_survived, time_survived, enemies_killed, difficulty, date_achieved
+        FROM high_scores
+        ORDER BY score DESC
+        LIMIT ?
+    """, (limit,))
+    scores = []
+    for row in cursor.fetchall():
+        scores.append({
+            "name": row[0],
+            "score": row[1],
+            "waves": row[2],
+            "time": row[3],
+            "kills": row[4],
+            "difficulty": row[5],
+            "date": row[6]
+        })
+    conn.close()
+    return scores
+
+
+def save_high_score(name: str, score: int, waves: int, time_survived: float, enemies_killed: int, difficulty: str):
+    """Save a high score to the database."""
+    if not name or not name.strip():
+        name = "Anonymous"
+    conn = sqlite3.connect(HIGH_SCORES_DB)
+    conn.execute("""
+        INSERT INTO high_scores (player_name, score, waves_survived, time_survived, enemies_killed, difficulty, date_achieved)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (name.strip()[:20], score, waves, time_survived, enemies_killed, difficulty, datetime.now(timezone.utc).isoformat()))
+    conn.commit()
+    conn.close()
+
+
+def is_high_score(score: int) -> bool:
+    """Check if a score qualifies for the high score board (top 10)."""
+    scores = get_high_scores(10)
+    if len(scores) < 10:
+        return True
+    return score > scores[-1]["score"]
+
+
+def generate_wave_beam_points(start_pos: pygame.Vector2, direction: pygame.Vector2, pattern: str, length: int, amplitude: float = 50.0, frequency: float = 0.02, time_offset: float = 0.0) -> list[pygame.Vector2]:
+    """Generate points along a wave pattern beam.
+    
+    Args:
+        start_pos: Starting position of the beam
+        direction: Normalized direction vector
+        pattern: Wave pattern type ("sine", "cosine", "tangent", etc.)
+        length: Length of the beam in pixels
+        amplitude: Amplitude of the wave (pixels)
+        frequency: Frequency of the wave (cycles per pixel)
+        time_offset: Time-based phase offset for undulation (in seconds)
+    
+    Returns:
+        List of points along the wave path
+    """
+    points = []
+    perp = pygame.Vector2(-direction.y, direction.x)  # Perpendicular vector for wave offset
+    
+    num_points = max(200, length // 5)  # Generate more points for smoother solid line
+    step = length / num_points
+    
+    # Undulation: 1 second period = 2 * pi radians per second
+    undulation_phase = time_offset * 2 * math.pi  # Phase offset for 1 second period
+    
+    for i in range(num_points + 1):
+        t = i * step
+        x = start_pos.x + direction.x * t
+        y = start_pos.y + direction.y * t
+        
+        # Calculate wave offset based on pattern with time-based undulation
+        wave_value = 0.0
+        angle = t * frequency * 2 * math.pi + undulation_phase
+        
+        if pattern == "sine":
+            wave_value = math.sin(angle)
+        elif pattern == "cosine":
+            wave_value = math.cos(angle)
+        elif pattern == "tangent":
+            # Clamp to prevent infinite values
+            wave_value = math.tan(angle)
+            wave_value = max(-10.0, min(10.0, wave_value))
+        elif pattern == "cotangent":
+            # Clamp to prevent infinite values
+            if abs(math.sin(angle)) > 0.01:
+                wave_value = math.cos(angle) / math.sin(angle)
+                wave_value = max(-10.0, min(10.0, wave_value))
+            else:
+                wave_value = 0.0
+        elif pattern == "secant":
+            # Clamp to prevent infinite values
+            if abs(math.cos(angle)) > 0.01:
+                wave_value = 1.0 / math.cos(angle)
+                wave_value = max(-10.0, min(10.0, wave_value))
+            else:
+                wave_value = 0.0
+        elif pattern == "cosecant":
+            # Clamp to prevent infinite values
+            if abs(math.sin(angle)) > 0.01:
+                wave_value = 1.0 / math.sin(angle)
+                wave_value = max(-10.0, min(10.0, wave_value))
+            else:
+                wave_value = 0.0
+        
+        # Apply wave offset perpendicular to direction
+        offset = perp * (wave_value * amplitude)
+        point = pygame.Vector2(x, y) + offset
+        points.append(point)
+    
+    return points
+
+
+def check_wave_beam_collision(points: list[pygame.Vector2], rect: pygame.Rect, width: int) -> tuple[pygame.Vector2 | None, float]:
+    """Check if a wave beam (represented by points) collides with a rectangle.
+    
+    Returns:
+        Tuple of (closest_hit_point, distance) or (None, infinity) if no collision
+    """
+    closest_hit = None
+    closest_dist = float('inf')
+    
+    # Check each segment of the beam
+    for i in range(len(points) - 1):
+        p1 = points[i]
+        p2 = points[i + 1]
+        
+        # Check if this segment intersects the rect
+        hit = line_rect_intersection(p1, p2, rect)
+        if hit:
+            dist = (hit - points[0]).length()
+            if dist < closest_dist:
+                closest_dist = dist
+                closest_hit = hit
+    
+    # Also check if any point is inside the rect (for thick beams)
+    for point in points:
+        if rect.collidepoint(point.x, point.y):
+            dist = (point - points[0]).length()
+            if dist < closest_dist:
+                closest_dist = dist
+                closest_hit = point
+    
+    return (closest_hit, closest_dist)
+
+
+def generate_paraboloid_points(center: pygame.Vector2, width: float, height: float, rotation: float) -> list[pygame.Vector2]:
+    """Generate points for a paraboloid shape (parabolic curve in 2D).
+    
+    Args:
+        center: Center position of the paraboloid
+        width: Width of the paraboloid
+        height: Height of the paraboloid
+        rotation: Rotation angle in radians
+    
+    Returns:
+        List of points forming the paraboloid shape
+    """
+    points = []
+    num_points = 100  # Number of points for smooth curve
+    
+    # Generate points for a parabolic curve
+    for i in range(num_points + 1):
+        # Parameter t from -1 to 1
+        t = (i / num_points) * 2.0 - 1.0
+        
+        # Parabolic curve: y = a * x^2
+        # We'll create a U-shaped parabola
+        x_local = t * (width / 2)
+        y_local = (t ** 2) * (height / 2)  # Parabolic curve
+        
+        # Rotate the point around center
+        cos_r = math.cos(rotation)
+        sin_r = math.sin(rotation)
+        x_rotated = x_local * cos_r - y_local * sin_r
+        y_rotated = x_local * sin_r + y_local * cos_r
+        
+        # Translate to center position
+        point = pygame.Vector2(
+            center.x + x_rotated,
+            center.y + y_rotated
+        )
+        points.append(point)
+    
+    return points
+
+
+def generate_trapezoid_points(center: pygame.Vector2, width: float, height: float, rotation: float) -> list[pygame.Vector2]:
+    """Generate points for a trapezoid shape.
+    
+    Args:
+        center: Center position of the trapezoid
+        width: Width of the trapezoid (top and bottom)
+        height: Height of the trapezoid
+        rotation: Rotation angle in radians
+    
+    Returns:
+        List of points forming the trapezoid shape
+    """
+    points = []
+    # Create a trapezoid (wider at bottom)
+    top_width = width * 0.6
+    bottom_width = width
+    
+    # Local coordinates
+    local_points = [
+        (-top_width / 2, -height / 2),  # Top left
+        (top_width / 2, -height / 2),   # Top right
+        (bottom_width / 2, height / 2),  # Bottom right
+        (-bottom_width / 2, height / 2),  # Bottom left
+    ]
+    
+    # Rotate and translate
+    cos_r = math.cos(rotation)
+    sin_r = math.sin(rotation)
+    for x_local, y_local in local_points:
+        x_rotated = x_local * cos_r - y_local * sin_r
+        y_rotated = x_local * sin_r + y_local * cos_r
+        point = pygame.Vector2(center.x + x_rotated, center.y + y_rotated)
+        points.append(point)
+    
+    return points
+
+
+def check_point_in_hazard(point: pygame.Vector2, hazard_points: list[pygame.Vector2], bounding_rect: pygame.Rect) -> bool:
+    """Check if a point is inside the hazard shape (paraboloid or trapezoid).
+    
+    Uses point-in-polygon algorithm.
+    """
+    if not bounding_rect.collidepoint(point.x, point.y):
+        return False
+    
+    # Use ray casting algorithm for point-in-polygon
+    x, y = point.x, point.y
+    n = len(hazard_points)
+    if n < 3:
+        return False
+    
+    inside = False
+    p1x, p1y = hazard_points[0].x, hazard_points[0].y
+    for i in range(1, n + 1):
+        p2x, p2y = hazard_points[i % n].x, hazard_points[i % n].y
+        if y > min(p1y, p2y):
+            if y <= max(p1y, p2y):
+                if x <= max(p1x, p2x):
+                    if p1y != p2y:
+                        xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                    if p1x == p2x or x <= xinters:
+                        inside = not inside
+        p1x, p1y = p2x, p2y
+    
+    return inside
+
+
+def check_hazard_collision(hazard1: dict, hazard2: dict) -> bool:
+    """Check if two hazards are colliding based on their bounding rectangles."""
+    return hazard1["bounding_rect"].colliderect(hazard2["bounding_rect"])
+
+
+def resolve_hazard_collision(hazard1: dict, hazard2: dict):
+    """Resolve collision between two hazards - make them bounce off each other."""
+    # Calculate collision normal (direction from hazard1 to hazard2)
+    center1 = hazard1["center"]
+    center2 = hazard2["center"]
+    normal = (center2 - center1)
+    if normal.length_squared() > 0:
+        normal = normal.normalize()
+    else:
+        # If centers overlap, use random direction
+        normal = pygame.Vector2(1, 0)
+    
+    # Calculate relative velocity
+    rel_vel = hazard2["velocity"] - hazard1["velocity"]
+    
+    # Calculate relative velocity along collision normal
+    vel_along_normal = rel_vel.dot(normal)
+    
+    # Don't resolve if velocities are separating
+    if vel_along_normal > 0:
+        return
+    
+    # Calculate bounce (elastic collision)
+    # For simplicity, we'll use a simple bounce with some energy loss
+    restitution = 0.8  # Energy retention (0.8 = 80% energy retained)
+    
+    # Calculate impulse
+    impulse = vel_along_normal * restitution
+    
+    # Apply impulse to velocities
+    hazard1["velocity"] += normal * impulse
+    hazard2["velocity"] -= normal * impulse
+    
+    # Separate the hazards slightly to prevent sticking
+    separation = 10.0
+    hazard1["center"] -= normal * separation
+    hazard2["center"] += normal * separation
+
+
+def update_hazard_obstacles(dt: float):
+    """Update all rotating hazard obstacles (paraboloids/trapezoids) with collision physics."""
+    global hazard_obstacles, current_level
+    
+    # Update each hazard
+    for hazard in hazard_obstacles:
+        # Determine shape based on level
+        if current_level >= 2:
+            hazard["shape"] = "trapezoid"
+        else:
+            hazard["shape"] = "paraboloid"
+        # Update rotation
+        hazard["rotation_angle"] += hazard["rotation_speed"] * dt
+        if hazard["rotation_angle"] >= 2 * math.pi:
+            hazard["rotation_angle"] -= 2 * math.pi
+        
+        # Update orbit position
+        hazard["orbit_angle"] += hazard["orbit_speed"] * dt
+        if hazard["orbit_angle"] >= 2 * math.pi:
+            hazard["orbit_angle"] -= 2 * math.pi
+        
+        # Calculate orbit position
+        orbit_pos = pygame.Vector2(
+            hazard["orbit_center"].x + math.cos(hazard["orbit_angle"]) * hazard["orbit_radius"],
+            hazard["orbit_center"].y + math.sin(hazard["orbit_angle"]) * hazard["orbit_radius"]
+        )
+        
+        # Apply velocity for collision physics
+        hazard["center"] += hazard["velocity"] * dt
+        
+        # Blend orbit position with velocity-based movement (50/50)
+        hazard["center"] = hazard["center"] * 0.5 + orbit_pos * 0.5
+        
+        # Keep within screen bounds with bounce
+        if hazard["center"].x < hazard["width"] // 2:
+            hazard["center"].x = hazard["width"] // 2
+            hazard["velocity"].x = abs(hazard["velocity"].x)  # Bounce right
+        elif hazard["center"].x > WIDTH - hazard["width"] // 2:
+            hazard["center"].x = WIDTH - hazard["width"] // 2
+            hazard["velocity"].x = -abs(hazard["velocity"].x)  # Bounce left
+        
+        if hazard["center"].y < hazard["height"] // 2:
+            hazard["center"].y = hazard["height"] // 2
+            hazard["velocity"].y = abs(hazard["velocity"].y)  # Bounce up
+        elif hazard["center"].y > HEIGHT - hazard["height"] // 2:
+            hazard["center"].y = HEIGHT - hazard["height"] // 2
+            hazard["velocity"].y = -abs(hazard["velocity"].y)  # Bounce down
+        
+        # Regenerate points with new rotation and position based on shape
+        if hazard["shape"] == "trapezoid":
+            hazard["points"] = generate_trapezoid_points(
+                hazard["center"],
+                hazard["width"],
+                hazard["height"],
+                hazard["rotation_angle"]
+            )
+        else:
+            hazard["points"] = generate_paraboloid_points(
+                hazard["center"],
+                hazard["width"],
+                hazard["height"],
+                hazard["rotation_angle"]
+            )
+        
+        # Update bounding rect
+        if hazard["points"]:
+            min_x = min(p.x for p in hazard["points"])
+            max_x = max(p.x for p in hazard["points"])
+            min_y = min(p.y for p in hazard["points"])
+            max_y = max(p.y for p in hazard["points"])
+            hazard["bounding_rect"] = pygame.Rect(
+                min_x, min_y,
+                max_x - min_x,
+                max_y - min_y
+            )
+    
+    # Check collisions between hazards
+    for i in range(len(hazard_obstacles)):
+        for j in range(i + 1, len(hazard_obstacles)):
+            if check_hazard_collision(hazard_obstacles[i], hazard_obstacles[j]):
+                resolve_hazard_collision(hazard_obstacles[i], hazard_obstacles[j])
+
+
 def spawn_pickup(pickup_type: str):
     # Make pickups bigger
     size = (32, 32)
@@ -1750,7 +2317,7 @@ def spawn_player_bullet_and_log():
         # Rocket launcher: more damage and always has explosion
         if current_weapon_mode == "rocket":
             effective_damage = int(base_damage * 2.5)  # 2.5x damage
-            rocket_explosion = max(80.0, player_stat_multipliers["bullet_explosion_radius"] + 60.0)
+            rocket_explosion = max(120.0, player_stat_multipliers["bullet_explosion_radius"] + 100.0)  # Increased AOE
         else:
             effective_damage = base_damage
             rocket_explosion = 0.0
@@ -1913,13 +2480,17 @@ def apply_pickup_effect(pickup_type: str):
         boost_meter = min(boost_meter_max, boost_meter + 45.0)
     elif pickup_type == "firerate":
         fire_rate_buff_t = fire_rate_buff_duration
+    elif pickup_type == "health":
+        # Restore 100 HP (capped at max HP)
+        player_hp = min(player_max_hp, player_hp + 100)
     elif pickup_type == "max_health":
         player_max_hp += 15
         player_hp += 15  # also heal by the same amount
     elif pickup_type == "speed":
         player_stat_multipliers["speed"] += 0.15
     elif pickup_type == "firerate_permanent":
-        player_stat_multipliers["firerate"] += 0.12
+        # Cap fire rate multiplier at 2.0 (2x firing speed max) to prevent performance issues
+        player_stat_multipliers["firerate"] = min(2.0, player_stat_multipliers["firerate"] + 0.12)
     elif pickup_type == "bullet_size":
         player_stat_multipliers["bullet_size"] += 0.20
     elif pickup_type == "bullet_speed":
@@ -2038,6 +2609,8 @@ def reset_after_death():
 
     player_hp = player_max_hp
     player_health_regen_rate = 0.0  # Reset health regeneration rate
+    random_damage_multiplier = 1.0  # Reset random damage multiplier
+    damage_numbers.clear()  # Clear damage numbers on death
     # Reset moving health zone to center
     moving_health_zone["rect"].center = (WIDTH // 2, HEIGHT // 2)
     moving_health_zone["target"] = None
@@ -2048,7 +2621,7 @@ def reset_after_death():
     wave_number = 1
     wave_in_level = 1
     current_level = 1
-    unlocked_weapons = {"basic"}  # Reset to only basic weapon unlocked
+    unlocked_weapons = {"basic", "wave_beam"}  # Reset to basic and wave_beam
     current_weapon_mode = "basic"  # Reset to basic weapon
     previous_weapon_mode = "basic"
     previous_boost_state = False
@@ -2059,6 +2632,28 @@ def reset_after_death():
     is_jumping = False
     jump_velocity = pygame.Vector2(0, 0)
     laser_beams.clear()
+    wave_beams.clear()
+    # Reset hazard obstacles positions (corners)
+    hazard_obstacles[0]["center"] = pygame.Vector2(250, 250)  # Top-left
+    hazard_obstacles[0]["rotation_angle"] = 0.0
+    hazard_obstacles[0]["orbit_angle"] = 0.0
+    hazard_obstacles[0]["velocity"] = pygame.Vector2(50, 30)
+    hazard_obstacles[0]["points"] = []
+    hazard_obstacles[1]["center"] = pygame.Vector2(WIDTH - 250, 250)  # Top-right
+    hazard_obstacles[1]["rotation_angle"] = 1.0
+    hazard_obstacles[1]["orbit_angle"] = 1.5
+    hazard_obstacles[1]["velocity"] = pygame.Vector2(-40, 50)
+    hazard_obstacles[1]["points"] = []
+    hazard_obstacles[2]["center"] = pygame.Vector2(250, HEIGHT - 250)  # Bottom-left
+    hazard_obstacles[2]["rotation_angle"] = 2.0
+    hazard_obstacles[2]["orbit_angle"] = 3.0
+    hazard_obstacles[2]["velocity"] = pygame.Vector2(30, -45)
+    hazard_obstacles[2]["points"] = []
+    hazard_obstacles[3]["center"] = pygame.Vector2(WIDTH - 250, HEIGHT - 250)  # Bottom-right
+    hazard_obstacles[3]["rotation_angle"] = 1.5
+    hazard_obstacles[3]["orbit_angle"] = 2.5
+    hazard_obstacles[3]["velocity"] = pygame.Vector2(-35, -40)
+    hazard_obstacles[3]["points"] = []
     # Reset shield
     shield_active = False
     shield_duration_remaining = 0.0
@@ -2090,6 +2685,9 @@ run_id = None  # Will be set when game starts
 # ----------------------------
 # Note: telemetry_enabled and telemetry are module-level variables,
 # so we can modify them directly without global declaration in the main loop
+# Initialize high scores database
+init_high_scores_db()
+
 try:
     while running:
         # Cap FPS at 120 for better performance and stability (prevents excessive CPU usage)
@@ -2219,6 +2817,16 @@ try:
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                             menu_section = 2
                     elif menu_section == 4:
+                        # Weapon selection menu (for testing)
+                        if event.key == pygame.K_UP or event.key == pygame.K_w:
+                            beam_selection_selected = (beam_selection_selected - 1) % len(weapon_selection_options)
+                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                            beam_selection_selected = (beam_selection_selected + 1) % len(weapon_selection_options)
+                        elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            menu_section = 5
+                        elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                            menu_section = 3
+                    elif menu_section == 5:
                         if event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                             # Start game with selected settings
                             difficulty = difficulty_options[difficulty_selected]
@@ -2227,6 +2835,16 @@ try:
                             ui_show_metrics = ui_show_metrics_selected == 0
                             # Set telemetry enabled based on user choice
                             telemetry_enabled = ui_telemetry_enabled_selected == 0
+                            # Set weapon from selection
+                            selected_weapon = weapon_selection_options[beam_selection_selected]
+                            # Unlock and switch to selected weapon
+                            unlocked_weapons.add(selected_weapon)
+                            current_weapon_mode = selected_weapon
+                            if selected_weapon == "wave_beam":
+                                wave_beam_pattern_index = 0  # Use sine pattern
+                                beam_selection_pattern = "sine"
+                            else:
+                                beam_selection_pattern = selected_weapon
                             # Initialize telemetry if enabled
                             if telemetry_enabled:
                                 telemetry = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
@@ -2247,7 +2865,7 @@ try:
                             run_id = telemetry.start_run(run_started_at, player_max_hp) if telemetry_enabled else None
                             start_wave(wave_number)
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                            menu_section = 3
+                            menu_section = 4
                 
                 if event.key == pygame.K_ESCAPE:
                     if state == STATE_PLAYING:
@@ -2261,8 +2879,21 @@ try:
                         state = STATE_PAUSED
                     elif state == STATE_MENU:
                         running = False
-                    elif state == STATE_VICTORY or state == STATE_GAME_OVER:
-                        running = False  # Quit from victory/game over screens
+                    elif state == STATE_VICTORY or state == STATE_GAME_OVER or state == STATE_HIGH_SCORES:
+                        running = False  # Quit from victory/game over/high scores screens
+                    elif state == STATE_NAME_INPUT:
+                        # Allow ESC to skip name input and go to high scores
+                        if player_name_input.strip():
+                            save_high_score(
+                                player_name_input.strip(),
+                                final_score_for_high_score,
+                                wave_number - 1,
+                                survival_time,
+                                enemies_killed,
+                                difficulty
+                            )
+                        state = STATE_HIGH_SCORES
+                        name_input_active = False
 
                 if event.key == pygame.K_p:
                     if state == STATE_PLAYING:
@@ -2315,6 +2946,34 @@ try:
                         lives = 999  # Infinite lives in endurance mode
                         wave_number += 1  # Continue from next wave
                         start_wave(wave_number)
+                
+                # Name input screen (for high scores)
+                if state == STATE_NAME_INPUT:
+                    if event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                        # Save high score and show high score board
+                        save_high_score(
+                            player_name_input if player_name_input.strip() else "Anonymous",
+                            final_score_for_high_score,
+                            wave_number - 1,
+                            survival_time,
+                            enemies_killed,
+                            difficulty
+                        )
+                        state = STATE_HIGH_SCORES
+                        name_input_active = False
+                    elif event.key == pygame.K_BACKSPACE:
+                        if player_name_input:
+                            player_name_input = player_name_input[:-1]
+                    elif event.unicode and len(player_name_input) < 20:
+                        # Add character if it's printable
+                        if event.unicode.isprintable():
+                            player_name_input += event.unicode
+                
+                # High score board screen
+                if state == STATE_HIGH_SCORES:
+                    if event.key == pygame.K_RETURN or event.key == pygame.K_SPACE or event.key == pygame.K_e:
+                        # Go to game over screen
+                        state = STATE_GAME_OVER
                 
                 # Game Over screen
                 if state == STATE_GAME_OVER:
@@ -2488,6 +3147,7 @@ try:
             move_y = int(total_velocity.y * dt)
 
             # Shooting
+            # Note: These are module-level variables, no global declaration needed
             laser_time_since_shot += dt
             if current_weapon_mode == "laser":
                 # Laser beam weapon - continuous beam while mouse is held
@@ -2590,14 +3250,132 @@ try:
                 else:
                     # Clear laser when not shooting
                     laser_beams.clear()
+            elif current_weapon_mode == "wave_beam":
+                # Wave beam weapon - continuous curved beam while mouse is held
+                wave_beam_time_since_shot += dt
+                
+                if pygame.mouse.get_pressed(3)[0] and wave_beam_time_since_shot >= wave_beam_cooldown:
+                    # Create or update wave beam
+                    mouse_x, mouse_y = pygame.mouse.get_pos()
+                    player_center = pygame.Vector2(player.center)
+                    mouse_pos = pygame.Vector2(mouse_x, mouse_y)
+                    direction = (mouse_pos - player_center)
+                    if direction.length_squared() > 0:
+                        direction = direction.normalize()
+                        
+                        # Get current wave pattern (cycles through patterns)
+                        pattern = wave_beam_patterns[wave_beam_pattern_index % len(wave_beam_patterns)]
+                        
+                        # Generate wave beam points with undulation (1 second period, 10 pixel amplitude)
+                        beam_points = generate_wave_beam_points(
+                            player_center, 
+                            direction, 
+                            pattern, 
+                            wave_beam_length,
+                            amplitude=10.0,  # 10 pixel amplitude
+                            frequency=0.02,
+                            time_offset=run_time  # Time-based undulation with 1 second period
+                        )
+                        
+                        # Find closest collision along the beam path
+                        closest_hit = None
+                        closest_dist = wave_beam_length
+                        final_points = beam_points.copy()
+                        
+                        # Check collision with blocks first (solid blocks stop beam)
+                        for blk in blocks:
+                            hit, dist = check_wave_beam_collision(beam_points, blk["rect"], wave_beam_width)
+                            if hit and dist < closest_dist:
+                                closest_dist = dist
+                                closest_hit = hit
+                                # Truncate beam points at hit
+                                final_points = [p for p in beam_points if (p - player_center).length() <= dist]
+                        
+                        # Check collision with trapezoid blocks
+                        for tb in trapezoid_blocks:
+                            hit, dist = check_wave_beam_collision(beam_points, tb["bounding_rect"], wave_beam_width)
+                            if hit and dist < closest_dist:
+                                closest_dist = dist
+                                closest_hit = hit
+                                final_points = [p for p in beam_points if (p - player_center).length() <= dist]
+                        
+                        # Check collision with triangle blocks
+                        for tr in triangle_blocks:
+                            hit, dist = check_wave_beam_collision(beam_points, tr["bounding_rect"], wave_beam_width)
+                            if hit and dist < closest_dist:
+                                closest_dist = dist
+                                closest_hit = hit
+                                final_points = [p for p in beam_points if (p - player_center).length() <= dist]
+                        
+                        # Check collision with destructible blocks (can damage them)
+                        for db in destructible_blocks[:]:
+                            hit, dist = check_wave_beam_collision(beam_points, db["rect"], wave_beam_width)
+                            if hit:
+                                if dist < closest_dist:
+                                    closest_dist = dist
+                                    closest_hit = hit
+                                    final_points = [p for p in beam_points if (p - player_center).length() <= dist]
+                                # Damage destructible block
+                                db["hp"] -= wave_beam_damage * dt * 60
+                                if db["hp"] <= 0:
+                                    destructible_blocks.remove(db)
+                        
+                        # Check collision with moveable destructible blocks
+                        for mdb in moveable_destructible_blocks[:]:
+                            hit, dist = check_wave_beam_collision(beam_points, mdb["rect"], wave_beam_width)
+                            if hit:
+                                if dist < closest_dist:
+                                    closest_dist = dist
+                                    closest_hit = hit
+                                    final_points = [p for p in beam_points if (p - player_center).length() <= dist]
+                                # Damage moveable destructible block
+                                mdb["hp"] -= wave_beam_damage * dt * 60
+                                if mdb["hp"] <= 0:
+                                    moveable_destructible_blocks.remove(mdb)
+                        
+                        # Check collision with enemies (can damage them)
+                        for e in enemies[:]:
+                            hit, dist = check_wave_beam_collision(beam_points, e["rect"], wave_beam_width)
+                            if hit:
+                                if dist < closest_dist:
+                                    closest_dist = dist
+                                    closest_hit = hit
+                                    final_points = [p for p in beam_points if (p - player_center).length() <= dist]
+                                # Damage enemy continuously
+                                e["hp"] -= wave_beam_damage * dt * 60
+                                damage_dealt += int(wave_beam_damage * dt * 60)
+                                if e["hp"] <= 0:
+                                    kill_enemy(e)
+                        
+                        # Store wave beam for drawing
+                        if len(wave_beams) == 0:
+                            wave_beams.append({
+                                "points": final_points,
+                                "pattern": pattern,
+                                "color": (50, 255, 50),  # Lime green
+                                "width": wave_beam_width,
+                            })
+                        else:
+                            wave_beams[0]["points"] = final_points
+                            wave_beams[0]["pattern"] = pattern
+                            wave_beams[0]["color"] = (50, 255, 50)  # Lime green (update color)
+                        
+                        # Cycle to next pattern on each shot
+                        wave_beam_pattern_index = (wave_beam_pattern_index + 1) % len(wave_beam_patterns)
+                else:
+                    # Clear wave beam when not shooting
+                    wave_beams.clear()
             else:
                 # Normal shooting for other weapons
                 # Apply both temporary and permanent fire rate multipliers
                 temp_mult = fire_rate_mult if fire_rate_buff_t > 0 else 1.0
-                perm_mult = 1.0 / player_stat_multipliers["firerate"] if player_stat_multipliers["firerate"] > 1.0 else 1.0
+                # Cap permanent multiplier to prevent excessive firing rates
+                capped_firerate = min(2.0, player_stat_multipliers["firerate"])
+                perm_mult = 1.0 / capped_firerate if capped_firerate > 1.0 else 1.0
                 # Rocket launcher has slower fire rate
                 rocket_mult = 3.5 if current_weapon_mode == "rocket" else 1.0
-                effective_cooldown = player_shoot_cooldown * temp_mult * perm_mult * rocket_mult
+                # Cap minimum cooldown to prevent performance issues (max 10 shots per second)
+                effective_cooldown = max(0.1, player_shoot_cooldown * temp_mult * perm_mult * rocket_mult)
                 
                 # Check for shooting input based on aiming mode
                 should_shoot = False
@@ -2663,10 +3441,57 @@ try:
                         if lives > 0:
                             state = STATE_CONTINUE
                         else:
-                            state = STATE_GAME_OVER
+                            # Game over - check if it's a high score
+                            final_score_for_high_score = score
+                            if is_high_score(score):
+                                state = STATE_NAME_INPUT
+                                player_name_input = ""
+                                name_input_active = True
+                            else:
+                                state = STATE_GAME_OVER
 
             move_player_with_push(player, move_x, move_y, blocks)
 
+            # Update hazard obstacles
+            update_hazard_obstacles(dt)
+            
+            # Check collision with all hazard obstacles
+            player_center = pygame.Vector2(player.center)
+            for hazard in hazard_obstacles:
+                if check_point_in_hazard(player_center, hazard["points"], hazard["bounding_rect"]):
+                    # Check if shield is active - shield blocks all damage
+                    if not shield_active:
+                        # Apply damage - overshield absorbs damage first
+                        remaining_damage = hazard["damage"] * dt * 60
+                        if overshield > 0:
+                            if overshield >= remaining_damage:
+                                overshield -= remaining_damage
+                                remaining_damage = 0
+                            else:
+                                remaining_damage -= overshield
+                                overshield = 0
+                        
+                        # Apply remaining damage to player HP
+                        if remaining_damage > 0:
+                            player_hp -= remaining_damage
+                        damage_taken += int(hazard["damage"] * dt * 60)
+                        
+                        if player_hp < 0:
+                            player_hp = 0
+                        
+                        if telemetry_enabled and telemetry:
+                            telemetry.log_player_damage(
+                                PlayerDamageEvent(
+                                    t=run_time,
+                                    amount=int(hazard["damage"] * dt * 60),
+                                    source_type="paraboloid_hazard",
+                                    source_enemy_type=None,
+                                    player_x=player.x,
+                                    player_y=player.y,
+                                    player_hp_after=player_hp,
+                                )
+                            )
+            
             # Update moving health zone position
             zone = moving_health_zone
             if zone["target"] is None or (pygame.Vector2(zone["rect"].center) - zone["target"]).length() < 10:
@@ -2735,6 +3560,13 @@ try:
             
             # Update pickup visual effects
             update_pickup_effects(dt)
+            
+            # Update damage numbers (fade out and move up)
+            for dn in damage_numbers[:]:
+                dn["timer"] -= dt
+                dn["y"] -= 30 * dt  # Move up
+                if dn["timer"] <= 0:
+                    damage_numbers.remove(dn)
 
             block_rects = [b["rect"] for b in blocks] + [b["rect"] for b in moveable_destructible_blocks] + [tb["bounding_rect"] for tb in trapezoid_blocks] + [tr["bounding_rect"] for tr in triangle_blocks]
             # Cache player position to avoid recalculating
@@ -2847,6 +3679,15 @@ try:
                                                  cached_moveable_destructible_rects,
                                                  cached_trapezoid_rects,
                                                  cached_triangle_rects)
+
+            # Check enemy collision with hazard obstacles (kill enemies)
+            for e in enemies[:]:
+                enemy_center = pygame.Vector2(e["rect"].center)
+                for hazard in hazard_obstacles:
+                    if check_point_in_hazard(enemy_center, hazard["points"], hazard["bounding_rect"]):
+                        # Hazard kills enemy instantly
+                        kill_enemy(e)
+                        break
 
             # Cleanup: Remove any enemies that somehow got stuck with HP <= 0
             # This is a safety check to prevent enemies from getting stuck alive
@@ -3087,6 +3928,7 @@ try:
                     "boost",  # temporary boost meter refill
                     "firerate",  # temporary fire rate buff
                     "spawn_boost",  # enemy can grab, player can shoot
+                    "health",  # restores 100 HP
                     "max_health",  # permanent max HP increase
                     "health_regen",  # increases health regeneration rate
                     "speed",  # permanent speed increase
@@ -3102,6 +3944,7 @@ try:
                     "bouncing_bullets",  # bullets bounce off walls
                     "rocket_launcher",  # slower fire rate, more damage, AOE
                     "overshield",  # adds overshield (extra health bar)
+                    "random_damage",  # randomizes base damage multiplier (0.5x to 3.0x)
                 ]
                 spawn_pickup(random.choice(pickup_types))
 
@@ -3279,6 +4122,22 @@ try:
                 
                 # Combine simple and complex bullets
                 player_bullets[:] = simple_bullets + complex_bullets
+                
+                # Check for hazard collisions with all bullets (GPU path)
+                for b in player_bullets[:]:
+                    bullet_center = pygame.Vector2(b["rect"].center)
+                    for hazard in hazard_obstacles:
+                        if check_point_in_hazard(bullet_center, hazard["points"], hazard["bounding_rect"]):
+                            # Push hazard in direction of bullet velocity
+                            push_force = 150.0
+                            push_dir = b["vel"]
+                            if push_dir.length_squared() > 0:
+                                push_dir = push_dir.normalize()
+                                hazard["velocity"] += push_dir * push_force * dt
+                            # Remove bullet after hitting hazard
+                            if b in player_bullets:
+                                player_bullets.remove(b)
+                            break
             else:
                 # CPU fallback for small batches or when GPU unavailable
                 for b in player_bullets[:]:
@@ -3315,6 +4174,21 @@ try:
                             player_bullets.remove(b)
                         continue
 
+                    # Bullets can push hazard obstacles ("bully" them)
+                    bullet_center = pygame.Vector2(r.center)
+                    for hazard in hazard_obstacles:
+                        if check_point_in_hazard(bullet_center, hazard["points"], hazard["bounding_rect"]):
+                            # Push hazard in direction of bullet velocity
+                            push_force = 150.0  # Force applied to hazard (increased for better effect)
+                            push_dir = b["vel"]
+                            if push_dir.length_squared() > 0:
+                                push_dir = push_dir.normalize()
+                                hazard["velocity"] += push_dir * push_force * dt
+                            # Remove bullet after hitting hazard
+                            if b in player_bullets:
+                                player_bullets.remove(b)
+                            break
+
                     # bullets can destroy spawn_boost pickups
                     hit_pickup = None
                     for p in pickups:
@@ -3340,7 +4214,9 @@ try:
                     if hit_enemy_index is not None:
                         hits += 1
                         e = enemies[hit_enemy_index]
-                        bullet_damage = b.get("damage", player_bullet_damage)
+                        # Apply random damage multiplier to base damage
+                        base_damage = b.get("damage", player_bullet_damage)
+                        bullet_damage = int(base_damage * random_damage_multiplier)
                         
                         # Check for shield enemies
                         if e.get("has_shield"):
@@ -3422,10 +4298,26 @@ try:
                             # Bullet hit from behind/side, apply damage normally
                             e["hp"] -= bullet_damage
                             damage_dealt += bullet_damage
+                            # Add damage number display
+                            damage_numbers.append({
+                                "x": e["rect"].centerx,
+                                "y": e["rect"].y - 15,
+                                "damage": bullet_damage,
+                                "timer": 2.0,  # Display for 2 seconds
+                                "color": (255, 100, 100),
+                            })
                         else:
                             # Normal enemy, apply damage
                             e["hp"] -= bullet_damage
                             damage_dealt += bullet_damage
+                            # Add damage number display
+                            damage_numbers.append({
+                                "x": e["rect"].centerx,
+                                "y": e["rect"].y - 15,
+                                "damage": bullet_damage,
+                                "timer": 2.0,  # Display for 2 seconds
+                                "color": (255, 100, 100),
+                            })
 
                         # Apply knockback if available
                         knockback = b.get("knockback", 0.0)
@@ -3543,7 +4435,9 @@ try:
                     # Player bullets can destroy destructible blocks
                     for db in destructible_blocks[:]:
                         if r.colliderect(db["rect"]):
-                            bullet_damage = b.get("damage", player_bullet_damage)
+                            # Apply random damage multiplier to base damage
+                            base_damage = b.get("damage", player_bullet_damage)
+                            bullet_damage = int(base_damage * random_damage_multiplier)
                             db["hp"] -= bullet_damage
                             if db["hp"] <= 0:
                                 destructible_blocks.remove(db)
@@ -3710,8 +4604,14 @@ try:
                             continue_blink_t = 0.0
                             continue
                         else:
-                            # Game over - offer endurance mode
-                            state = STATE_GAME_OVER
+                            # Game over - check if it's a high score
+                            final_score_for_high_score = score
+                            if is_high_score(score):
+                                state = STATE_NAME_INPUT
+                                player_name_input = ""
+                                name_input_active = True
+                            else:
+                                state = STATE_GAME_OVER
 
                     continue
 
@@ -3766,6 +4666,44 @@ try:
             draw_centered_text(f"Levels Completed: {max_level}", 400, (200, 200, 255))
             draw_centered_text(f"Time Survived: {int(survival_time//60)}m {int(survival_time%60)}s", 450, (200, 200, 255))
             draw_centered_text("Press E for Endurance Mode", 550, (100, 255, 100))
+            draw_centered_text("Press ESC to Quit", 600, (200, 200, 200))
+            pygame.display.flip()
+            continue
+        
+        # Name input screen (for high scores)
+        if state == STATE_NAME_INPUT:
+            theme = level_themes.get(current_level, level_themes[1])
+            screen.fill(theme["bg_color"])
+            draw_centered_text("NEW HIGH SCORE!", 150, (255, 255, 100), use_big=True)
+            draw_centered_text(f"Score: {final_score_for_high_score:,}", 220, (255, 255, 255))
+            draw_centered_text("Enter your name:", 280, (200, 200, 255))
+            # Draw name input with blinking cursor
+            name_display = player_name_input + ("_" if int(pygame.time.get_ticks() / 500) % 2 == 0 else " ")
+            draw_centered_text(name_display, 330, (255, 255, 255), use_big=True)
+            draw_centered_text("Press ENTER to submit", 400, (150, 255, 150))
+            draw_centered_text("Press ESC to skip", 450, (200, 200, 200))
+            pygame.display.flip()
+            continue
+        
+        # High score board screen
+        if state == STATE_HIGH_SCORES:
+            theme = level_themes.get(current_level, level_themes[1])
+            screen.fill(theme["bg_color"])
+            draw_centered_text("HIGH SCORES", 80, (255, 255, 100), use_big=True)
+            scores = get_high_scores(10)
+            y_offset = 150
+            for i, hs in enumerate(scores, 1):
+                name_text = f"{i}. {hs['name'][:15]:<15}"
+                score_text = f"{hs['score']:,}"
+                waves_text = f"Waves: {hs['waves']}"
+                time_text = f"Time: {int(hs['time']//60)}m {int(hs['time']%60)}s"
+                # Highlight if this is the current score
+                color = (255, 255, 200) if (hs['score'] == final_score_for_high_score and i <= len(scores)) else (200, 200, 255)
+                draw_centered_text(f"{name_text} {score_text:>10}  {waves_text}  {time_text}", y_offset, color)
+                y_offset += 35
+            if len(scores) == 0:
+                draw_centered_text("No high scores yet!", 300, (200, 200, 200))
+            draw_centered_text("Press ENTER, SPACE, or E to continue", 550, (150, 255, 150))
             draw_centered_text("Press ESC to Quit", 600, (200, 200, 200))
             pygame.display.flip()
             continue
@@ -3834,14 +4772,25 @@ try:
                     draw_centered_text(f"{prefix}{opt}", y_start_telemetry + i * 50, color)
                 draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
             elif menu_section == 4:
+                draw_centered_text("Weapon Selection (Testing)", 250, (200, 200, 200))
+                y_start = 320
+                for i, weapon in enumerate(weapon_selection_options):
+                    color = (255, 255, 100) if i == beam_selection_selected else (150, 150, 150)
+                    prefix = "> " if i == beam_selection_selected else "  "
+                    weapon_display = weapon.replace("_", " ").upper()
+                    draw_centered_text(f"{prefix}{weapon_display}", y_start + i * 40, color)
+                draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
+            elif menu_section == 5:
                 draw_centered_text("Ready to Start", 300, (100, 255, 100))
                 draw_centered_text(f"Difficulty: {difficulty_options[difficulty_selected]}", 400, (200, 200, 200))
                 draw_centered_text(f"Aiming: {['Mouse', 'Arrow Keys'][aiming_mode_selected]}", 450, (200, 200, 200))
                 draw_centered_text(f"Class: {['Balanced', 'Tank', 'Speedster', 'Sniper'][player_class_selected]}", 500, (200, 200, 200))
                 draw_centered_text(f"Metrics: {['Show', 'Hide'][ui_show_metrics_selected]}", 550, (200, 200, 200))
                 draw_centered_text(f"Telemetry: {['Enabled', 'Disabled'][ui_telemetry_enabled_selected]}", 600, (200, 200, 200))
-                draw_centered_text("Press ENTER to Start", 650, (100, 255, 100))
-                draw_centered_text("Press LEFT to go back, ESC to Quit", 650, (150, 150, 150))
+                selected_weapon_display = weapon_selection_options[beam_selection_selected].replace("_", " ").upper()
+                draw_centered_text(f"Weapon: {selected_weapon_display}", 650, (200, 200, 200))
+                draw_centered_text("Press ENTER to Start", 700, (100, 255, 100))
+                draw_centered_text("Press LEFT to go back, ESC to Quit", 750, (150, 150, 150))
             
             pygame.display.flip()
             continue
@@ -4031,6 +4980,18 @@ try:
             pygame.draw.rect(screen, e["color"], e["rect"])
             if ui_show_health_bars:
                 draw_health_bar(e["rect"].x, e["rect"].y - 10, e["rect"].w, 6, e["hp"], e["max_hp"])
+        
+        # Draw damage numbers (floating above enemies)
+        for dn in damage_numbers:
+            # Calculate alpha based on timer (fade out)
+            alpha = int(255 * (dn["timer"] / 2.0))  # Fade from 255 to 0 over 2 seconds
+            alpha = max(0, min(255, alpha))
+            # Adjust color with alpha
+            color_with_alpha = tuple(min(255, c) for c in dn["color"])
+            # Draw damage number
+            damage_text = font.render(f"-{int(dn['damage'])}", True, color_with_alpha)
+            text_rect = damage_text.get_rect(center=(int(dn["x"]), int(dn["y"])))
+            screen.blit(damage_text, text_rect)
 
             # Draw shield for shielded enemies
             if e.get("has_shield"):
@@ -4120,6 +5081,31 @@ try:
             glow_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             pygame.draw.line(glow_surf, (*laser["color"], 100), laser["start"], laser["end"], laser["width"] + 4)
             screen.blit(glow_surf, (0, 0))
+        
+        # Draw hazard obstacles (paraboloids on level 1, trapezoids on level 2+)
+        for hazard in hazard_obstacles:
+            if hazard["points"] and len(hazard["points"]) > 2:
+                # Draw filled shape
+                pygame.draw.polygon(screen, hazard["color"], hazard["points"])
+                # Draw outline for visibility
+                outline_color = tuple(max(0, c - 50) for c in hazard["color"])
+                pygame.draw.polygon(screen, outline_color, hazard["points"], 3)
+                # Draw center indicator
+                pygame.draw.circle(screen, (255, 200, 200), (int(hazard["center"].x), int(hazard["center"].y)), 5)
+        
+        # Draw wave beams
+        for wave_beam in wave_beams:
+            points = wave_beam["points"]
+            if len(points) > 1:
+                # Convert Vector2 points to tuples for pygame.draw.lines
+                point_tuples = [(int(p.x), int(p.y)) for p in points]
+                # Draw glow effect first (behind the main beam)
+                glow_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                glow_color = (*wave_beam["color"], 100)  # Semi-transparent lime green glow
+                pygame.draw.lines(glow_surf, glow_color, False, point_tuples, wave_beam["width"] + 4)
+                screen.blit(glow_surf, (0, 0))
+                # Draw the wave beam as a solid continuous lime green line (on top of glow)
+                pygame.draw.lines(screen, wave_beam["color"], False, point_tuples, wave_beam["width"])
 
         for b in player_bullets:
             draw_projectile(b["rect"], b.get("color", player_bullets_color), b.get("shape", "square"))
