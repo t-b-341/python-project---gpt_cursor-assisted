@@ -437,7 +437,7 @@ STATE_WAVE_BUILDER = "WAVE_BUILDER"  # Custom wave builder
 
 state = STATE_MENU
 previous_game_state = None  # Track previous game state for pause/unpause (STATE_PLAYING or STATE_ENDURANCE)
-menu_section = 0  # 0 = difficulty, 1 = aiming, 2 = class, 3 = options, 4 = beam_selection, 5 = start
+menu_section = 0  # 0 = difficulty, 1 = aiming, 1.5 = character profile yes/no, 2 = class, 3 = HUD options, 3.5 = Telemetry options, 4 = beam_selection, 5 = start
 ui_show_metrics_selected = 1  # 0 = Show, 1 = Hide - Default: Hide (disabled)
 ui_show_hud = True  # HUD visibility (follows metrics setting)
 ui_options_selected = 0  # 0 = Metrics, 1 = Telemetry (which option is currently focused)
@@ -2800,8 +2800,16 @@ def spawn_player_bullet_and_log():
 
     # Determine shot pattern based on weapon mode
     if current_weapon_mode == "triple":
-        # Triple shot: center + left + right spread
-        spread_angle_deg = 15.0  # degrees (increased from 8.6 for better spread)
+        # Triple shot: three basic beams offset by equal arc (120 degrees total, 60 degrees each side)
+        spread_angle_deg = 30.0  # 30 degrees each side = 60 degree total arc
+        directions = [
+            base_dir,  # center
+            base_dir.rotate(-spread_angle_deg),  # left
+            base_dir.rotate(spread_angle_deg),  # right
+        ]
+    elif current_weapon_mode == "basic":
+        # Basic beam: three beams offset by equal arc (same as triple shot pattern)
+        spread_angle_deg = 30.0  # 30 degrees each side = 60 degree total arc
         directions = [
             base_dir,  # center
             base_dir.rotate(-spread_angle_deg),  # left
@@ -3603,26 +3611,36 @@ try:
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                             menu_section = 2  # Go back to profile selection
                     elif menu_section == 3:
-                        # Independent metrics and telemetry options
+                        # HUD options page
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
-                            # Move selection up (between metrics and telemetry)
-                            ui_options_selected = (ui_options_selected - 1) % 2
+                            ui_show_metrics_selected = (ui_show_metrics_selected - 1) % 2
                         elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                            # Move selection down (between metrics and telemetry)
-                            ui_options_selected = (ui_options_selected + 1) % 2
+                            ui_show_metrics_selected = (ui_show_metrics_selected + 1) % 2
                         elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                            # Toggle the currently selected option
-                            if ui_options_selected == 0:
-                                # Toggle metrics/HUD
-                                ui_show_metrics_selected = (ui_show_metrics_selected + 1) % 2
-                                ui_show_hud = ui_show_metrics_selected == 0  # HUD follows metrics
-                            else:
-                                # Toggle telemetry
-                                ui_telemetry_enabled_selected = (ui_telemetry_enabled_selected + 1) % 2
+                            # Toggle HUD
+                            ui_show_metrics_selected = (ui_show_metrics_selected + 1) % 2
+                            ui_show_hud = ui_show_metrics_selected == 0  # HUD follows metrics
                         elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
-                            menu_section = 4
+                            menu_section = 3.5  # Go to Telemetry options
                         elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                            menu_section = 2
+                            # Go back - check if character profile was used
+                            if use_character_profile:
+                                menu_section = 2
+                            else:
+                                menu_section = 1.5
+                    elif menu_section == 3.5:
+                        # Telemetry options page
+                        if event.key == pygame.K_UP or event.key == pygame.K_w:
+                            ui_telemetry_enabled_selected = (ui_telemetry_enabled_selected - 1) % 2
+                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                            ui_telemetry_enabled_selected = (ui_telemetry_enabled_selected + 1) % 2
+                        elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            # Toggle telemetry
+                            ui_telemetry_enabled_selected = (ui_telemetry_enabled_selected + 1) % 2
+                        elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
+                            menu_section = 4  # Go to weapon selection
+                        elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                            menu_section = 3  # Go back to HUD options
                     elif menu_section == 4:
                         # Weapon selection menu (for testing)
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -6003,31 +6021,25 @@ try:
                 draw_centered_text(f"HP: {stats['hp_mult']:.1f}x | Speed: {stats['speed_mult']:.1f}x | Damage: {stats['damage_mult']:.1f}x | Fire Rate: {stats['firerate_mult']:.1f}x", 550, (150, 150, 255))
                 draw_centered_text("Press UP/DOWN to select, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
             elif menu_section == 3:
-                draw_centered_text("Options", 250, (200, 200, 200))
+                # HUD options page
+                draw_centered_text("HUD Options", 250, (200, 200, 200))
                 hud_options = ["Show HUD", "Hide HUD"]
-                telemetry_options = ["Enable Telemetry", "Disable Telemetry"]
-                
-                # Draw HUD option (independent selection)
-                y_start = 320
-                hud_label_color = (255, 255, 100) if ui_options_selected == 0 else (150, 150, 150)
-                hud_label_prefix = "> " if ui_options_selected == 0 else "  "
-                draw_centered_text(f"{hud_label_prefix}HUD:", y_start, hud_label_color)
+                y_start = 350
                 for i, opt in enumerate(hud_options):
-                    option_color = (255, 255, 100) if (ui_options_selected == 0 and i == ui_show_metrics_selected) else (150, 150, 150)
-                    option_prefix = "  > " if (ui_options_selected == 0 and i == ui_show_metrics_selected) else "    "
-                    draw_centered_text(f"{option_prefix}{opt}", y_start + 30 + i * 35, option_color)
-                
-                # Draw Telemetry option (independent selection)
-                y_start_telemetry = 420
-                telemetry_label_color = (255, 255, 100) if ui_options_selected == 1 else (150, 150, 150)
-                telemetry_label_prefix = "> " if ui_options_selected == 1 else "  "
-                draw_centered_text(f"{telemetry_label_prefix}Telemetry:", y_start_telemetry, telemetry_label_color)
+                    option_color = (255, 255, 100) if i == ui_show_metrics_selected else (150, 150, 150)
+                    option_prefix = "> " if i == ui_show_metrics_selected else "  "
+                    draw_centered_text(f"{option_prefix}{opt}", y_start + i * 50, option_color)
+                draw_centered_text("Press UP/DOWN to select, ENTER/SPACE to toggle, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
+            elif menu_section == 3.5:
+                # Telemetry options page
+                draw_centered_text("Telemetry Options", 250, (200, 200, 200))
+                telemetry_options = ["Enable Telemetry", "Disable Telemetry"]
+                y_start = 350
                 for i, opt in enumerate(telemetry_options):
-                    option_color = (255, 255, 100) if (ui_options_selected == 1 and i == ui_telemetry_enabled_selected) else (150, 150, 150)
-                    option_prefix = "  > " if (ui_options_selected == 1 and i == ui_telemetry_enabled_selected) else "    "
-                    draw_centered_text(f"{option_prefix}{opt}", y_start_telemetry + 30 + i * 35, option_color)
-                
-                draw_centered_text("Press UP/DOWN to navigate, ENTER/SPACE to toggle, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
+                    option_color = (255, 255, 100) if i == ui_telemetry_enabled_selected else (150, 150, 150)
+                    option_prefix = "> " if i == ui_telemetry_enabled_selected else "  "
+                    draw_centered_text(f"{option_prefix}{opt}", y_start + i * 50, option_color)
+                draw_centered_text("Press UP/DOWN to select, ENTER/SPACE to toggle, RIGHT to continue, LEFT to go back", 600, (150, 150, 150))
             elif menu_section == 4:
                 draw_centered_text("Weapon Selection (Testing)", 250, (200, 200, 200))
                 y_start = 320
