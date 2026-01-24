@@ -30,8 +30,8 @@ def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) ->
         "color": t["color"],
         "hp": hp,
         "max_hp": max_hp,  # Full health, green bar at wave start
-        "shoot_cooldown": t["shoot_cooldown"] / 1.5,  # 150% fire rate (faster = lower cooldown, increased from 1.1)
-        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / 1.5),
+        "shoot_cooldown": t["shoot_cooldown"] / 3.0,  # 300% fire rate (faster = lower cooldown, increased from 1.5)
+        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / 3.0),
         "projectile_speed": t["projectile_speed"],
         "projectile_color": t["projectile_color"],
         "projectile_shape": t["projectile_shape"],

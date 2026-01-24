@@ -151,12 +151,12 @@ def find_nearest_threat(
     friendly_ai: list[dict],
 ) -> tuple[pygame.Vector2, str] | None:
     """Find the nearest threat (player or friendly AI) to an enemy.
-    Prioritizes player over dropped ally, then other friendly AI."""
+    Prioritizes dropped ally if within radius, otherwise prioritizes player."""
     player_pos = pygame.Vector2(player.center)
     player_dist_sq = (player_pos - enemy_pos).length_squared()
     player_dist = math.sqrt(player_dist_sq)
     
-    # Collect friendly AI threats (for fallback if player is not available)
+    # Collect friendly AI threats
     dropped_ally_threats = []
     other_friendly_threats = []
     for f in friendly_ai:
@@ -170,21 +170,20 @@ def find_nearest_threat(
         else:
             other_friendly_threats.append((friendly_pos, friendly_dist_sq, "friendly", friendly_dist))
     
-    # Priority order: Player > Dropped Ally > Other Friendly AI
-    # Player always has highest priority
-    return (player_pos, "player")
+    # Priority: Dropped ally if within 350 pixels, otherwise player
+    ALLY_FOCUS_RADIUS = 350.0  # Enemies focus on ally if within this radius
+    ALLY_FOCUS_RADIUS_SQ = ALLY_FOCUS_RADIUS * ALLY_FOCUS_RADIUS
     
-    # Fallback logic (currently unreachable, but kept for potential future use):
-    # If player is not available, prioritize dropped ally, then other friendly AI
-    # if dropped_ally_threats:
-    #     dropped_ally_threats.sort(key=lambda x: x[1])
-    #     return (dropped_ally_threats[0][0], dropped_ally_threats[0][2])
-    # 
-    # if other_friendly_threats:
-    #     other_friendly_threats.sort(key=lambda x: x[1])
-    #     return (other_friendly_threats[0][0], other_friendly_threats[0][2])
-    # 
-    # return None
+    # Check if there's a dropped ally within focus radius
+    if dropped_ally_threats:
+        dropped_ally_threats.sort(key=lambda x: x[1])  # Sort by distance
+        nearest_ally = dropped_ally_threats[0]
+        if nearest_ally[1] <= ALLY_FOCUS_RADIUS_SQ:
+            # Focus on dropped ally if within radius
+            return (nearest_ally[0], nearest_ally[2])
+    
+    # Otherwise, prioritize player
+    return (player_pos, "player")
 
 
 def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:

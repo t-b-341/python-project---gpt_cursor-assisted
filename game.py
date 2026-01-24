@@ -498,15 +498,26 @@ def main():
                                     target_enemy = enemy
                             
                             if target_enemy:
-                                missile_rect = pygame.Rect(player.centerx - 8, player.centery - 8, 16, 16)
-                                missiles.append({
-                                    "rect": missile_rect,
-                                    "vel": pygame.Vector2(0, 0),
-                                    "target_enemy": target_enemy,
-                                    "speed": 500,
-                                    "damage": missile_damage,
-                                    "explosion_radius": 150
-                                })
+                                # Spawn 3 missiles in a burst (spread pattern)
+                                burst_offsets = [
+                                    (-10, -10),  # Left missile
+                                    (0, -15),    # Center missile (slightly ahead)
+                                    (10, -10),   # Right missile
+                                ]
+                                for offset_x, offset_y in burst_offsets:
+                                    missile_rect = pygame.Rect(
+                                        player.centerx - 8 + offset_x,
+                                        player.centery - 8 + offset_y,
+                                        16, 16
+                                    )
+                                    missiles.append({
+                                        "rect": missile_rect,
+                                        "vel": pygame.Vector2(0, 0),
+                                        "target_enemy": target_enemy,
+                                        "speed": 500,
+                                        "damage": missile_damage,
+                                        "explosion_radius": 150
+                                    })
                                 missile_time_since_used = 0.0
                     
                     # Ally drop (Q key)
@@ -601,6 +612,18 @@ def main():
                 fire_rate_buff_t += dt
                 pos_timer += dt
                 continue_blink_t += dt
+                
+                # Update damage number timers
+                for dmg_num in damage_numbers[:]:
+                    dmg_num["timer"] -= dt
+                    if dmg_num["timer"] <= 0:
+                        damage_numbers.remove(dmg_num)
+                
+                # Update weapon pickup message timers
+                for msg in weapon_pickup_messages[:]:
+                    msg["timer"] -= dt
+                    if msg["timer"] <= 0:
+                        weapon_pickup_messages.remove(msg)
                 
                 # Update shield
                 if shield_active:
@@ -809,15 +832,20 @@ def main():
                         enemy_speed = enemy.get("speed", 80) * dt
                         
                         # Add some random wandering to make enemies move around more
-                        # Occasionally add a small random offset to movement direction
-                        if random.random() < 0.1:  # 10% chance per frame
-                            wander_angle = random.uniform(-0.3, 0.3)  # Small random angle
+                        # Occasionally add a random offset to movement direction
+                        if random.random() < 0.25:  # 25% chance per frame (increased from 10%)
+                            wander_angle = random.uniform(-0.8, 0.8)  # Larger random angle (increased from 0.3)
                             cos_a = math.cos(wander_angle)
                             sin_a = math.sin(wander_angle)
                             direction = pygame.Vector2(
                                 direction.x * cos_a - direction.y * sin_a,
                                 direction.x * sin_a + direction.y * cos_a
                             ).normalize()
+                        
+                        # Additional random movement: sometimes move in a completely random direction
+                        if random.random() < 0.05:  # 5% chance to move randomly instead of toward target
+                            random_angle = random.uniform(0, 2 * math.pi)
+                            direction = pygame.Vector2(math.cos(random_angle), math.sin(random_angle))
                         
                         # Dodge bullets if in range
                         dodge_threats = find_threats_in_dodge_range(enemy_pos, player_bullets, friendly_projectiles, 200.0)
@@ -901,6 +929,15 @@ def main():
                         game_state.enemy_projectiles.remove(proj)
                         continue
                     
+                    # Check collision with destructible blocks
+                    for block in destructible_blocks + moveable_destructible_blocks:
+                        if block.get("is_destructible") and proj["rect"].colliderect(block["rect"]):
+                            block["hp"] -= proj.get("damage", 10)
+                            if block["hp"] <= 0:
+                                destructible_blocks.remove(block) if block in destructible_blocks else moveable_destructible_blocks.remove(block)
+                            game_state.enemy_projectiles.remove(proj)
+                            break
+                    
                     # Check collision with player
                     if proj["rect"].colliderect(player):
                         if not shield_active:
@@ -946,6 +983,15 @@ def main():
                     if rect_offscreen(proj["rect"]):
                         game_state.friendly_projectiles.remove(proj)
                         continue
+                    
+                    # Check collision with destructible blocks
+                    for block in destructible_blocks + moveable_destructible_blocks:
+                        if block.get("is_destructible") and proj["rect"].colliderect(block["rect"]):
+                            block["hp"] -= proj.get("damage", 20)
+                            if block["hp"] <= 0:
+                                destructible_blocks.remove(block) if block in destructible_blocks else moveable_destructible_blocks.remove(block)
+                            game_state.friendly_projectiles.remove(proj)
+                            break
                     
                     for enemy in game_state.enemies[:]:
                         if proj["rect"].colliderect(enemy["rect"]):
@@ -1063,7 +1109,7 @@ def main():
                 # Wave management
                 if wave_active and len(game_state.enemies) == 0:
                     time_to_next_wave += dt
-                    if time_to_next_wave >= 3.0:  # 3 second delay between waves
+                    if time_to_next_wave >= 3.0:  # 3 second countdown between waves
                         wave_number += 1
                         wave_in_level += 1
                         if wave_in_level > 3:
@@ -1283,6 +1329,25 @@ def main():
                 for pickup in pickups:
                     pygame.draw.circle(screen, pickup["color"], pickup["rect"].center, pickup["rect"].w // 2)
                     pygame.draw.circle(screen, (255, 255, 255), pickup["rect"].center, pickup["rect"].w // 2, 2)
+                    
+                    # Draw pickup name above pickup
+                    if pickup.get("is_weapon_drop", False):
+                        # Weapon pickup - use weapon name
+                        weapon_type = pickup.get("type", "")
+                        pickup_name = WEAPON_NAMES.get(weapon_type, weapon_type.upper())
+                    else:
+                        # Regular pickup - use type name
+                        pickup_type = pickup.get("type", "")
+                        pickup_name = pickup_type.upper().replace("_", " ")
+                    
+                    # Render pickup name text above the pickup
+                    name_surf = small_font.render(pickup_name, True, (255, 255, 255))
+                    name_rect = name_surf.get_rect(center=(pickup["rect"].centerx, pickup["rect"].y - 20))
+                    # Draw text with black outline for visibility
+                    outline_surf = small_font.render(pickup_name, True, (0, 0, 0))
+                    for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+                        screen.blit(outline_surf, (name_rect.x + dx, name_rect.y + dy))
+                    screen.blit(name_surf, name_rect)
                 
                 # Draw enemy projectiles
                 for proj in game_state.enemy_projectiles:
@@ -1303,7 +1368,7 @@ def main():
                         draw_health_bar(screen, friendly["rect"].x, friendly["rect"].y - 10, friendly["rect"].w, 5, friendly["hp"], friendly.get("max_hp", friendly["hp"]))
                 
                 # Draw enemies
-                for enemy in enemies:
+                for enemy in game_state.enemies:
                     enemy_color = enemy.get("color", (200, 50, 50))
                     pygame.draw.rect(screen, enemy_color, enemy["rect"])
                     if enemy.get("hp", 0) > 0 and ui_show_health_bars:
@@ -1389,14 +1454,14 @@ def main():
                         bar_height = 20
                         bar_width = 200
                         
-                        # Grenade cooldown
+                        # Bomb (grenade) cooldown - red when not ready, purple when ready
                         grenade_progress = min(1.0, grenade_time_since_used / grenade_cooldown)
                         grenade_x = 10
                         pygame.draw.rect(screen, (60, 60, 60), (grenade_x, bar_y, bar_width, bar_height))
-                        pygame.draw.rect(screen, (100, 255, 100) if grenade_progress >= 1.0 else (100, 100, 100), 
+                        pygame.draw.rect(screen, (200, 100, 255) if grenade_progress >= 1.0 else (255, 50, 50), 
                                         (grenade_x, bar_y, int(bar_width * grenade_progress), bar_height))
                         pygame.draw.rect(screen, (255, 255, 255), (grenade_x, bar_y, bar_width, bar_height), 2)
-                        small_font_surf = small_font.render("GRENADE (E)", True, (255, 255, 255))
+                        small_font_surf = small_font.render("BOMB (E)", True, (255, 255, 255))
                         screen.blit(small_font_surf, (grenade_x + 5, bar_y + 2))
                         
                         # Missile cooldown
@@ -1430,6 +1495,7 @@ def main():
                         screen.blit(small_font_surf, (overshield_x + 5, bar_y + 2))
                 
                 # Draw damage numbers (fade out over 2 seconds)
+                # Note: Timers are decremented in the update loop above
                 for dmg_num in damage_numbers[:]:
                     if dmg_num["timer"] > 0:
                         alpha = int(255 * (dmg_num["timer"] / 2.0))  # Fade over 2 seconds
@@ -1440,6 +1506,7 @@ def main():
                         damage_numbers.remove(dmg_num)
                 
                 # Draw weapon pickup messages
+                # Note: Timers are decremented in the update loop above
                 for msg in weapon_pickup_messages[:]:
                     if msg["timer"] > 0:
                         alpha = int(255 * (msg["timer"] / 3.0))
@@ -1449,6 +1516,21 @@ def main():
                         screen.blit(text_surf, text_rect)
                     else:
                         weapon_pickup_messages.remove(msg)
+                
+                # Draw wave countdown (3, 2, 1) when wave is complete and next wave is starting
+                if wave_active and len(game_state.enemies) == 0 and time_to_next_wave < 3.0:
+                    # Calculate countdown number (3, 2, or 1)
+                    # time_to_next_wave goes from 0.0 to 3.0
+                    # At 0.0-0.99: show 3
+                    # At 1.0-1.99: show 2
+                    # At 2.0-2.99: show 1
+                    countdown_number = 3 - int(time_to_next_wave)
+                    countdown_number = max(1, min(3, countdown_number))  # Clamp between 1 and 3
+                    
+                    # Display countdown text
+                    next_wave_num = wave_number + 1
+                    countdown_text = f"WAVE {next_wave_num} STARTING IN {countdown_number}"
+                    draw_centered_text(screen, font, big_font, WIDTH, countdown_text, HEIGHT // 2, (255, 255, 0), use_big=True)
             elif state == STATE_PAUSED:
                 # Draw paused game with overlay
                 overlay = pygame.Surface((WIDTH, HEIGHT))
@@ -2144,7 +2226,7 @@ friendly_ai: list[dict] = []
 
 # Dropped ally system (distracts enemies)
 dropped_ally: dict | None = None  # Single dropped ally that distracts enemies
-ally_drop_cooldown = 30.0  # Cooldown between ally drops (seconds)
+ally_drop_cooldown = 5.0  # Cooldown between ally drops (seconds)
 ally_drop_timer = 0.0  # Time since last ally drop
 friendly_projectiles: list[dict] = []
 
@@ -2631,8 +2713,9 @@ def start_wave(wave_num: int, state: GameState):
     
     # Spawn friendly AI: 2-4 per wave (increased from 1-2)
     # Calculate friendly AI count based on enemy count - more friendly AI
-    friendly_count = max(2, min(4, (count + 1) // 2))  # 2-4 friendly per wave
-    spawn_friendly_ai(friendly_count, hp_scale, speed_scale, friendly_ai_templates, friendly_ai, random_spawn_position, telemetry, run_time)
+    # REMOVED: No longer spawn friendly AI at wave start - only dropped ally is used
+    # friendly_count = max(2, min(4, (count + 1) // 2))  # 2-4 friendly per wave
+    # spawn_friendly_ai(friendly_count, hp_scale, speed_scale, friendly_ai_templates, friendly_ai, random_spawn_position, telemetry, run_time)
     
     wave_active = True
     
@@ -3061,8 +3144,8 @@ def update_hazard_obstacles(dt: float):
 
 
 def spawn_pickup(pickup_type: str):
-    # Make pickups bigger
-    size = (32, 32)
+    # Make pickups bigger (2x size)
+    size = (64, 64)  # Doubled from 32x32
     max_attempts = 50  # Increased attempts to avoid overlaps
     for _ in range(max_attempts):
         r = random_spawn_position(size)
@@ -3104,7 +3187,7 @@ def spawn_weapon_in_center(weapon_type: str):
     if weapon_type == "basic":
         return
     # Weapon colors are now imported from config_weapons.py
-    weapon_pickup_size = (40, 40)  # Bigger for level completion rewards
+    weapon_pickup_size = (80, 80)  # Bigger for level completion rewards (2x from 40x40)
     weapon_pickup_rect = pygame.Rect(
         WIDTH // 2 - weapon_pickup_size[0] // 2,
         HEIGHT // 2 - weapon_pickup_size[1] // 2,
@@ -3140,8 +3223,8 @@ def spawn_weapon_drop(enemy: dict):
         # Skip basic beam - do not drop it as a pickup
         if weapon_type == "basic":
             return
-        # Spawn weapon pickup at enemy location
-        weapon_pickup_size = (28, 28)
+        # Spawn weapon pickup at enemy location (2x size)
+        weapon_pickup_size = (56, 56)  # Doubled from 28x28
         weapon_pickup_rect = pygame.Rect(
             enemy["rect"].centerx - weapon_pickup_size[0] // 2,
             enemy["rect"].centery - weapon_pickup_size[1] // 2,
@@ -3465,16 +3548,14 @@ def kill_enemy(enemy: dict, state: GameState):
     
     # Remove projectiles and damage numbers associated with this dead enemy
     enemy_pos = pygame.Vector2(enemy["rect"].center)
-    cleanup_radius_sq = 2500  # 50 pixels squared - projectiles/damage within this range are removed
+    cleanup_radius_sq = 2500  # 50 pixels squared - damage numbers within this range are removed
     
-    # Remove enemy projectiles that are near the dead enemy's position
-    # (This catches projectiles that were just fired or are still near the enemy)
+    # Remove ALL enemy projectiles from this dead enemy (by matching enemy_type)
+    # This ensures projectiles are removed regardless of distance when enemy dies
     for proj in state.enemy_projectiles[:]:
-        proj_pos = pygame.Vector2(proj["rect"].center)
-        dist_sq = (proj_pos - enemy_pos).length_squared()
-        # Remove if projectile is close to dead enemy AND matches enemy type
-        # This prevents removing projectiles from other enemies of the same type that are far away
-        if dist_sq < cleanup_radius_sq and proj.get("enemy_type") == enemy_type:
+        # Remove if projectile matches this enemy's type
+        # This removes all projectiles from this enemy, even if they've traveled far
+        if proj.get("enemy_type") == enemy_type:
             state.enemy_projectiles.remove(proj)
     
     # Remove damage numbers near the dead enemy's position
