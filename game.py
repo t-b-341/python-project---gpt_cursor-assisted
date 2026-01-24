@@ -294,6 +294,20 @@
 #make it so that player is immune to player bomb damage
 #make a status bar at the bottom of the screen that shows player bomb readiness status with a progress bar that is red when not ready, and purple when ready and says "BOMB" in it
 #add a missile that seeks enemies and explodes on contact with "r" key
+#--------------------------------------------------------/
+#update controls.json with new controls 
+#make suicide enemies blow up when closer to player, not at beginning of wave
+#when player dies, keep enemy state on screen and allow player to continue next life from death point
+#make suicide enemy twice as big, and 0.75x current movement speed
+#make "tab" key create an overshield the amount of the player's health that is an orange bar that stacks on top of the player's health, and recharges every 45 seconds, with a progress bar on the bottom
+#put shield recharge bar on the bottom
+#make a recharge bar for the missile, place on bottom
+#--------------------------------------------------------/
+#when wave starts, start with overshield charged 
+#jump = spacebar, add to json file controls listing
+#--------------------------------------------------------
+#change "jump" name to "dash" in game and controls
+#
 
 
 import math
@@ -368,6 +382,7 @@ DEFAULT_CONTROLS = {
     "move_down": "s",
     "boost": "left shift",
     "slow": "left ctrl",
+    "dash": "space",
 }
 
 
@@ -548,7 +563,7 @@ continue_blink_t = 0.0
 
 # Controls menu state
 STATE_CONTROLS = "CONTROLS"
-controls_actions = ["move_left", "move_right", "move_up", "move_down", "boost", "slow"]
+controls_actions = ["move_left", "move_right", "move_up", "move_down", "boost", "slow", "dash"]
 controls_selected = 0
 controls_rebinding = False
 
@@ -567,8 +582,12 @@ player_class_stats = {
     PLAYER_CLASS_SPEEDSTER: {"hp_mult": 0.7, "speed_mult": 1.5, "damage_mult": 0.9, "firerate_mult": 1.3},
     PLAYER_CLASS_SNIPER: {"hp_mult": 0.8, "speed_mult": 0.9, "damage_mult": 1.5, "firerate_mult": 0.7},
 }
-overshield_max = 50  # Maximum overshield capacity
+overshield_max = 50  # Maximum overshield capacity (base, can be increased by tab key)
 overshield = 0  # Current overshield amount
+overshield_recharge_cooldown = 45.0  # Cooldown for tab key overshield (seconds)
+overshield_recharge_timer = 0.0  # Time since last overshield activation
+shield_recharge_cooldown = 10.0  # Shield cooldown (for progress bar display)
+shield_recharge_timer = 0.0  # Time since shield was used
 pygame.mouse.set_visible(True)
 
 LIVES_START = 10
@@ -579,8 +598,8 @@ last_horizontal_key = None  # keycode of current "latest" horizontal key
 last_vertical_key = None  # keycode of current "latest" vertical key
 last_move_velocity = pygame.Vector2(0, 0)
 
-# Jump/Dash mechanic (space bar)
-jump_cooldown = 0.5  # seconds between jumps
+# Dash mechanic (space bar)
+jump_cooldown = 0.5  # seconds between dashes
 jump_cooldown_timer = 0.0
 jump_velocity = pygame.Vector2(0, 0)  # Current jump velocity
 jump_speed = 600  # pixels per second
@@ -1067,7 +1086,7 @@ enemy_templates: list[dict] = [
     },
     {
         "type": "suicide",
-        "rect": pygame.Rect(200, 200, 24, 24),
+        "rect": pygame.Rect(200, 200, 48, 48),  # Twice as big (24*2 = 48)
         "color": (255, 50, 50),  # Bright red
         "hp": 30,
         "max_hp": 30,
@@ -1075,10 +1094,10 @@ enemy_templates: list[dict] = [
         "projectile_speed": 0,
         "projectile_color": (255, 0, 0),
         "projectile_shape": "circle",
-        "speed": 120,  # Fast movement toward player
+        "speed": 90,  # 0.75x current speed (120 * 0.75 = 90)
         "is_suicide": True,  # Marks this as suicide enemy
         "explosion_range": 150,  # Range for grenade explosion
-        "detonation_distance": 80,  # Distance from player to detonate
+        "detonation_distance": 50,  # Distance from player to detonate (closer before exploding)
     },
     {
         "type": "grunt",
@@ -2113,7 +2132,7 @@ def spawn_friendly_projectile(friendly: dict, target: dict):
 
 def start_wave(wave_num: int):
     """Spawn a new wave with scaling. Each level has 3 waves, boss on wave 3."""
-    global enemies, wave_active, boss_active, wave_in_level, current_level, lives
+    global enemies, wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer
     enemies = []
     boss_active = False
     # Reset lives to 3 at the beginning of each wave
@@ -2154,6 +2173,10 @@ def start_wave(wave_num: int):
             )
         )
         wave_active = True
+        
+        # Charge overshield at wave start (boss wave)
+        overshield_recharge_timer = overshield_recharge_cooldown  # Set to full charge
+        
         return
     
     # Normal wave spawning (waves 1 and 2 of each level)
@@ -2201,6 +2224,9 @@ def start_wave(wave_num: int):
     spawn_friendly_ai(friendly_count, hp_scale, speed_scale)
     
     wave_active = True
+    
+    # Charge overshield at wave start
+    overshield_recharge_timer = overshield_recharge_cooldown  # Set to full charge
     
     # Log wave start event
     telemetry.log_wave(
@@ -3595,6 +3621,8 @@ try:
             player_time_since_shot += dt
             grenade_time_since_used += dt
             missile_time_since_used += dt
+            overshield_recharge_timer += dt
+            shield_recharge_timer += dt
             
             # Update enemy defeat messages timer
             for msg in enemy_defeat_messages[:]:
@@ -3645,11 +3673,11 @@ try:
                                     duration=None,
                                     success=True
                                 ))
-                    # Space bar jump/dash in direction of movement
-                    elif event.key == pygame.K_SPACE and jump_cooldown_timer <= 0.0 and not is_jumping:
+                    # Dash in direction of movement
+                    elif event.key == controls.get("dash", pygame.K_SPACE) and jump_cooldown_timer <= 0.0 and not is_jumping:
                         jump_success = False
                         if last_move_velocity.length_squared() > 0:
-                            # Jump in direction of movement
+                            # Dash in direction of movement
                             jump_dir = last_move_velocity.normalize()
                             jump_velocity = jump_dir * jump_speed
                             jump_timer = jump_duration
@@ -3665,11 +3693,11 @@ try:
                             jump_cooldown_timer = jump_cooldown
                             jump_success = True
                         
-                        # Log jump action
+                        # Log dash action
                         if jump_success:
                             telemetry.log_player_action(PlayerActionEvent(
                                 t=run_time,
-                                action_type="jump",
+                                action_type="dash",
                                 x=player.centerx,
                                 y=player.centery,
                                 duration=jump_duration,
@@ -3957,6 +3985,17 @@ try:
                             shield_duration_remaining = shield_duration
                             # Random cooldown between 10-15 seconds
                             shield_cooldown = random.uniform(10.0, 15.0)
+                            shield_recharge_cooldown = shield_cooldown
+                            shield_recharge_timer = 0.0
+                            shield_cooldown_remaining = 0.0  # Reset cooldown when activating
+                    
+                    # Overshield activation (Tab key)
+                    if event.key == pygame.K_TAB:
+                        if overshield_recharge_timer >= overshield_recharge_cooldown:
+                            # Create overshield equal to player's max health
+                            overshield = player_max_hp
+                            overshield_max = max(overshield_max, player_max_hp)  # Update max if needed
+                            overshield_recharge_timer = 0.0
                     
                     # Grenade activation (E key)
                     if event.key == pygame.K_e:
@@ -4205,6 +4244,11 @@ try:
                 # Shield is on cooldown
                 if shield_cooldown_remaining > 0.0:
                     shield_cooldown_remaining = max(0.0, shield_cooldown_remaining - dt)
+                    # Update shield recharge timer for progress bar
+                    if shield_cooldown_remaining <= 0.0:
+                        shield_recharge_timer = shield_recharge_cooldown  # Reset when ready
+                    else:
+                        shield_recharge_timer = shield_recharge_cooldown - shield_cooldown_remaining
 
             if move_dir.length_squared() > 0:
                 move_dir = move_dir.normalize()
@@ -7094,35 +7138,57 @@ try:
                 pygame.draw.rect(screen, (0, 0, 0, 200), bg_rect)
                 screen.blit(defeat_text, (defeat_x, defeat_y))
             
-            # Bomb status bar at bottom of screen
-            bomb_bar_width = 200
-            bomb_bar_height = 30
-            bomb_bar_x = (WIDTH - bomb_bar_width) // 2  # Center horizontally
-            bomb_bar_y = HEIGHT - 100  # Above controls
+            # Status bars at bottom of screen (arranged horizontally)
+            bar_width = 150
+            bar_height = 25
+            bar_spacing = 10
+            total_bars_width = (bar_width + bar_spacing) * 4 - bar_spacing  # 4 bars: bomb, missile, shield, overshield
+            bars_start_x = (WIDTH - total_bars_width) // 2
+            bars_y = HEIGHT - 100  # Above controls
             
-            # Calculate bomb readiness (0.0 to 1.0)
+            # Bomb status bar
+            bomb_bar_x = bars_start_x
             bomb_readiness = min(1.0, grenade_time_since_used / grenade_cooldown)
             is_ready = grenade_time_since_used >= grenade_cooldown
+            pygame.draw.rect(screen, (40, 40, 40), (bomb_bar_x, bars_y, bar_width, bar_height))
+            bar_color = (200, 100, 255) if is_ready else (255, 50, 50)
+            pygame.draw.rect(screen, bar_color, (bomb_bar_x, bars_y, int(bar_width * bomb_readiness), bar_height))
+            pygame.draw.rect(screen, (150, 150, 150), (bomb_bar_x, bars_y, bar_width, bar_height), 2)
+            bomb_text = small_font.render("BOMB", True, (255, 255, 255))
+            screen.blit(bomb_text, (bomb_bar_x + (bar_width - bomb_text.get_width()) // 2, bars_y + (bar_height - bomb_text.get_height()) // 2))
             
-            # Background
-            pygame.draw.rect(screen, (40, 40, 40), (bomb_bar_x, bomb_bar_y, bomb_bar_width, bomb_bar_height))
+            # Missile status bar
+            missile_bar_x = bars_start_x + bar_width + bar_spacing
+            missile_readiness = min(1.0, missile_time_since_used / missile_cooldown)
+            missile_ready = missile_time_since_used >= missile_cooldown
+            pygame.draw.rect(screen, (40, 40, 40), (missile_bar_x, bars_y, bar_width, bar_height))
+            missile_color = (100, 200, 255) if missile_ready else (255, 100, 50)
+            pygame.draw.rect(screen, missile_color, (missile_bar_x, bars_y, int(bar_width * missile_readiness), bar_height))
+            pygame.draw.rect(screen, (150, 150, 150), (missile_bar_x, bars_y, bar_width, bar_height), 2)
+            missile_text = small_font.render("MISSILE", True, (255, 255, 255))
+            screen.blit(missile_text, (missile_bar_x + (bar_width - missile_text.get_width()) // 2, bars_y + (bar_height - missile_text.get_height()) // 2))
             
-            # Progress bar (red when not ready, purple when ready)
-            if is_ready:
-                bar_color = (200, 100, 255)  # Purple when ready
-            else:
-                bar_color = (255, 50, 50)  # Red when not ready
+            # Shield recharge bar
+            shield_bar_x = bars_start_x + (bar_width + bar_spacing) * 2
+            shield_readiness = min(1.0, shield_recharge_timer / shield_recharge_cooldown) if shield_recharge_cooldown > 0 else 1.0
+            shield_ready = shield_cooldown_remaining <= 0.0
+            pygame.draw.rect(screen, (40, 40, 40), (shield_bar_x, bars_y, bar_width, bar_height))
+            shield_bar_color = (100, 220, 255) if shield_ready else (150, 150, 255)
+            pygame.draw.rect(screen, shield_bar_color, (shield_bar_x, bars_y, int(bar_width * shield_readiness), bar_height))
+            pygame.draw.rect(screen, (150, 150, 150), (shield_bar_x, bars_y, bar_width, bar_height), 2)
+            shield_text = small_font.render("SHIELD", True, (255, 255, 255))
+            screen.blit(shield_text, (shield_bar_x + (bar_width - shield_text.get_width()) // 2, bars_y + (bar_height - shield_text.get_height()) // 2))
             
-            pygame.draw.rect(screen, bar_color, (bomb_bar_x, bomb_bar_y, int(bomb_bar_width * bomb_readiness), bomb_bar_height))
-            
-            # Border
-            pygame.draw.rect(screen, (150, 150, 150), (bomb_bar_x, bomb_bar_y, bomb_bar_width, bomb_bar_height), 2)
-            
-            # "BOMB" text centered in bar
-            bomb_text = font.render("BOMB", True, (255, 255, 255))
-            bomb_text_x = bomb_bar_x + (bomb_bar_width - bomb_text.get_width()) // 2
-            bomb_text_y = bomb_bar_y + (bomb_bar_height - bomb_text.get_height()) // 2
-            screen.blit(bomb_text, (bomb_text_x, bomb_text_y))
+            # Overshield recharge bar
+            overshield_bar_x = bars_start_x + (bar_width + bar_spacing) * 3
+            overshield_readiness = min(1.0, overshield_recharge_timer / overshield_recharge_cooldown)
+            overshield_ready = overshield_recharge_timer >= overshield_recharge_cooldown
+            pygame.draw.rect(screen, (40, 40, 40), (overshield_bar_x, bars_y, bar_width, bar_height))
+            overshield_bar_color = (255, 150, 50) if overshield_ready else (255, 100, 0)
+            pygame.draw.rect(screen, overshield_bar_color, (overshield_bar_x, bars_y, int(bar_width * overshield_readiness), bar_height))
+            pygame.draw.rect(screen, (150, 150, 150), (overshield_bar_x, bars_y, bar_width, bar_height), 2)
+            overshield_text = small_font.render("OVERSHLD", True, (255, 255, 255))
+            screen.blit(overshield_text, (overshield_bar_x + (bar_width - overshield_text.get_width()) // 2, bars_y + (bar_height - overshield_text.get_height()) // 2))
             
             # Controls display at bottom of screen
             controls_y = HEIGHT - 60

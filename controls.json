@@ -4,5 +4,9 @@
   "move_up": "w",
   "move_down": "s",
   "boost": "left shift",
-  "slow": "left ctrl"
+  "slow": "left ctrl",
+  "dash": "space",
+  "grenade": "e",
+  "missile": "r",
+  "overshield": "tab"
 }
