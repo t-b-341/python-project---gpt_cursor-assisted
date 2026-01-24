@@ -100,6 +100,7 @@ from allies import (
     spawn_friendly_projectile,
     update_friendly_ai,
 )
+from state import GameState
 
 
 # Placeholder WIDTH/HEIGHT for module-level initialization
@@ -176,6 +177,14 @@ def main():
 
     # Initialize player and other game state variables that depend on WIDTH/HEIGHT
     player = pygame.Rect((WIDTH - 28) // 2, (HEIGHT - 28) // 2, 28, 28)
+    
+    # Create GameState instance to hold core game lists
+    # Initialize with existing global lists (they will be replaced gradually)
+    game_state = GameState()
+    game_state.enemies = enemies
+    game_state.player_bullets = player_bullets
+    game_state.enemy_projectiles = enemy_projectiles
+    game_state.friendly_projectiles = friendly_projectiles
     
     # Initialize pygame mouse visibility
     pygame.mouse.set_visible(True)
@@ -690,7 +699,7 @@ def main():
                 shoot_input = mouse_buttons[0] or (aiming_mode == AIM_ARROWS and (keys[pygame.K_LEFT] or keys[pygame.K_RIGHT] or keys[pygame.K_UP] or keys[pygame.K_DOWN]))
                 
                 if shoot_input and player_time_since_shot >= effective_fire_rate:
-                    spawn_player_bullet_and_log()
+                    spawn_player_bullet_and_log(game_state)
                     player_time_since_shot = 0.0
                 
                 # Laser beam weapon
@@ -764,7 +773,7 @@ def main():
                         laser_beams.remove(beam)
                     else:
                         # Check collision with enemies
-                        for enemy in enemies[:]:
+                        for enemy in game_state.enemies[:]:
                             if line_rect_intersection(beam["start"], beam["end"], enemy["rect"]):
                                 enemy["hp"] -= beam["damage"] * dt * 60  # Damage per frame
                                 if enemy["hp"] <= 0:
@@ -777,7 +786,7 @@ def main():
                         wave_beams.remove(beam)
                     else:
                         # Check collision with enemies
-                        for enemy in enemies[:]:
+                        for enemy in game_state.enemies[:]:
                             hit_pos, dist = check_wave_beam_collision(beam["points"], enemy["rect"], wave_beam_width)
                             if hit_pos:
                                 enemy["hp"] -= beam["damage"] * dt * 60
@@ -785,7 +794,7 @@ def main():
                                     kill_enemy(enemy)
                 
                 # Enemy updates
-                for enemy in enemies[:]:
+                for enemy in game_state.enemies[:]:
                     if enemy.get("hp", 1) <= 0:
                         kill_enemy(enemy)
                         continue
@@ -820,21 +829,21 @@ def main():
                             if enemy.get("is_predictive", False):
                                 spawn_enemy_projectile_predictive(enemy, direction)
                             else:
-                                spawn_enemy_projectile(enemy)
+                                spawn_enemy_projectile(enemy, game_state)
                         enemy["shoot_cooldown"] = 0.0
                 
                 # Bullet/projectile updates
-                for bullet in player_bullets[:]:
+                for bullet in game_state.player_bullets[:]:
                     bullet["rect"].x += int(bullet["vel"].x * dt)
                     bullet["rect"].y += int(bullet["vel"].y * dt)
                     
                     # Remove if off screen
                     if rect_offscreen(bullet["rect"]):
-                        player_bullets.remove(bullet)
+                        game_state.player_bullets.remove(bullet)
                         continue
                     
                     # Check collision with enemies
-                    for enemy in enemies[:]:
+                    for enemy in game_state.enemies[:]:
                         if bullet["rect"].colliderect(enemy["rect"]):
                             damage = bullet.get("damage", player_bullet_damage)
                             enemy["hp"] -= damage
@@ -853,7 +862,7 @@ def main():
                             
                             # Remove bullet (unless it has penetration)
                             if bullet.get("penetration", 0) <= 0:
-                                player_bullets.remove(bullet)
+                                game_state.player_bullets.remove(bullet)
                                 break
                             else:
                                 bullet["penetration"] -= 1
@@ -866,7 +875,7 @@ def main():
                                 if block["hp"] <= 0:
                                     destructible_blocks.remove(block) if block in destructible_blocks else moveable_destructible_blocks.remove(block)
                                 if not bullet.get("bouncing", False):
-                                    player_bullets.remove(bullet)
+                                    game_state.player_bullets.remove(bullet)
                                     bullet["removed"] = True
                                     break
                                 else:
@@ -919,21 +928,21 @@ def main():
                 )
                 
                 # Friendly projectile updates
-                for proj in friendly_projectiles[:]:
+                for proj in game_state.friendly_projectiles[:]:
                     proj["rect"].x += int(proj["vel"].x * dt)
                     proj["rect"].y += int(proj["vel"].y * dt)
                     
                     if rect_offscreen(proj["rect"]):
-                        friendly_projectiles.remove(proj)
+                        game_state.friendly_projectiles.remove(proj)
                         continue
                     
-                    for enemy in enemies[:]:
+                    for enemy in game_state.enemies[:]:
                         if proj["rect"].colliderect(enemy["rect"]):
                             damage = proj.get("damage", 20)
                             enemy["hp"] -= damage
                             if enemy["hp"] <= 0:
                                 kill_enemy(enemy)
-                            friendly_projectiles.remove(proj)
+                            game_state.friendly_projectiles.remove(proj)
                             break
                 
                 # Grenade explosion updates
@@ -947,7 +956,7 @@ def main():
                     
                     # Damage enemies and blocks in radius
                     explosion_pos = pygame.Vector2(explosion["x"], explosion["y"])
-                    for enemy in enemies[:]:
+                    for enemy in game_state.enemies[:]:
                         enemy_pos = pygame.Vector2(enemy["rect"].center)
                         dist = (enemy_pos - explosion_pos).length()
                         if dist <= explosion["radius"]:
@@ -1233,11 +1242,11 @@ def main():
                     pygame.draw.circle(screen, (255, 255, 255), pickup["rect"].center, pickup["rect"].w // 2, 2)
                 
                 # Draw enemy projectiles
-                for proj in enemy_projectiles:
+                for proj in game_state.enemy_projectiles:
                     draw_projectile(screen, proj["rect"], proj["color"], proj.get("shape", "circle"))
                 
                 # Draw player bullets
-                for bullet in player_bullets:
+                for bullet in game_state.player_bullets:
                     draw_projectile(screen, bullet["rect"], bullet["color"], bullet.get("shape", "circle"))
                 
                 # Draw friendly projectiles
@@ -3155,7 +3164,7 @@ def update_pickup_effects(dt: float):
 # Rendering helper functions are now imported from rendering.py
 
 
-def spawn_player_bullet_and_log():
+def spawn_player_bullet_and_log(state: GameState):
     global shots_fired, player_bullet_shape_index
 
     # Determine aiming direction based on aiming mode
@@ -3236,7 +3245,7 @@ def spawn_player_bullet_and_log():
         effective_size[0],
         effective_size[1],
     )
-    player_bullets.append({
+    state.player_bullets.append({
             "rect": r,
             "vel": d * effective_speed,
             "shape": shape,
@@ -3275,7 +3284,7 @@ def spawn_player_bullet_and_log():
     )
 
 
-def spawn_enemy_projectile(enemy: dict):
+def spawn_enemy_projectile(enemy: dict, state: GameState):
     """Spawn projectile from enemy targeting nearest threat (player or friendly AI)."""
     e_pos = pygame.Vector2(enemy["rect"].center)
     threat_result = find_nearest_threat(e_pos, player, friendly_ai)
@@ -3299,7 +3308,7 @@ def spawn_enemy_projectile(enemy: dict):
     proj_shape = enemy.get("projectile_shape", "circle")
     bounces = enemy.get("bouncing_projectiles", False)
     
-    enemy_projectiles.append({
+    state.enemy_projectiles.append({
         "rect": r,
         "vel": d * enemy["projectile_speed"],
         "enemy_type": enemy["type"],  # attribute damage source
@@ -3323,7 +3332,7 @@ def spawn_enemy_projectile(enemy: dict):
         )
 
 
-def spawn_enemy_projectile_predictive(enemy: dict, direction: pygame.Vector2):
+def spawn_enemy_projectile_predictive(enemy: dict, direction: pygame.Vector2, state: GameState):
     """Spawn projectile from predictive enemy in a specific direction (predicted player position)."""
     r = pygame.Rect(
         enemy["rect"].centerx - enemy_projectile_size[0] // 2,
@@ -3333,7 +3342,7 @@ def spawn_enemy_projectile_predictive(enemy: dict, direction: pygame.Vector2):
     )
     proj_color = enemy.get("projectile_color", enemy_projectiles_color)
     proj_shape = enemy.get("projectile_shape", "diamond")  # Rhomboid shape
-    enemy_projectiles.append({
+    state.enemy_projectiles.append({
         "rect": r,
         "vel": direction * enemy["projectile_speed"],
         "enemy_type": enemy["type"],
@@ -3343,7 +3352,7 @@ def spawn_enemy_projectile_predictive(enemy: dict, direction: pygame.Vector2):
     })
 
 
-def spawn_boss_projectile(boss: dict, direction: pygame.Vector2):
+def spawn_boss_projectile(boss: dict, direction: pygame.Vector2, state: GameState):
     """Spawn a projectile from the boss in a specific direction."""
     r = pygame.Rect(
         boss["rect"].centerx - enemy_projectile_size[0] // 2,
@@ -3353,7 +3362,7 @@ def spawn_boss_projectile(boss: dict, direction: pygame.Vector2):
     )
     proj_color = boss.get("projectile_color", enemy_projectiles_color)
     proj_shape = boss.get("projectile_shape", "circle")
-    enemy_projectiles.append(
+    state.enemy_projectiles.append(
         {
             "rect": r,
             "vel": direction * boss["projectile_speed"],
