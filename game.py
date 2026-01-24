@@ -285,10 +285,15 @@
 #--------------------------------------------------------/
 #make it so that the health box does not overlap with other objects
 #--------------------------------------------------------
-
-
-
-
+#make it so that enemies cannot go through other objects, and must go around
+#make bomb do more damage
+#make it so that the health box does not overlap with other objects
+#--------------------------------------------------------
+#increase player health by 10x
+#--------------------------------------------------------
+#make it so that player is immune to player bomb damage
+#make a status bar at the bottom of the screen that shows player bomb readiness status with a progress bar that is red when not ready, and purple when ready and says "BOMB" in it
+#add a missile that seeks enemies and explodes on contact with "r" key
 
 
 import math
@@ -552,7 +557,7 @@ controls_rebinding = False
 # ----------------------------
 player = pygame.Rect((WIDTH - 28) // 2, (HEIGHT - 28) // 2, 28, 28)  # 10% larger (25 * 1.1 = 27.5, rounded to 28)
 player_speed = 450  # px/s (base speed, modified by class) - 1.5x (300 * 1.5)
-player_max_hp = 750  # base HP (modified by class) - 3x (250 * 3)
+player_max_hp = 7500  # base HP (modified by class) - 10x (750 * 10)
 player_hp = player_max_hp
 
 # Player class stat modifiers
@@ -949,7 +954,15 @@ player_bullet_shape_index = 0
 grenade_explosions: list[dict] = []  # List of active explosions {x, y, radius, max_radius, timer, damage}
 grenade_cooldown = 2.0  # Cooldown between grenades (seconds)
 grenade_time_since_used = 999.0  # Time since last grenade
-grenade_damage = 500  # Damage to enemies and destructible blocks
+grenade_damage = 1500  # Damage to enemies and destructible blocks (increased from 500)
+
+# Missile system (seeking missiles)
+missiles: list[dict] = []  # List of active missiles {rect, vel, target_enemy, speed, damage, explosion_radius}
+missile_cooldown = 3.0  # Cooldown between missiles (seconds)
+missile_time_since_used = 999.0  # Time since last missile
+missile_damage = 800  # Damage on explosion
+missile_explosion_radius = 100  # Explosion radius
+missile_speed = 400  # Missile movement speed
 
 # Filter blocks to prevent them from spawning within 10x player size radius from player
 # This must be done after all blocks are defined
@@ -1581,15 +1594,7 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
 
 
 def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict]):
-    """Enemy movement with block pushing (enemies can push all blocks to chase player)."""
-    block_rects = [b["rect"] for b in block_list]
-    # Include all moveable blocks: destructible, moveable_destructible, trapezoid, and triangle blocks
-    destructible_rects = [b["rect"] for b in destructible_blocks]
-    moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
-    trapezoid_rects = [tb["rect"] for tb in trapezoid_blocks]  # Now use rect instead of bounding_rect
-    triangle_rects = [tr["rect"] for tr in triangle_blocks]  # Now use rect instead of bounding_rect
-    all_collision_rects = block_rects + destructible_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects
-
+    """Enemy movement - enemies cannot go through objects and must navigate around them."""
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
             continue
@@ -1597,53 +1602,90 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
         enemy_rect.x += axis_dx
         enemy_rect.y += axis_dy
 
-        hit_block = None
-        # Check regular blocks first
+        # Check collisions with all objects - enemies cannot pass through anything
+        collision = False
+        
+        # Check regular blocks
         for b in block_list:
             if enemy_rect.colliderect(b["rect"]):
-                hit_block = b
+                collision = True
                 break
-        # Check destructible blocks (now moveable)
-        if hit_block is None:
+        
+        # Check destructible blocks
+        if not collision:
             for b in destructible_blocks:
                 if enemy_rect.colliderect(b["rect"]):
-                    hit_block = b
+                    collision = True
                     break
+        
         # Check moveable destructible blocks
-        if hit_block is None:
+        if not collision:
             for b in moveable_destructible_blocks:
                 if enemy_rect.colliderect(b["rect"]):
-                    hit_block = b
+                    collision = True
                     break
-        # Check trapezoid blocks (now moveable)
-        if hit_block is None:
+        
+        # Check giant blocks (unmovable)
+        if not collision:
+            for gb in giant_blocks:
+                if enemy_rect.colliderect(gb["rect"]):
+                    collision = True
+                    break
+        
+        # Check super giant blocks (unmovable)
+        if not collision:
+            for sgb in super_giant_blocks:
+                if enemy_rect.colliderect(sgb["rect"]):
+                    collision = True
+                    break
+        
+        # Check trapezoid blocks
+        if not collision:
             for tb in trapezoid_blocks:
-                if enemy_rect.colliderect(tb["rect"]):
-                    hit_block = tb
+                if enemy_rect.colliderect(tb.get("bounding_rect", tb.get("rect"))):
+                    collision = True
                     break
-        # Check triangle blocks (now moveable)
-        if hit_block is None:
+        
+        # Check triangle blocks
+        if not collision:
             for tr in triangle_blocks:
-                if enemy_rect.colliderect(tr["rect"]):
-                    hit_block = tr
+                if enemy_rect.colliderect(tr.get("bounding_rect", tr.get("rect"))):
+                    collision = True
+                    break
+        
+        # Check pickups
+        if not collision:
+            for pickup in pickups:
+                if enemy_rect.colliderect(pickup["rect"]):
+                    collision = True
+                    break
+        
+        # Check health zone
+        if not collision:
+            if enemy_rect.colliderect(moving_health_zone["rect"]):
+                collision = True
+        
+        # Check player
+        if not collision:
+            if enemy_rect.colliderect(player):
+                collision = True
+        
+        # Check friendly AI
+        if not collision:
+            for f in friendly_ai:
+                if f.get("hp", 1) > 0 and enemy_rect.colliderect(f["rect"]):
+                    collision = True
+                    break
+        
+        # Check other enemies (prevent enemy stacking)
+        if not collision:
+            for other_e in enemies:
+                if other_e["rect"] is not enemy_rect and enemy_rect.colliderect(other_e["rect"]):
+                    collision = True
                     break
 
-        if hit_block is None:
-            continue
-
-        hit_rect = hit_block["rect"]
-        other_rects = [r for r in all_collision_rects if r is not hit_rect]
-
-        # Try to push the block
-        if can_move_rect(hit_rect, axis_dx, axis_dy, other_rects):
-            hit_rect.x += axis_dx
-            hit_rect.y += axis_dy
-            # Update bounding_rect for trapezoid/triangle blocks to match rect position
-            if "bounding_rect" in hit_block:
-                hit_block["bounding_rect"].x = hit_rect.x
-                hit_block["bounding_rect"].y = hit_rect.y
-        else:
-            # Block can't be pushed, so enemy can't move
+        # If collision detected, revert movement
+        if collision:
             enemy_rect.x -= axis_dx
             enemy_rect.y -= axis_dy
 
@@ -1654,12 +1696,15 @@ def move_enemy_with_push_cached(enemy_rect: pygame.Rect, move_x: int, move_y: in
                                  cached_moveable_destructible_rects: list,
                                  cached_trapezoid_rects: list,
                                  cached_triangle_rects: list):
-    """Optimized enemy movement with block pushing using cached rect lists."""
+    """Optimized enemy movement - enemies cannot go through objects and must navigate around them."""
+    # Cache rects for performance
     block_rects = [b["rect"] for b in block_list]
-    # Include destructible blocks in cached rects
     cached_destructible_rects = [b["rect"] for b in destructible_blocks]
-    # Use cached rects for all_collision_rects (main performance gain)
-    all_collision_rects = block_rects + cached_destructible_rects + cached_moveable_destructible_rects + cached_trapezoid_rects + cached_triangle_rects
+    cached_giant_rects = [gb["rect"] for gb in giant_blocks]
+    cached_super_giant_rects = [sgb["rect"] for sgb in super_giant_blocks]
+    cached_pickup_rects = [p["rect"] for p in pickups]
+    cached_friendly_rects = [f["rect"] for f in friendly_ai if f.get("hp", 1) > 0]
+    cached_enemy_rects = [e["rect"] for e in enemies if e["rect"] is not enemy_rect]
 
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -1668,53 +1713,90 @@ def move_enemy_with_push_cached(enemy_rect: pygame.Rect, move_x: int, move_y: in
         enemy_rect.x += axis_dx
         enemy_rect.y += axis_dy
 
-        hit_block = None
-        # Check regular blocks first
-        for b in block_list:
-            if enemy_rect.colliderect(b["rect"]):
-                hit_block = b
+        # Check collisions with all objects - enemies cannot pass through anything
+        collision = False
+        
+        # Check regular blocks
+        for rect in block_rects:
+            if enemy_rect.colliderect(rect):
+                collision = True
                 break
-        # Check destructible blocks (now moveable)
-        if hit_block is None:
-            for b in destructible_blocks:
-                if enemy_rect.colliderect(b["rect"]):
-                    hit_block = b
+        
+        # Check destructible blocks
+        if not collision:
+            for rect in cached_destructible_rects:
+                if enemy_rect.colliderect(rect):
+                    collision = True
                     break
+        
         # Check moveable destructible blocks
-        if hit_block is None:
-            for b in moveable_destructible_blocks:
-                if enemy_rect.colliderect(b["rect"]):
-                    hit_block = b
+        if not collision:
+            for rect in cached_moveable_destructible_rects:
+                if enemy_rect.colliderect(rect):
+                    collision = True
                     break
-        # Check trapezoid blocks (now moveable)
-        if hit_block is None:
-            for tb in trapezoid_blocks:
-                if enemy_rect.colliderect(tb["rect"]):
-                    hit_block = tb
+        
+        # Check giant blocks (unmovable)
+        if not collision:
+            for rect in cached_giant_rects:
+                if enemy_rect.colliderect(rect):
+                    collision = True
                     break
-        # Check triangle blocks (now moveable)
-        if hit_block is None:
-            for tr in triangle_blocks:
-                if enemy_rect.colliderect(tr["rect"]):
-                    hit_block = tr
+        
+        # Check super giant blocks (unmovable)
+        if not collision:
+            for rect in cached_super_giant_rects:
+                if enemy_rect.colliderect(rect):
+                    collision = True
+                    break
+        
+        # Check trapezoid blocks
+        if not collision:
+            for rect in cached_trapezoid_rects:
+                if enemy_rect.colliderect(rect):
+                    collision = True
+                    break
+        
+        # Check triangle blocks
+        if not collision:
+            for rect in cached_triangle_rects:
+                if enemy_rect.colliderect(rect):
+                    collision = True
+                    break
+        
+        # Check pickups
+        if not collision:
+            for rect in cached_pickup_rects:
+                if enemy_rect.colliderect(rect):
+                    collision = True
+                    break
+        
+        # Check health zone
+        if not collision:
+            if enemy_rect.colliderect(moving_health_zone["rect"]):
+                collision = True
+        
+        # Check player
+        if not collision:
+            if enemy_rect.colliderect(player):
+                collision = True
+        
+        # Check friendly AI
+        if not collision:
+            for rect in cached_friendly_rects:
+                if enemy_rect.colliderect(rect):
+                    collision = True
+                    break
+        
+        # Check other enemies (prevent enemy stacking)
+        if not collision:
+            for rect in cached_enemy_rects:
+                if enemy_rect.colliderect(rect):
+                    collision = True
                     break
 
-        if hit_block is None:
-            continue
-
-        hit_rect = hit_block["rect"]
-        other_rects = [r for r in all_collision_rects if r is not hit_rect]
-
-        # Try to push the block
-        if can_move_rect(hit_rect, axis_dx, axis_dy, other_rects):
-            hit_rect.x += axis_dx
-            hit_rect.y += axis_dy
-            # Update bounding_rect for trapezoid/triangle blocks to match rect position
-            if "bounding_rect" in hit_block:
-                hit_block["bounding_rect"].x = hit_rect.x
-                hit_block["bounding_rect"].y = hit_rect.y
-        else:
-            # Block can't be pushed, so enemy can't move
+        # If collision detected, revert movement
+        if collision:
             enemy_rect.x -= axis_dx
             enemy_rect.y -= axis_dy
 
@@ -3421,6 +3503,8 @@ def reset_after_death():
     weapon_pickup_messages.clear()  # Clear weapon pickup messages on death
     grenade_explosions.clear()  # Clear grenade explosions on death
     grenade_time_since_used = 999.0  # Reset grenade cooldown
+    missiles.clear()  # Clear missiles on death
+    missile_time_since_used = 999.0  # Reset missile cooldown
     # Reset moving health zone to center
     moving_health_zone["rect"].center = (WIDTH // 4, HEIGHT // 4)  # Offset from center (boss spawn)
     moving_health_zone["target"] = None
@@ -3510,6 +3594,7 @@ try:
             survival_time += dt  # Track total survival time
             player_time_since_shot += dt
             grenade_time_since_used += dt
+            missile_time_since_used += dt
             
             # Update enemy defeat messages timer
             for msg in enemy_defeat_messages[:]:
@@ -3745,7 +3830,7 @@ try:
                             
                             # Apply class stats to player
                             class_stats = player_class_stats[player_class]
-                            player_max_hp = int(250 * class_stats["hp_mult"])
+                            player_max_hp = int(2500 * class_stats["hp_mult"])  # 10x (250 * 10)
                             player_hp = player_max_hp
                             player_speed = int(300 * class_stats["speed_mult"])
                             
@@ -3779,7 +3864,7 @@ try:
                                 telemetry = NoOpTelemetry()
                             # Apply class stats
                             stats = player_class_stats[player_class]
-                            player_max_hp = int(100 * stats["hp_mult"])
+                            player_max_hp = int(1000 * stats["hp_mult"])  # 10x (100 * 10)
                             player_hp = player_max_hp
                             player_speed = int(300 * stats["speed_mult"])
                             player_bullet_damage = int(20 * stats["damage_mult"])
@@ -3888,9 +3973,41 @@ try:
                                 "timer": 0.3,  # Explosion lasts 0.3 seconds
                                 "damage": grenade_damage,
                                 "damaged_enemies": set(),  # Track which enemies already took damage
-                                "damaged_blocks": set()  # Track which blocks already took damage
+                                "damaged_blocks": set(),  # Track which blocks already took damage
+                                "source": "player"  # Mark as player grenade (player is immune)
                             })
                             grenade_time_since_used = 0.0
+                    
+                    # Missile activation (R key)
+                    if event.key == pygame.K_r:
+                        if missile_time_since_used >= missile_cooldown and enemies:
+                            # Find nearest enemy to target
+                            player_center = pygame.Vector2(player.center)
+                            nearest_enemy = None
+                            nearest_dist = float("inf")
+                            for e in enemies:
+                                enemy_center = pygame.Vector2(e["rect"].center)
+                                dist = player_center.distance_to(enemy_center)
+                                if dist < nearest_dist:
+                                    nearest_dist = dist
+                                    nearest_enemy = e
+                            
+                            if nearest_enemy:
+                                # Create missile at player position
+                                missile_rect = pygame.Rect(player.centerx - 8, player.centery - 8, 16, 16)
+                                target_center = pygame.Vector2(nearest_enemy["rect"].center)
+                                direction = (target_center - player_center)
+                                if direction.length() > 0:
+                                    direction = direction.normalize()
+                                    missiles.append({
+                                        "rect": missile_rect,
+                                        "vel": direction * missile_speed,
+                                        "target_enemy": nearest_enemy,
+                                        "speed": missile_speed,
+                                        "damage": missile_damage,
+                                        "explosion_radius": missile_explosion_radius
+                                    })
+                                    missile_time_since_used = 0.0
                 
                 # Victory screen
                 if state == STATE_VICTORY:
@@ -4790,7 +4907,7 @@ try:
                 dy_e = int(move_vec.y)
                 
                 if dx_e or dy_e:
-                    # Enemies can push blocks out of the way to chase the player
+                    # Enemies cannot go through objects and must navigate around them
                     # Pass cached block rects to avoid recreating lists
                     old_center = pygame.Vector2(e["rect"].center)
                     move_enemy_with_push_cached(e["rect"], dx_e, dy_e, blocks, 
@@ -6037,6 +6154,62 @@ try:
                             break
 
             # Update grenade explosions
+            # Update missiles (seeking enemies)
+            for missile in missiles[:]:
+                # Update target if enemy is still alive, otherwise find new target
+                if missile["target_enemy"] not in enemies:
+                    # Find new nearest enemy
+                    missile_center = pygame.Vector2(missile["rect"].center)
+                    nearest_enemy = None
+                    nearest_dist = float("inf")
+                    for e in enemies:
+                        enemy_center = pygame.Vector2(e["rect"].center)
+                        dist = missile_center.distance_to(enemy_center)
+                        if dist < nearest_dist:
+                            nearest_dist = dist
+                            nearest_enemy = e
+                    
+                    if nearest_enemy:
+                        missile["target_enemy"] = nearest_enemy
+                    else:
+                        # No enemies left, remove missile
+                        missiles.remove(missile)
+                        continue
+                
+                # Update missile velocity to seek target
+                missile_center = pygame.Vector2(missile["rect"].center)
+                target_center = pygame.Vector2(missile["target_enemy"]["rect"].center)
+                direction = (target_center - missile_center)
+                if direction.length() > 0:
+                    direction = direction.normalize()
+                    missile["vel"] = direction * missile["speed"]
+                
+                # Move missile
+                missile["rect"].x += int(missile["vel"].x * dt)
+                missile["rect"].y += int(missile["vel"].y * dt)
+                
+                # Check collision with target enemy
+                if missile["rect"].colliderect(missile["target_enemy"]["rect"]):
+                    # Explode on contact
+                    exp_center = pygame.Vector2(missile["rect"].center)
+                    grenade_explosions.append({
+                        "x": exp_center.x,
+                        "y": exp_center.y,
+                        "radius": missile["explosion_radius"],
+                        "timer": 0.3,
+                        "damage": missile["damage"],
+                        "damaged_enemies": set(),
+                        "damaged_blocks": set(),
+                        "source": "player"  # Player missiles don't damage player
+                    })
+                    missiles.remove(missile)
+                    continue
+                
+                # Remove if off screen
+                if rect_offscreen(missile["rect"]):
+                    missiles.remove(missile)
+                    continue
+            
             for exp in grenade_explosions[:]:
                 exp["timer"] -= dt
                 
@@ -6059,8 +6232,8 @@ try:
                 else:
                     exp_center = pygame.Vector2(exp["x"], exp["y"])
                 
-                # Apply damage to player (if not already damaged by this explosion)
-                if not exp.get("damaged_player", False):
+                # Apply damage to player (if not already damaged by this explosion and not from player)
+                if not exp.get("damaged_player", False) and exp.get("source") != "player":
                     player_center = pygame.Vector2(player.center)
                     dist_to_player = exp_center.distance_to(player_center)
                     if dist_to_player <= exp["radius"]:
@@ -6791,6 +6964,20 @@ try:
             # Skip off-screen projectiles to improve performance
             if not (p["rect"].right < 0 or p["rect"].left > WIDTH or p["rect"].bottom < 0 or p["rect"].top > HEIGHT):
                 draw_projectile(p["rect"], p.get("color", enemy_projectiles_color), p.get("shape", "circle"))
+        
+        # Draw missiles (orange/red with trail effect)
+        for missile in missiles:
+            if not rect_offscreen(missile["rect"]):
+                # Draw missile body (orange/red)
+                pygame.draw.rect(screen, (255, 150, 50), missile["rect"])
+                # Draw trail effect
+                trail_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                missile_center = missile["rect"].center
+                # Draw small trail behind missile
+                vel_dir = missile["vel"].normalize() if missile["vel"].length() > 0 else pygame.Vector2(0, 0)
+                trail_start = pygame.Vector2(missile_center) - vel_dir * 10
+                pygame.draw.line(trail_surf, (255, 200, 100, 150), trail_start, missile_center, 3)
+                screen.blit(trail_surf, (0, 0))
 
         # HUD (only if UI and HUD are enabled)
         if ui_show_all_ui and ui_show_hud and ui_show_metrics:
@@ -6906,6 +7093,36 @@ try:
                 bg_rect = pygame.Rect(defeat_x - 5, defeat_y - 2, defeat_text.get_width() + 10, defeat_text.get_height() + 4)
                 pygame.draw.rect(screen, (0, 0, 0, 200), bg_rect)
                 screen.blit(defeat_text, (defeat_x, defeat_y))
+            
+            # Bomb status bar at bottom of screen
+            bomb_bar_width = 200
+            bomb_bar_height = 30
+            bomb_bar_x = (WIDTH - bomb_bar_width) // 2  # Center horizontally
+            bomb_bar_y = HEIGHT - 100  # Above controls
+            
+            # Calculate bomb readiness (0.0 to 1.0)
+            bomb_readiness = min(1.0, grenade_time_since_used / grenade_cooldown)
+            is_ready = grenade_time_since_used >= grenade_cooldown
+            
+            # Background
+            pygame.draw.rect(screen, (40, 40, 40), (bomb_bar_x, bomb_bar_y, bomb_bar_width, bomb_bar_height))
+            
+            # Progress bar (red when not ready, purple when ready)
+            if is_ready:
+                bar_color = (200, 100, 255)  # Purple when ready
+            else:
+                bar_color = (255, 50, 50)  # Red when not ready
+            
+            pygame.draw.rect(screen, bar_color, (bomb_bar_x, bomb_bar_y, int(bomb_bar_width * bomb_readiness), bomb_bar_height))
+            
+            # Border
+            pygame.draw.rect(screen, (150, 150, 150), (bomb_bar_x, bomb_bar_y, bomb_bar_width, bomb_bar_height), 2)
+            
+            # "BOMB" text centered in bar
+            bomb_text = font.render("BOMB", True, (255, 255, 255))
+            bomb_text_x = bomb_bar_x + (bomb_bar_width - bomb_text.get_width()) // 2
+            bomb_text_y = bomb_bar_y + (bomb_bar_height - bomb_text.get_height()) // 2
+            screen.blit(bomb_text, (bomb_text_x, bomb_text_y))
             
             # Controls display at bottom of screen
             controls_y = HEIGHT - 60
