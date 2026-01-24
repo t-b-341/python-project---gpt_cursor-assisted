@@ -305,9 +305,13 @@
 #--------------------------------------------------------/
 #when wave starts, start with overshield charged 
 #jump = spacebar, add to json file controls listing
-#--------------------------------------------------------
+#--------------------------------------------------------/
 #change "jump" name to "dash" in game and controls
-#
+#--------------------------------------------------------/
+#new control: "ally_drop" key, "q": drop an ally behind you that regenerates every 30 seconds, that distracts all enemies chasing you
+#set to show HUD by default
+#game; fix overshield bar and health bar overlay, and amount shown in health and overshield, show bars full, with health and overshield amounts full
+#--------------------------------------------------------
 
 
 import math
@@ -383,6 +387,7 @@ DEFAULT_CONTROLS = {
     "boost": "left shift",
     "slow": "left ctrl",
     "dash": "space",
+    "ally_drop": "q",
 }
 
 
@@ -462,7 +467,7 @@ STATE_WAVE_BUILDER = "WAVE_BUILDER"  # Custom wave builder
 state = STATE_MENU
 previous_game_state = None  # Track previous game state for pause/unpause (STATE_PLAYING or STATE_ENDURANCE)
 menu_section = 0  # 0 = difficulty, 1 = aiming, 1.5 = character profile yes/no, 2 = class, 3 = HUD options, 3.5 = Telemetry options, 4 = beam_selection, 5 = start
-ui_show_metrics_selected = 1  # 0 = Show, 1 = Hide - Default: Hide (disabled)
+ui_show_metrics_selected = 0  # 0 = Show, 1 = Hide - Default: Show (enabled)
 ui_show_hud = True  # HUD visibility (follows metrics setting)
 ui_options_selected = 0  # 0 = Metrics, 1 = Telemetry (which option is currently focused)
 endurance_mode_selected = 0  # 0 = Normal, 1 = Endurance Mode
@@ -544,7 +549,7 @@ ui_show_stats = True
 ui_show_all_ui = True
 ui_show_block_health_bars = False  # Health bars for destructible blocks
 ui_show_player_health_bar = True  # Health bar above player character
-ui_show_metrics = False  # Show metrics/stats in HUD - Default: Disabled
+ui_show_metrics = True  # Show metrics/stats in HUD - Default: Enabled
 ui_telemetry_enabled_selected = 1  # 0 = Enabled, 1 = Disabled (for menu) - Default: Disabled
 
 # Alternative aiming mechanics
@@ -563,7 +568,7 @@ continue_blink_t = 0.0
 
 # Controls menu state
 STATE_CONTROLS = "CONTROLS"
-controls_actions = ["move_left", "move_right", "move_up", "move_down", "boost", "slow", "dash"]
+controls_actions = ["move_left", "move_right", "move_up", "move_down", "boost", "slow", "dash", "ally_drop"]
 controls_selected = 0
 controls_rebinding = False
 
@@ -1380,6 +1385,11 @@ friendly_ai_templates: list[dict] = [
 ]
 
 friendly_ai: list[dict] = []
+
+# Dropped ally system (distracts enemies)
+dropped_ally: dict | None = None  # Single dropped ally that distracts enemies
+ally_drop_cooldown = 30.0  # Cooldown between ally drops (seconds)
+ally_drop_timer = 0.0  # Time since last ally drop
 friendly_projectiles: list[dict] = []
 
 # ----------------------------
@@ -1990,43 +2000,44 @@ def find_nearest_enemy(friendly_pos: pygame.Vector2) -> dict | None:
 
 def find_nearest_threat(enemy_pos: pygame.Vector2) -> tuple[pygame.Vector2, str] | None:
     """Find the nearest threat (player or friendly AI) to an enemy.
-    Prioritizes player unless player is over half the map away, then prioritizes nearby allies."""
+    Prioritizes dropped ally over player, then other friendly AI."""
     threats = []
     player_pos = pygame.Vector2(player.center)
     player_dist_sq = (player_pos - enemy_pos).length_squared()
     player_dist = math.sqrt(player_dist_sq)
-    half_map_distance = math.sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT) / 2  # Half the diagonal of the map
     
-    # Always add player as a threat
-    threats.append((player_pos, player_dist_sq, "player", player_dist))
-    
-    # Add friendly AI threats
+    # Add friendly AI threats (prioritize dropped ally)
+    dropped_ally_threats = []
+    other_friendly_threats = []
     for f in friendly_ai:
         if f["hp"] <= 0:
             continue
         friendly_pos = pygame.Vector2(f["rect"].center)
         friendly_dist_sq = (friendly_pos - enemy_pos).length_squared()
         friendly_dist = math.sqrt(friendly_dist_sq)
-        threats.append((friendly_pos, friendly_dist_sq, "friendly", friendly_dist))
+        if f.get("is_dropped_ally", False):
+            # Dropped ally has highest priority
+            dropped_ally_threats.append((friendly_pos, friendly_dist_sq, "dropped_ally", friendly_dist))
+        else:
+            other_friendly_threats.append((friendly_pos, friendly_dist_sq, "friendly", friendly_dist))
     
-    if not threats:
+    # Add player as threat (lowest priority)
+    threats.append((player_pos, player_dist_sq, "player", player_dist))
+    
+    if not threats and not dropped_ally_threats and not other_friendly_threats:
         return None
     
-    # If player is over half the map away, prioritize nearby allies
-    if player_dist > half_map_distance:
-        # Filter to only friendly AI threats
-        friendly_threats = [t for t in threats if t[2] == "friendly"]
-        if friendly_threats:
-            # Sort by distance and return closest friendly
-            friendly_threats.sort(key=lambda x: x[1])
-            return (friendly_threats[0][0], friendly_threats[0][2])
-        # If no friendly threats, still return player
-        return (player_pos, "player")
+    # Prioritize dropped ally first, then other friendly AI, then player
+    if dropped_ally_threats:
+        dropped_ally_threats.sort(key=lambda x: x[1])
+        return (dropped_ally_threats[0][0], dropped_ally_threats[0][2])
     
-    # Player is close enough - prioritize player
-    # Return the closest threat (usually player)
-    threats.sort(key=lambda x: x[1])
-    return (threats[0][0], threats[0][2])
+    if other_friendly_threats:
+        other_friendly_threats.sort(key=lambda x: x[1])
+        return (other_friendly_threats[0][0], other_friendly_threats[0][2])
+    
+    # Return player if no friendly threats
+    return (player_pos, "player")
 
 
 def find_threats_in_dodge_range(enemy_pos: pygame.Vector2, dodge_range: float = 200.0) -> list[pygame.Vector2]:
@@ -2132,7 +2143,7 @@ def spawn_friendly_projectile(friendly: dict, target: dict):
 
 def start_wave(wave_num: int):
     """Spawn a new wave with scaling. Each level has 3 waves, boss on wave 3."""
-    global enemies, wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer
+    global enemies, wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer, ally_drop_timer
     enemies = []
     boss_active = False
     # Reset lives to 3 at the beginning of each wave
@@ -2227,6 +2238,7 @@ def start_wave(wave_num: int):
     
     # Charge overshield at wave start
     overshield_recharge_timer = overshield_recharge_cooldown  # Set to full charge
+    ally_drop_timer = ally_drop_cooldown  # Charge ally drop at wave start
     
     # Log wave start event
     telemetry.log_wave(
@@ -3520,7 +3532,7 @@ def reset_after_death():
     global jump_cooldown_timer, jump_timer, is_jumping, jump_velocity
     global laser_beams, laser_time_since_shot
     global shield_active, shield_duration_remaining, shield_cooldown_remaining
-    global player_health_regen_rate, moving_health_zone
+    global player_health_regen_rate, moving_health_zone, dropped_ally, ally_drop_timer
 
     player_hp = player_max_hp
     player_health_regen_rate = 0.0  # Reset health regeneration rate
@@ -3531,6 +3543,8 @@ def reset_after_death():
     grenade_time_since_used = 999.0  # Reset grenade cooldown
     missiles.clear()  # Clear missiles on death
     missile_time_since_used = 999.0  # Reset missile cooldown
+    dropped_ally = None  # Clear dropped ally on death
+    ally_drop_timer = 0.0  # Reset ally drop timer on death
     # Reset moving health zone to center
     moving_health_zone["rect"].center = (WIDTH // 4, HEIGHT // 4)  # Offset from center (boss spawn)
     moving_health_zone["target"] = None
@@ -3623,6 +3637,7 @@ try:
             missile_time_since_used += dt
             overshield_recharge_timer += dt
             shield_recharge_timer += dt
+            ally_drop_timer += dt
             
             # Update enemy defeat messages timer
             for msg in enemy_defeat_messages[:]:
@@ -3996,6 +4011,32 @@ try:
                             overshield = player_max_hp
                             overshield_max = max(overshield_max, player_max_hp)  # Update max if needed
                             overshield_recharge_timer = 0.0
+                    
+                    # Ally drop activation (Q key)
+                    if event.key == controls.get("ally_drop", pygame.K_q):
+                        if ally_drop_timer >= ally_drop_cooldown:
+                            # Remove existing dropped ally if any
+                            if dropped_ally and dropped_ally in friendly_ai:
+                                friendly_ai.remove(dropped_ally)
+                            
+                            # Spawn ally behind player (opposite direction of last movement)
+                            player_center = pygame.Vector2(player.center)
+                            if last_move_velocity.length_squared() > 0:
+                                # Spawn behind player in opposite direction of movement
+                                spawn_dir = -last_move_velocity.normalize()
+                            else:
+                                # Default: spawn below player
+                                spawn_dir = pygame.Vector2(0, 1)
+                            
+                            # Use tank template for dropped ally (high HP, draws fire)
+                            tank_template = next((t for t in friendly_ai_templates if t["type"] == "tank"), friendly_ai_templates[0])
+                            dropped_ally = make_friendly_from_template(tank_template, 1.0, 1.0)
+                            spawn_offset = spawn_dir * 50  # 50 pixels behind player
+                            dropped_ally["rect"].center = (int(player_center.x + spawn_offset.x), int(player_center.y + spawn_offset.y))
+                            dropped_ally["is_dropped_ally"] = True  # Mark as dropped ally for priority targeting
+                            clamp_rect_to_screen(dropped_ally["rect"])
+                            friendly_ai.append(dropped_ally)
+                            ally_drop_timer = 0.0
                     
                     # Grenade activation (E key)
                     if event.key == pygame.K_e:
@@ -7031,28 +7072,29 @@ try:
             hp_bar_x = (WIDTH - hp_bar_width) // 2  # Center horizontally
             hp_bar_y = HEIGHT - 120  # Above controls (controls_y = HEIGHT - 60, so 60 pixels above that)
             
-            # Draw overshield bar (above HP bar at bottom)
+            # Draw overshield bar (above HP bar at bottom) - always show, even when empty
+            overshield_bar_w = hp_bar_width
+            overshield_bar_h = 12
+            overshield_bar_x = hp_bar_x
+            overshield_bar_y = hp_bar_y - 18  # Above HP bar
+            overshield_ratio = overshield / overshield_max if overshield_max > 0 else 0.0
+            # Background
+            pygame.draw.rect(screen, (40, 40, 40), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h))
+            # Overshield (orange color when full, darker orange when partial)
             if overshield > 0:
-                overshield_bar_w = hp_bar_width
-                overshield_bar_h = 12
-                overshield_bar_x = hp_bar_x
-                overshield_bar_y = hp_bar_y - 18  # Above HP bar
-                overshield_ratio = overshield / overshield_max
-                # Background
-                pygame.draw.rect(screen, (40, 40, 40), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h))
-                # Overshield (cyan/blue color)
-                pygame.draw.rect(screen, (100, 200, 255), (overshield_bar_x, overshield_bar_y, int(overshield_bar_w * overshield_ratio), overshield_bar_h))
-                # Border
-                pygame.draw.rect(screen, (150, 220, 255), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h), 2)
-                # Text
-                shield_text = font.render(f"Shield: {int(overshield)}/{int(overshield_max)}", True, (150, 220, 255))
-                shield_text_x = overshield_bar_x + (overshield_bar_w - shield_text.get_width()) // 2
-                screen.blit(shield_text, (shield_text_x, overshield_bar_y - 1))
+                overshield_color = (255, 150, 50) if overshield >= overshield_max else (255, 100, 0)
+                pygame.draw.rect(screen, overshield_color, (overshield_bar_x, overshield_bar_y, int(overshield_bar_w * overshield_ratio), overshield_bar_h))
+            # Border
+            pygame.draw.rect(screen, (150, 150, 150), (overshield_bar_x, overshield_bar_y, overshield_bar_w, overshield_bar_h), 2)
+            # Text - show full amounts
+            shield_text = font.render(f"Overshield: {int(overshield)}/{int(overshield_max)}", True, (255, 200, 100))
+            shield_text_x = overshield_bar_x + (overshield_bar_w - shield_text.get_width()) // 2
+            screen.blit(shield_text, (shield_text_x, overshield_bar_y - 1))
             
-            # Draw HP bar at bottom
+            # Draw HP bar at bottom - always show full bar
             draw_health_bar(hp_bar_x, hp_bar_y, hp_bar_width, hp_bar_height, player_hp, player_max_hp)
-            # HP text centered above the bar
-            hp_text = font.render(f"HP: {player_hp}/{player_max_hp}", True, (230, 230, 230))
+            # HP text centered above the bar - show full amounts
+            hp_text = font.render(f"HP: {int(player_hp)}/{int(player_max_hp)}", True, (230, 230, 230))
             hp_text_x = hp_bar_x + (hp_bar_width - hp_text.get_width()) // 2
             screen.blit(hp_text, (hp_text_x, hp_bar_y - 24))
             

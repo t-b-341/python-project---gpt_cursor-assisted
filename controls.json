@@ -8,5 +8,6 @@
   "dash": "space",
   "grenade": "e",
   "missile": "r",
-  "overshield": "tab"
+  "overshield": "tab",
+  "ally_drop": "q"
 }
