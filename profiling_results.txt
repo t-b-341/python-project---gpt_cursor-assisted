@@ -1,0 +1,160 @@
+Sat Jan 24 10:29:45 2026    profiling_results.prof
+
+         37484003 function calls (37473673 primitive calls) in 84.784 seconds
+
+   Ordered by: cumulative time
+   List reduced from 4140 to 150 due to restriction <150>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000   84.788   84.788 <frozen runpy>:201(run_module)
+        1    0.000    0.000   84.785   84.785 <frozen runpy>:65(_run_code)
+    632/1    0.014    0.000   84.785   84.785 {built-in method builtins.exec}
+        1   27.284   27.284   84.785   84.785 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:1(<module>)
+   254674   24.193    0.000   24.193    0.000 {method 'blit' of 'pygame.surface.Surface' objects}
+     4613    4.759    0.001    4.759    0.001 {built-in method pygame.display.flip}
+   316357    3.461    0.000    3.461    0.000 {built-in method pygame.draw.polygon}
+   568374    2.939    0.000    2.939    0.000 {built-in method pygame.draw.rect}
+     8936    2.927    0.000    2.927    0.000 {method 'fill' of 'pygame.surface.Surface' objects}
+     4177    0.142    0.000    2.860    0.001 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2581(update_hazard_obstacles)
+    28004    1.110    0.000    2.779    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2811(draw_cracked_brick_wall_texture)
+     4613    2.403    0.001    2.403    0.001 {method 'tick' of 'pygame.time.Clock' objects}
+      674    0.004    0.000    2.284    0.003 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\telemetry.py:1197(flush)
+      671    2.212    0.003    2.212    0.003 {method 'commit' of 'sqlite3.Connection' objects}
+  2374492    1.823    0.000    1.823    0.000 {built-in method pygame.draw.line}
+      516    0.005    0.000    1.757    0.003 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2108(spawn_friendly_projectile)
+    13380    1.212    0.000    1.658    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2429(generate_paraboloid_points)
+ 14784646    1.641    0.000    1.641    0.000 {method 'colliderect' of 'pygame.rect.Rect' objects}
+    34000    0.453    0.000    1.163    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2777(draw_silver_wall_texture)
+    34122    0.547    0.000    0.971    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:1725(move_enemy_with_push_cached)
+        1    0.884    0.884    0.885    0.885 {built-in method pygame.display.set_mode}
+    620/9    0.005    0.000    0.839    0.093 <frozen importlib._bootstrap>:1349(_find_and_load)
+    618/9    0.002    0.000    0.839    0.093 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    599/9    0.002    0.000    0.836    0.093 <frozen importlib._bootstrap>:911(_load_unlocked)
+    516/7    0.001    0.000    0.835    0.119 <frozen importlib._bootstrap_external>:993(exec_module)
+  1480/20    0.002    0.000    0.832    0.042 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+  1699417    0.567    0.000    0.813    0.000 {built-in method builtins.min}
+   134862    0.716    0.000    0.716    0.000 {method 'render' of 'pygame.font.Font' objects}
+   444572    0.351    0.000    0.594    0.000 {built-in method builtins.max}
+     4250    0.013    0.000    0.553    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\telemetry.py:1180(tick)
+   518/29    0.001    0.000    0.511    0.018 {built-in method builtins.__import__}
+   701/95    0.001    0.000    0.488    0.005 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        1    0.000    0.000    0.478    0.478 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\gpu_physics.py:1(<module>)
+   691423    0.472    0.000    0.472    0.000 {built-in method pygame.draw.circle}
+    44837    0.032    0.000    0.357    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:3525(render_hud_text)
+    41979    0.237    0.000    0.356    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2002(find_nearest_threat)
+    52515    0.075    0.000    0.342    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2873(draw_health_bar)
+        1    0.000    0.000    0.330    0.330 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\__init__.py:1(<module>)
+        1    0.000    0.000    0.324    0.324 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\pygame\__init__.py:1(<module>)
+        1    0.296    0.296    0.296    0.296 {built-in method pygame.base.quit}
+      517    0.005    0.000    0.261    0.001 <frozen importlib._bootstrap_external>:1066(get_code)
+  1836092    0.255    0.000    0.256    0.000 {method 'get' of 'dict' objects}
+   224962    0.087    0.000    0.252    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2943(draw_projectile)
+     4613    0.244    0.000    0.244    0.000 {built-in method pygame.event.get}
+        1    0.224    0.224    0.227    0.227 {built-in method pygame.base.init}
+  1677702    0.212    0.000    0.212    0.000 {method 'append' of 'list' objects}
+   375843    0.114    0.000    0.185    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2507(check_point_in_hazard)
+  1535047    0.171    0.000    0.171    0.000 {built-in method math.sin}
+  1508837    0.169    0.000    0.169    0.000 {built-in method math.cos}
+        1    0.000    0.000    0.166    0.166 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\pygame\pkgdata.py:1(<module>)
+        1    0.000    0.000    0.164    0.164 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\pkg_resources\__init__.py:1(<module>)
+     4177    0.100    0.000    0.163    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:1516(move_player_with_push)
+      517    0.002    0.000    0.157    0.000 <frozen importlib._bootstrap_external>:1187(get_data)
+     4177    0.101    0.000    0.146    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2898(update_pickup_effects)
+      611    0.005    0.000    0.140    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+     4211    0.077    0.000    0.137    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:4692(health_zone_overlaps_with_objects)
+      592    0.000    0.000    0.130    0.000 <frozen importlib._bootstrap_external>:1524(find_spec)
+      592    0.001    0.000    0.130    0.000 <frozen importlib._bootstrap_external>:1495(_get_spec)
+  1381400    0.125    0.000    0.125    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2647(<genexpr>)
+  1381400    0.121    0.000    0.121    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2648(<genexpr>)
+        1    0.000    0.000    0.121    0.121 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\cuda\__init__.py:1(<module>)
+  1381400    0.121    0.000    0.121    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2649(<genexpr>)
+  1381400    0.120    0.000    0.120    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2650(<genexpr>)
+      805    0.007    0.000    0.120    0.000 <frozen importlib._bootstrap_external>:1597(find_spec)
+      517    0.119    0.000    0.119    0.000 {built-in method _io.open_code}
+        1    0.000    0.000    0.118    0.118 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\pygame\surfarray.py:1(<module>)
+        1    0.000    0.000    0.116    0.116 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numpy\__init__.py:1(<module>)
+        1    0.000    0.000    0.116    0.116 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\decorators.py:1(<module>)
+        1    0.000    0.000    0.114    0.114 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\stencils\stencil.py:1(<module>)
+     2172    0.001    0.000    0.102    0.000 <frozen importlib._bootstrap_external>:140(_path_stat)
+    14156    0.086    0.000    0.101    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2044(find_threats_in_dodge_range)
+     2172    0.101    0.000    0.101    0.000 {built-in method nt.stat}
+    12403    0.085    0.000    0.096    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:1988(find_nearest_enemy)
+        1    0.000    0.000    0.094    0.094 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\cuda\device_init.py:1(<module>)
+        1    0.000    0.000    0.086    0.086 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\registry.py:1(<module>)
+        1    0.000    0.000    0.084    0.084 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\dispatcher.py:1(<module>)
+    45746    0.049    0.000    0.084    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:1472(clamp_rect_to_screen)
+        1    0.000    0.000    0.079    0.079 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\compiler.py:1(<module>)
+  599/586    0.001    0.000    0.072    0.000 <frozen importlib._bootstrap>:806(module_from_spec)
+     3144    0.071    0.000    0.071    0.000 {method 'executemany' of 'sqlite3.Cursor' objects}
+      517    0.013    0.000    0.063    0.000 <frozen importlib._bootstrap_external>:755(_compile_bytecode)
+        1    0.000    0.000    0.059    0.059 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numpy\lib\__init__.py:1(<module>)
+   226057    0.059    0.000    0.059    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:1836(rect_offscreen)
+        1    0.000    0.000    0.059    0.059 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\misc\special.py:1(<module>)
+   375843    0.059    0.000    0.059    0.000 {method 'collidepoint' of 'pygame.rect.Rect' objects}
+2189/2133    0.018    0.000    0.059    0.000 {built-in method builtins.__build_class__}
+        1    0.000    0.000    0.058    0.058 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\__init__.py:188(_try_enable_svml)
+        1    0.000    0.000    0.057    0.057 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\typing\__init__.py:1(<module>)
+        1    0.000    0.000    0.057    0.057 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\platform.py:1017(machine)
+        1    0.000    0.000    0.057    0.057 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\platform.py:891(uname)
+        2    0.000    0.000    0.057    0.028 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\platform.py:322(_wmi_query)
+        2    0.057    0.028    0.057    0.028 {built-in method _wmi.exec_query}
+        1    0.000    0.000    0.056    0.056 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\typing\context.py:1(<module>)
+   557614    0.056    0.000    0.056    0.000 {method 'length_squared' of 'pygame.math.Vector2' objects}
+    63/60    0.000    0.000    0.055    0.001 <frozen importlib._bootstrap_external>:1291(create_module)
+    63/60    0.046    0.001    0.055    0.001 {built-in method _imp.create_dynamic}
+     2869    0.003    0.000    0.052    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:2936(draw_centered_text)
+        1    0.000    0.000    0.052    0.052 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\cuda\cg.py:1(<module>)
+        1    0.000    0.000    0.049    0.049 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\cuda\nvvmutils.py:1(<module>)
+      517    0.049    0.000    0.049    0.000 {built-in method marshal.loads}
+        1    0.000    0.000    0.048    0.048 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numpy\__config__.py:1(<module>)
+        1    0.000    0.000    0.047    0.047 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\cuda\cudadrv\nvvm.py:1(<module>)
+        1    0.000    0.000    0.047    0.047 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numpy\_core\__init__.py:1(<module>)
+        1    0.000    0.000    0.045    0.045 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\cuda\cudadrv\libs.py:1(<module>)
+     2301    0.016    0.000    0.044    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:3089(spawn_enemy_projectile)
+    88315    0.020    0.000    0.044    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:1488(line_rect_intersection)
+        1    0.000    0.000    0.043    0.043 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\platform.py:447(win32_ver)
+        1    0.000    0.000    0.043    0.043 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\platform.py:385(_win32_ver)
+        1    0.000    0.000    0.042    0.042 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\cuda\cudadrv\driver.py:1(<module>)
+      269    0.001    0.000    0.037    0.000 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\re\__init__.py:280(_compile)
+296200/295245    0.036    0.000    0.036    0.000 {built-in method builtins.len}
+       88    0.000    0.000    0.036    0.000 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\re\__init__.py:226(compile)
+    11065    0.035    0.000    0.035    0.000 {built-in method pygame.draw.ellipse}
+        1    0.000    0.000    0.035    0.035 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\asyncio\__init__.py:1(<module>)
+        1    0.000    0.000    0.034    0.034 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\setuptools\_vendor\jaraco\text\__init__.py:1(<module>)
+       91    0.000    0.000    0.034    0.000 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\re\_compiler.py:745(compile)
+        1    0.000    0.000    0.034    0.034 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\config.py:1(<module>)
+     7625    0.006    0.000    0.034    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:1501(can_move_rect)
+        1    0.000    0.000    0.034    0.034 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numpy\lib\_arraypad_impl.py:1(<module>)
+        1    0.000    0.000    0.034    0.034 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\packaging\markers.py:1(<module>)
+     3861    0.022    0.000    0.034    0.000 <frozen importlib._bootstrap_external>:96(_path_join)
+        1    0.000    0.000    0.033    0.033 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numpy\lib\_index_tricks_impl.py:1(<module>)
+    36252    0.024    0.000    0.033    0.000 {method 'sort' of 'list' objects}
+      786    0.001    0.000    0.033    0.000 <frozen importlib._bootstrap_external>:150(_path_is_mode_type)
+        1    0.000    0.000    0.033    0.033 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\packaging\_parser.py:1(<module>)
+        1    0.000    0.000    0.032    0.032 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\callconv.py:1(<module>)
+        2    0.000    0.000    0.031    0.016 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\pkg_resources\__init__.py:3643(_call_aside)
+        1    0.000    0.000    0.031    0.031 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\pkg_resources\__init__.py:3660(_initialize_master_working_set)
+        1    0.000    0.000    0.031    0.031 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\packaging\_tokenizer.py:1(<module>)
+      721    0.001    0.000    0.031    0.000 <frozen importlib._bootstrap_external>:159(_path_isfile)
+        1    0.000    0.000    0.031    0.031 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\llvmlite\binding\__init__.py:1(<module>)
+        1    0.000    0.000    0.030    0.030 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\base.py:1(<module>)
+      517    0.029    0.000    0.029    0.000 {method 'read' of '_io.BufferedReader' objects}
+        1    0.000    0.000    0.029    0.029 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numpy\matrixlib\__init__.py:1(<module>)
+       14    0.000    0.000    0.029    0.002 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\pkg_resources\__init__.py:681(add_entry)
+     7625    0.029    0.000    0.029    0.000 {built-in method game_physics.can_move_rect}
+        1    0.000    0.000    0.029    0.029 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\cuda\decorators.py:1(<module>)
+       82    0.001    0.000    0.028    0.000 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\pkg_resources\__init__.py:2321(find_on_path)
+        1    0.000    0.000    0.028    0.028 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numpy\matrixlib\defmatrix.py:1(<module>)
+    68000    0.017    0.000    0.027    0.000 C:\Users\trist\OneDrive\Documents\GitHub\game.py_cursor_gpt\game.py:7022(<genexpr>)
+        1    0.000    0.000    0.027    0.027 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\typing\typeof.py:1(<module>)
+        1    0.000    0.000    0.027    0.027 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numpy\linalg\__init__.py:1(<module>)
+        1    0.000    0.000    0.027    0.027 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\cpython\builtins.py:1(<module>)
+        1    0.000    0.000    0.026    0.026 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\ir_utils.py:1(<module>)
+        1    0.000    0.000    0.026    0.026 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\setuptools\_vendor\jaraco\context.py:1(<module>)
+        1    0.000    0.000    0.026    0.026 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\email\parser.py:1(<module>)
+   183242    0.026    0.000    0.026    0.000 {built-in method math.sqrt}
+        1    0.000    0.000    0.026    0.026 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\core\cpu.py:1(<module>)
+        1    0.000    0.000    0.025    0.025 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\site-packages\numba\runtests.py:1(<module>)
+        1    0.000    0.000    0.025    0.025 C:\Users\trist\AppData\Local\Programs\Python\Python312\Lib\email\feedparser.py:1(<module>)
+
+
