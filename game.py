@@ -504,7 +504,47 @@
 # OUTPUT:
 # - Summarize which lines were wrapped into main(), and confirm behavior is unchanged.
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
+#GPT prompt to extract constants into constants.py; # EXTRACT CONSTANTS INTO constants.py
+#
+# GOAL:
+# Create a new file named constants.py and move ONLY simple constant definitions
+# out of game.py into that file. Then import them back into game.py.
+#
+# WHAT COUNTS AS A CONSTANT:
+# - All-caps variable names (e.g., SCREEN_WIDTH, SCREEN_HEIGHT, PLAYER_MAX_HEALTH)
+# - Color tuples (e.g., RED = (255,0,0))
+# - Static numbers used for tuning (e.g., BASE_SPEED = 5.0)
+# - Difficulty multipliers
+# - Weapon base properties if they are defined as immutable data
+#
+# WHAT MUST *NOT* BE MOVED:
+# - Anything that changes at runtime
+# - Anything that depends on pygame being initialized (Surfaces, Rects, fonts)
+# - Anything that is modified inside the game loop
+# - Anything that is a list/dict that the game mutates (unless it is a pure config dict)
+#
+# SPECIFIC TASKS:
+# 1. Create constants.py
+# 2. Move the simple constant assignments from game.py into constants.py
+# 3. In game.py, import the constants:
+#        from constants import *
+#    (using wildcard import is fine for constants)
+# 4. Do NOT modify game logic.
+# 5. Do NOT change behavior.
+# 6. Do NOT move functions, classes, or any runtime objects.
+#
+# ALLOWED MOVES:
+# - Screen dimensions
+# - Color values
+# - Weapon base values that do not change
+# - Character base stats that do not change
+# - Tuning values (enemy spawn rate multipliers, difficulty constants)
+# - Physics constants (gravity, dash cooldown, etc.)
+#
+# AFTER EXTRACTION:
+# - Confirm that python game.py still launches and behaves normally.
+# - Summarize which constants were moved.
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------/
 
 
 
@@ -565,20 +605,8 @@ from telemetry import (
     FriendlyAIDeathEvent,
 )
 
-# ----------------------------
-# Controls (remappable) - module level constants
-# ----------------------------
-CONTROLS_PATH = "controls.json"
-DEFAULT_CONTROLS = {
-    "move_left": "a",
-    "move_right": "d",
-    "move_up": "w",
-    "move_down": "s",
-    "boost": "left shift",
-    "slow": "left ctrl",
-    "dash": "space",
-    "ally_drop": "q",
-}
+# Import constants
+from constants import *
 
 # Placeholder WIDTH/HEIGHT for module-level initialization
 # Will be updated in main() after pygame.display.init()
@@ -622,8 +650,10 @@ def main():
     global menu_section, difficulty_selected, aiming_mode_selected, use_character_profile_selected
     global character_profile_selected, custom_profile_stat_selected, player_class_selected
     global ui_show_metrics_selected, beam_selection_selected, endurance_mode_selected
+    global ui_telemetry_enabled_selected
     global previous_game_state, pause_selected, difficulty, aiming_mode, use_character_profile
     global player_class, custom_profile_stats, custom_profile_stats_keys, testing_mode
+    global ui_telemetry_enabled_selected
     global weapon_selection_options, current_weapon_mode, unlocked_weapons, wave_beam_pattern_index
     global beam_selection_pattern, ui_show_metrics, ui_show_hud, player_shoot_cooldown
     global pickups, damage_numbers, weapon_pickup_messages, trapezoid_blocks, triangle_blocks
@@ -845,6 +875,16 @@ def main():
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                                 ui_show_metrics = ui_show_metrics_selected == 0
                                 ui_show_hud = ui_show_metrics
+                                menu_section = 3.5  # Go to telemetry options
+                        elif menu_section == 3.5:  # Telemetry options
+                            if event.key == pygame.K_UP or event.key == pygame.K_w:
+                                ui_telemetry_enabled_selected = (ui_telemetry_enabled_selected - 1) % 2
+                            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                                ui_telemetry_enabled_selected = (ui_telemetry_enabled_selected + 1) % 2
+                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                                menu_section = 3  # Go back to HUD options
+                            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                                telemetry_enabled = ui_telemetry_enabled_selected == 0
                                 if testing_mode:
                                     menu_section = 4  # Go to weapon selection
                                 else:
@@ -875,7 +915,7 @@ def main():
                                 if testing_mode:
                                     menu_section = 4
                                 else:
-                                    menu_section = 3
+                                    menu_section = 3.5  # Go back to telemetry options
                             elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                                 # Initialize game
                                 if telemetry_enabled:
@@ -1557,6 +1597,15 @@ def main():
                         draw_centered_text(f"{'->' if i == ui_show_metrics_selected else '  '} {opt}", y_offset + i * 40, color)
                     draw_centered_text("Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
                 
+                elif menu_section == 3.5:
+                    # Telemetry options
+                    draw_centered_text("Telemetry:", y_offset - 60)
+                    options = ["Enabled", "Disabled"]
+                    for i, opt in enumerate(options):
+                        color = (255, 255, 0) if i == ui_telemetry_enabled_selected else (200, 200, 200)
+                        draw_centered_text(f"{'->' if i == ui_telemetry_enabled_selected else '  '} {opt}", y_offset + i * 40, color)
+                    draw_centered_text("Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                
                 elif menu_section == 4:
                     # Beam/weapon selection (if testing mode)
                     if testing_mode:
@@ -1958,20 +2007,7 @@ telemetry_enabled = False  # Default: Disabled (will be set by user in menu)
 telemetry = None  # Will be initialized if enabled
 run_started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-# ----------------------------
-# Game state
-# ----------------------------
-STATE_MENU = "MENU"
-STATE_PLAYING = "PLAYING"
-STATE_PAUSED = "PAUSED"
-STATE_CONTINUE = "CONTINUE"
-STATE_ENDURANCE = "ENDURANCE"
-STATE_GAME_OVER = "GAME_OVER"
-STATE_NAME_INPUT = "NAME_INPUT"  # High score name input screen
-STATE_HIGH_SCORES = "HIGH_SCORES"  # High score board display
-STATE_VICTORY = "VICTORY"  # Game completed - all levels cleared
-STATE_MODS = "MODS"  # Mod settings menu
-STATE_WAVE_BUILDER = "WAVE_BUILDER"  # Custom wave builder
+# Game state constants are now imported from constants.py
 
 state = STATE_MENU
 previous_game_state = None  # Track previous game state for pause/unpause (STATE_PLAYING or STATE_ENDURANCE)
@@ -1985,7 +2021,7 @@ endurance_mode_selected = 0  # 0 = Normal, 1 = Endurance Mode
 use_character_profile = False  # Whether to use character profiles
 use_character_profile_selected = 0  # 0 = No, 1 = Yes
 character_profile_selected = 0  # 0 = Premade, 1 = Custom
-character_profile_options = ["Premade Profiles", "Create Custom Profile"]
+# character_profile_options is now imported from constants.py
 custom_profile_stat_selected = 0  # Which stat is being edited
 custom_profile_stats = {
     "hp_mult": 1.0,
@@ -1993,8 +2029,7 @@ custom_profile_stats = {
     "damage_mult": 1.0,
     "firerate_mult": 1.0,
 }
-custom_profile_stats_list = ["HP Multiplier", "Speed Multiplier", "Damage Multiplier", "Fire Rate Multiplier"]
-custom_profile_stats_keys = ["hp_mult", "speed_mult", "damage_mult", "firerate_mult"]
+# custom_profile_stats_list and custom_profile_stats_keys are now imported from constants.py
 
 # Side quests and goal tracking
 side_quests = {
@@ -2016,36 +2051,19 @@ beam_selection_pattern = "basic"  # Default weapon pattern
 current_level = 1
 max_level = 3
 wave_in_level = 1  # Track which wave within current level (1, 2, or 3)
-level_themes = {
-    1: {"name": "Forest", "bg_color": (20, 60, 20), "block_color_shift": (0, 0, 0)},
-    2: {"name": "Desert", "bg_color": (60, 50, 20), "block_color_shift": (20, 10, -10)},
-    3: {"name": "Ice", "bg_color": (20, 40, 60), "block_color_shift": (-20, -10, 20)},
-    4: {"name": "Volcano", "bg_color": (60, 20, 20), "block_color_shift": (30, -10, -20)},
-    5: {"name": "Void", "bg_color": (10, 10, 20), "block_color_shift": (-30, -30, 10)},
-}
+# level_themes is now imported from constants.py
 
-# Difficulty settings
-DIFFICULTY_EASY = "EASY"
-DIFFICULTY_NORMAL = "NORMAL"
-DIFFICULTY_HARD = "HARD"
+# Difficulty settings (constants imported from constants.py)
 difficulty = DIFFICULTY_NORMAL
 difficulty_selected = 1  # 0 = Easy, 1 = Normal, 2 = Hard
-difficulty_options = [DIFFICULTY_EASY, DIFFICULTY_NORMAL, DIFFICULTY_HARD]
 
-# Aiming mode selection
-AIM_MOUSE = "MOUSE"
-AIM_ARROWS = "ARROWS"
+# Aiming mode selection (constants imported from constants.py)
 aiming_mode = AIM_MOUSE
 aiming_mode_selected = 0  # 0 = Mouse, 1 = Arrows
 
-# Player classes
-PLAYER_CLASS_TANK = "TANK"
-PLAYER_CLASS_SPEEDSTER = "SPEEDSTER"
-PLAYER_CLASS_SNIPER = "SNIPER"
-PLAYER_CLASS_BALANCED = "BALANCED"
+# Player classes (constants imported from constants.py)
 player_class = PLAYER_CLASS_BALANCED
 player_class_selected = 0  # 0 = Balanced, 1 = Tank, 2 = Speedster, 3 = Sniper
-player_class_options = [PLAYER_CLASS_BALANCED, PLAYER_CLASS_TANK, PLAYER_CLASS_SPEEDSTER, PLAYER_CLASS_SNIPER]
 
 # Mod settings
 mod_enemy_spawn_multiplier = 1.0  # Custom enemy spawn multiplier
@@ -2064,20 +2082,11 @@ ui_telemetry_enabled_selected = 1  # 0 = Enabled, 1 = Disabled (for menu) - Defa
 # Alternative aiming mechanics
 aiming_mechanic = "mouse"  # "mouse", "lockon", "predictive", "directional", "hybrid"
 
-# Difficulty multipliers
-difficulty_multipliers = {
-    DIFFICULTY_EASY: {"enemy_hp": 0.7, "enemy_speed": 0.8, "enemy_spawn": 0.8, "pickup_spawn": 1.3},
-    DIFFICULTY_NORMAL: {"enemy_hp": 1.0, "enemy_speed": 1.0, "enemy_spawn": 1.0, "pickup_spawn": 1.0},
-    DIFFICULTY_HARD: {"enemy_hp": 1.5, "enemy_speed": 1.3, "enemy_spawn": 1.5, "pickup_spawn": 0.7},
-}
-
-pause_options = ["Continue", "Quit"]
+# difficulty_multipliers and pause_options are now imported from constants.py
 pause_selected = 0
 continue_blink_t = 0.0
 
-# Controls menu state
-STATE_CONTROLS = "CONTROLS"
-controls_actions = ["move_left", "move_right", "move_up", "move_down", "boost", "slow", "dash", "ally_drop"]
+# Controls menu state (constants imported from constants.py)
 controls_selected = 0
 controls_rebinding = False
 
@@ -2089,22 +2098,15 @@ player_speed = 450  # px/s (base speed, modified by class) - 1.5x (300 * 1.5)
 player_max_hp = 7500  # base HP (modified by class) - 10x (750 * 10)
 player_hp = player_max_hp
 
-# Player class stat modifiers
-player_class_stats = {
-    PLAYER_CLASS_BALANCED: {"hp_mult": 1.0, "speed_mult": 1.0, "damage_mult": 1.0, "firerate_mult": 1.0},
-    PLAYER_CLASS_TANK: {"hp_mult": 2.0, "speed_mult": 0.7, "damage_mult": 1.2, "firerate_mult": 0.8},
-    PLAYER_CLASS_SPEEDSTER: {"hp_mult": 0.7, "speed_mult": 1.5, "damage_mult": 0.9, "firerate_mult": 1.3},
-    PLAYER_CLASS_SNIPER: {"hp_mult": 0.8, "speed_mult": 0.9, "damage_mult": 1.5, "firerate_mult": 0.7},
-}
-overshield_max = 50  # Maximum overshield capacity (base, can be increased by tab key)
+# player_class_stats and overshield_max are now imported from constants.py
 overshield = 0  # Current overshield amount
-overshield_recharge_cooldown = 45.0  # Cooldown for tab key overshield (seconds)
+# overshield_recharge_cooldown is now imported from constants.py
 overshield_recharge_timer = 0.0  # Time since last overshield activation
-shield_recharge_cooldown = 10.0  # Shield cooldown (for progress bar display)
+# shield_recharge_cooldown is now imported from constants.py
 shield_recharge_timer = 0.0  # Time since shield was used
 # pygame.mouse.set_visible(True)  # Moved to main() after pygame.init()
 
-LIVES_START = 10
+# LIVES_START is now imported from constants.py
 lives = LIVES_START
 
 # Track most recent movement keys so latest press wins on conflicts
@@ -2112,12 +2114,9 @@ last_horizontal_key = None  # keycode of current "latest" horizontal key
 last_vertical_key = None  # keycode of current "latest" vertical key
 last_move_velocity = pygame.Vector2(0, 0)
 
-# Dash mechanic (space bar)
-jump_cooldown = 0.5  # seconds between dashes
+# Dash mechanic (space bar) - constants imported from constants.py
 jump_cooldown_timer = 0.0
 jump_velocity = pygame.Vector2(0, 0)  # Current jump velocity
-jump_speed = 600  # pixels per second
-jump_duration = 0.15  # seconds
 jump_timer = 0.0
 is_jumping = False
 
@@ -2125,23 +2124,18 @@ is_jumping = False
 previous_boost_state = False  # Track for telemetry
 previous_slow_state = False  # Track for telemetry
 
-boost_meter_max = 100.0
+# Boost/slow constants imported from constants.py
 boost_meter = boost_meter_max
-boost_drain_per_s = 45.0
-boost_regen_per_s = 25.0
-boost_speed_mult = 1.7
-slow_speed_mult = 0.45
 
 # Fire-rate pickup buff
 fire_rate_buff_t = 0.0
 fire_rate_buff_duration = 10.0
 fire_rate_mult = 0.55  # reduces cooldown while active
 
-# Shield system (Left Alt key)
+# Shield system (Left Alt key) - constants imported from constants.py
 shield_active = False
-shield_duration = 2.0  # Shield lasts 2 seconds
 shield_duration_remaining = 0.0
-shield_cooldown = random.uniform(10.0, 15.0)  # 10-15 seconds cooldown
+shield_cooldown = random.uniform(10.0, 15.0)  # 10-15 seconds cooldown (random, not a constant)
 shield_cooldown_remaining = 0.0
 
 # Permanent player stat multipliers (from pickups)
@@ -2171,24 +2165,14 @@ current_weapon_mode = "basic"
 previous_weapon_mode = "basic"  # Track for telemetry
 unlocked_weapons: set[str] = {"basic"}  # Weapons player has unlocked (starts with basic only)
 
-# Laser beam system
+# Laser beam system - constants imported from constants.py
 laser_beams: list[dict] = []  # List of active laser beams
-laser_length = 800  # Maximum laser length in pixels
-laser_damage = 50  # Damage per frame while on target
-laser_cooldown = 0.3  # Cooldown between laser shots
 laser_time_since_shot = 999.0
 
-# Wave beam system (trigonometric wave patterns)
+# Wave beam system (trigonometric wave patterns) - constants imported from constants.py
 wave_beams: list[dict] = []  # List of active wave beams
-wave_beam_length = 1000  # Beam length in pixels
-wave_beam_width = 10  # Beam width in pixels
-wave_beam_damage = 30  # Damage per frame while on target
-wave_beam_cooldown = 0.5  # Cooldown between wave beam shots
 wave_beam_time_since_shot = 999.0
 wave_beam_pattern_index = 0  # Current wave pattern (cycles through patterns)
-wave_beam_patterns = ["sine"]  # Only wave beam pattern for testing
-# Weapon selection for testing (replaces beam selection)
-weapon_selection_options = ["wave_beam", "rocket", "bouncing", "laser", "triple", "giant", "basic"]
 
 # Rotating paraboloid/trapezoid hazard system
 # On level 1: paraboloids, on level 2+: trapezoids
@@ -2471,29 +2455,19 @@ player_health_regen_rate = 0.0  # Base regeneration rate (0 = no regen)
 destructor_shapes: list[dict] = []  # Large shapes that bounce around destroying things
 
 # ----------------------------
-# Player bullets
+# Player bullets - constants imported from constants.py
 # ----------------------------
 player_bullets: list[dict] = []
-player_bullet_speed = 900
-player_bullet_size = (8, 8)
-player_bullet_damage = 20
-player_shoot_cooldown = 0.12
 player_time_since_shot = 999.0
-player_bullets_color = (10, 200, 200)
-player_bullet_shapes = ["circle", "square", "diamond"]
 player_bullet_shape_index = 0
 
-# Grenade system
+# Grenade system - constants imported from constants.py
 grenade_explosions: list[dict] = []  # List of active explosions {x, y, radius, max_radius, timer, damage}
-grenade_cooldown = 2.0  # Cooldown between grenades (seconds)
 grenade_time_since_used = 999.0  # Time since last grenade
-grenade_damage = 1500  # Damage to enemies and destructible blocks (increased from 500)
 
-# Missile system (seeking missiles)
+# Missile system (seeking missiles) - constants imported from constants.py
 missiles: list[dict] = []  # List of active missiles {rect, vel, target_enemy, speed, damage, explosion_radius}
-missile_cooldown = 3.0  # Cooldown between missiles (seconds)
 missile_time_since_used = 999.0  # Time since last missile
-missile_damage = 800  # Damage on explosion
 missile_explosion_radius = 100  # Explosion radius
 missile_speed = 400  # Missile movement speed
 
@@ -2935,13 +2909,12 @@ deaths = 0
 score = 0
 survival_time = 0.0  # Total time survived in seconds
 
-# High score system
-HIGH_SCORES_DB = "high_scores.db"
+# High score system - HIGH_SCORES_DB imported from constants.py
 player_name_input = ""  # Current name being typed
 name_input_active = False  # Whether we're in name input mode
 final_score_for_high_score = 0  # Score to save when name is entered
 
-POS_SAMPLE_INTERVAL = 0.25  # Reduced frequency for better performance (was 0.10)
+# POS_SAMPLE_INTERVAL imported from constants.py
 pos_timer = 0.0
 
 # Waves / progression
@@ -2954,17 +2927,15 @@ base_enemies_per_wave = 9  # Increased for more enemies (was 6)
 max_enemies_per_wave = 54  # Increased for more enemies (was 36)
 boss_active = False
 
-# Pickups
+# Pickups - PICKUP_SPAWN_INTERVAL imported from constants.py
 pickups: list[dict] = []
 pickup_spawn_timer = 0.0
-PICKUP_SPAWN_INTERVAL = 7.5
 
-# Scoring constants
-SCORE_BASE_POINTS = 100
-SCORE_WAVE_MULTIPLIER = 50
-SCORE_TIME_MULTIPLIER = 2
+# Scoring constants imported from constants.py
+# Weapon key mapping imported from constants.py
+enemy_spawn_boost_level = 0  # enemies can increase this by collecting "spawn_boost" pickups
 
-# Weapon key mapping
+# Weapon key mapping (uses pygame constants, so must stay here)
 WEAPON_KEY_MAP = {
     pygame.K_1: "basic",
     pygame.K_2: "rocket",
@@ -2974,7 +2945,6 @@ WEAPON_KEY_MAP = {
     pygame.K_6: "laser",
     pygame.K_7: "wave_beam",  # Wave pattern beam weapon
 }
-enemy_spawn_boost_level = 0  # enemies can increase this by collecting "spawn_boost" pickups
 
 # Visual effects for pickups
 pickup_particles: list[dict] = []  # particles around pickups
