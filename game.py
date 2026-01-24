@@ -78,6 +78,28 @@ from config_weapons import (
     WEAPON_DISPLAY_COLORS,
     WEAPON_UNLOCK_ORDER,
 )
+from rendering import (
+    draw_silver_wall_texture,
+    draw_cracked_brick_wall_texture,
+    draw_projectile,
+    draw_health_bar,
+    draw_centered_text,
+    render_hud_text,
+)
+from enemies import (
+    move_enemy_with_push_cached,
+    find_nearest_threat,
+    make_enemy_from_template,
+    log_enemy_spawns,
+    find_threats_in_dodge_range,
+)
+from allies import (
+    find_nearest_enemy,
+    make_friendly_from_template,
+    spawn_friendly_ai,
+    spawn_friendly_projectile,
+    update_friendly_ai,
+)
 
 
 # Placeholder WIDTH/HEIGHT for module-level initialization
@@ -88,15 +110,10 @@ HEIGHT = 1080  # Default placeholder
 # ----------------------------
 # Rendering cache for performance optimization
 # ----------------------------
-# Cache for pre-rendered wall textures (key: (width, height, crack_level), value: Surface)
-_wall_texture_cache = {}
+# Note: Wall texture, HUD text, and health bar caches are now in rendering.py
 # Cache for pre-rendered static block surfaces
 _cached_trapezoid_surfaces = {}
 _cached_triangle_surfaces = {}
-# Cache for HUD text surfaces (key: (text, color), value: Surface)
-_hud_text_cache = {}
-# Cache for health bar surfaces (key: (width, height, hp_ratio), value: Surface)
-_health_bar_cache = {}
 
 
 def main():
@@ -775,7 +792,7 @@ def main():
                     
                     # Enemy AI: find target and move towards it
                     enemy_pos = pygame.Vector2(enemy["rect"].center)
-                    target_info = find_nearest_threat(enemy_pos)
+                    target_info = find_nearest_threat(enemy_pos, player, friendly_ai)
                     
                     if target_info:
                         target_pos, target_type = target_info
@@ -783,7 +800,7 @@ def main():
                         enemy_speed = enemy.get("speed", 80) * dt
                         
                         # Dodge bullets if in range
-                        dodge_threats = find_threats_in_dodge_range(enemy_pos, 200.0)
+                        dodge_threats = find_threats_in_dodge_range(enemy_pos, player_bullets, friendly_projectiles, 200.0)
                         if dodge_threats:
                             # Try to dodge by moving perpendicular
                             dodge_dir = pygame.Vector2(-direction.y, direction.x)  # Perpendicular
@@ -890,24 +907,16 @@ def main():
                         player_hp = min(player_max_hp, player_hp + 50 * dt)  # Heal over time
                 
                 # Friendly AI updates
-                for friendly in friendly_ai[:]:
-                    if friendly.get("hp", 1) <= 0:
-                        friendly_ai.remove(friendly)
-                        continue
-                    
-                    target = find_nearest_enemy(pygame.Vector2(friendly["rect"].center))
-                    if target:
-                        direction = vec_toward(friendly["rect"].centerx, friendly["rect"].centery, target["rect"].centerx, target["rect"].centery)
-                        friendly_speed = friendly.get("speed", 100) * dt
-                        move_x = int(direction.x * friendly_speed)
-                        move_y = int(direction.y * friendly_speed)
-                        move_enemy_with_push(friendly["rect"], move_x, move_y, blocks)
-                        
-                        # Friendly shooting
-                        friendly["shoot_cooldown"] = friendly.get("shoot_cooldown", 0.0) + dt
-                        if friendly["shoot_cooldown"] >= friendly.get("shoot_cooldown_time", 0.5):
-                            spawn_friendly_projectile(friendly, target)
-                            friendly["shoot_cooldown"] = 0.0
+                update_friendly_ai(
+                    friendly_ai,
+                    enemies,
+                    blocks,
+                    dt,
+                    find_nearest_enemy,
+                    vec_toward,
+                    move_enemy_with_push,
+                    lambda f, t: spawn_friendly_projectile(f, t, friendly_projectiles, vec_toward, telemetry, run_time),
+                )
                 
                 # Friendly projectile updates
                 for proj in friendly_projectiles[:]:
@@ -1023,95 +1032,95 @@ def main():
             # Draw game elements based on state
             if state == STATE_MENU:
                 # Menu rendering
-                draw_centered_text("MOUSE AIM SHOOTER", HEIGHT // 4, use_big=True)
+                draw_centered_text(screen, font, big_font, WIDTH, "MOUSE AIM SHOOTER", HEIGHT // 4, use_big=True)
                 
                 y_offset = HEIGHT // 2
                 if menu_section == 0:
                     # Difficulty selection
-                    draw_centered_text("Select Difficulty:", y_offset - 60)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Select Difficulty:", y_offset - 60)
                     for i, diff in enumerate(difficulty_options):
                         color = (255, 255, 0) if i == difficulty_selected else (200, 200, 200)
-                        draw_centered_text(f"{'->' if i == difficulty_selected else '  '} {diff}", y_offset + i * 40, color)
-                    draw_centered_text("Use UP/DOWN to select, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == difficulty_selected else '  '} {diff}", y_offset + i * 40, color)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
                 
                 elif menu_section == 1:
                     # Aiming mode selection
-                    draw_centered_text("Select Aiming Mode:", y_offset - 60)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Select Aiming Mode:", y_offset - 60)
                     modes = ["Mouse", "Arrow Keys"]
                     for i, mode in enumerate(modes):
                         color = (255, 255, 0) if i == aiming_mode_selected else (200, 200, 200)
-                        draw_centered_text(f"{'->' if i == aiming_mode_selected else '  '} {mode}", y_offset + i * 40, color)
-                    draw_centered_text("Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == aiming_mode_selected else '  '} {mode}", y_offset + i * 40, color)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
                 
                 elif menu_section == 1.5:
                     # Character profile yes/no
-                    draw_centered_text("Use Character Profile?", y_offset - 60)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Use Character Profile?", y_offset - 60)
                     options = ["No", "Yes"]
                     for i, opt in enumerate(options):
                         color = (255, 255, 0) if i == use_character_profile_selected else (200, 200, 200)
-                        draw_centered_text(f"{'->' if i == use_character_profile_selected else '  '} {opt}", y_offset + i * 40, color)
-                    draw_centered_text("Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == use_character_profile_selected else '  '} {opt}", y_offset + i * 40, color)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
                 
                 elif menu_section == 2:
                     # Character profile selection
-                    draw_centered_text("Character Profile:", y_offset - 60)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Character Profile:", y_offset - 60)
                     for i, profile in enumerate(character_profile_options):
                         color = (255, 255, 0) if i == character_profile_selected else (200, 200, 200)
-                        draw_centered_text(f"{'->' if i == character_profile_selected else '  '} {profile}", y_offset + i * 40, color)
-                    draw_centered_text("Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == character_profile_selected else '  '} {profile}", y_offset + i * 40, color)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
                 
                 elif menu_section == 3:
                     # HUD options
-                    draw_centered_text("HUD Options:", y_offset - 60)
+                    draw_centered_text(screen, font, big_font, WIDTH, "HUD Options:", y_offset - 60)
                     options = ["Show Metrics", "Hide Metrics"]
                     for i, opt in enumerate(options):
                         color = (255, 255, 0) if i == ui_show_metrics_selected else (200, 200, 200)
-                        draw_centered_text(f"{'->' if i == ui_show_metrics_selected else '  '} {opt}", y_offset + i * 40, color)
-                    draw_centered_text("Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == ui_show_metrics_selected else '  '} {opt}", y_offset + i * 40, color)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
                 
                 elif menu_section == 3.5:
                     # Telemetry options
-                    draw_centered_text("Telemetry:", y_offset - 60)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Telemetry:", y_offset - 60)
                     options = ["Enabled", "Disabled"]
                     for i, opt in enumerate(options):
                         color = (255, 255, 0) if i == ui_telemetry_enabled_selected else (200, 200, 200)
-                        draw_centered_text(f"{'->' if i == ui_telemetry_enabled_selected else '  '} {opt}", y_offset + i * 40, color)
-                    draw_centered_text("Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == ui_telemetry_enabled_selected else '  '} {opt}", y_offset + i * 40, color)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
                 
                 elif menu_section == 4:
                     # Beam/weapon selection (if testing mode)
                     if testing_mode:
-                        draw_centered_text("Select Weapon:", y_offset - 60)
+                        draw_centered_text(screen, font, big_font, WIDTH, "Select Weapon:", y_offset - 60)
                         for i, weapon in enumerate(weapon_selection_options):
                             color = (255, 255, 0) if i == beam_selection_selected else (200, 200, 200)
-                            draw_centered_text(f"{'->' if i == beam_selection_selected else '  '} {weapon}", y_offset + i * 30, color)
-                        draw_centered_text("Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to start", HEIGHT - 100, (150, 150, 150))
+                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == beam_selection_selected else '  '} {weapon}", y_offset + i * 30, color)
+                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to start", HEIGHT - 100, (150, 150, 150))
                     else:
                         menu_section = 5  # Skip to start
                 
                 elif menu_section == 5:
                     # Start game
-                    draw_centered_text("Ready to Start!", y_offset)
-                    draw_centered_text("Press ENTER or SPACE to begin", y_offset + 60, (150, 150, 150))
-                    draw_centered_text("Press LEFT to go back", y_offset + 100, (150, 150, 150))
+                    draw_centered_text(screen, font, big_font, WIDTH, "Ready to Start!", y_offset)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Press ENTER or SPACE to begin", y_offset + 60, (150, 150, 150))
+                    draw_centered_text(screen, font, big_font, WIDTH, "Press LEFT to go back", y_offset + 100, (150, 150, 150))
                 
                 elif menu_section == 6:
                     # Custom profile creator
-                    draw_centered_text("Custom Profile Creator:", y_offset - 100)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Custom Profile Creator:", y_offset - 100)
                     for i, stat_name in enumerate(custom_profile_stats_list):
                         stat_key = custom_profile_stats_keys[i]
                         stat_value = custom_profile_stats[stat_key]
                         color = (255, 255, 0) if i == custom_profile_stat_selected else (200, 200, 200)
-                        draw_centered_text(f"{'->' if i == custom_profile_stat_selected else '  '} {stat_name}: {stat_value:.1f}x", y_offset + i * 35, color)
-                    draw_centered_text("Use UP/DOWN to select stat, LEFT/RIGHT to adjust, ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == custom_profile_stat_selected else '  '} {stat_name}: {stat_value:.1f}x", y_offset + i * 35, color)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select stat, LEFT/RIGHT to adjust, ENTER to continue", HEIGHT - 100, (150, 150, 150))
                 
                 elif menu_section == 7:
                     # Class selection
-                    draw_centered_text("Select Class:", y_offset - 60)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Select Class:", y_offset - 60)
                     for i, cls in enumerate(player_class_options):
                         color = (255, 255, 0) if i == player_class_selected else (200, 200, 200)
-                        draw_centered_text(f"{'->' if i == player_class_selected else '  '} {cls}", y_offset + i * 40, color)
-                    draw_centered_text("Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == player_class_selected else '  '} {cls}", y_offset + i * 40, color)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
             elif state == STATE_PLAYING or state == STATE_ENDURANCE:
                 # Draw all game elements
                 
@@ -1225,28 +1234,28 @@ def main():
                 
                 # Draw enemy projectiles
                 for proj in enemy_projectiles:
-                    draw_projectile(proj["rect"], proj["color"], proj.get("shape", "circle"))
+                    draw_projectile(screen, proj["rect"], proj["color"], proj.get("shape", "circle"))
                 
                 # Draw player bullets
                 for bullet in player_bullets:
-                    draw_projectile(bullet["rect"], bullet["color"], bullet.get("shape", "circle"))
+                    draw_projectile(screen, bullet["rect"], bullet["color"], bullet.get("shape", "circle"))
                 
                 # Draw friendly projectiles
                 for proj in friendly_projectiles:
-                    draw_projectile(proj["rect"], proj["color"], proj.get("shape", "circle"))
+                    draw_projectile(screen, proj["rect"], proj["color"], proj.get("shape", "circle"))
                 
                 # Draw friendly AI
                 for friendly in friendly_ai:
                     pygame.draw.rect(screen, friendly.get("color", (100, 200, 100)), friendly["rect"])
                     if friendly.get("hp", 0) > 0 and ui_show_health_bars:
-                        draw_health_bar(friendly["rect"].x, friendly["rect"].y - 10, friendly["rect"].w, 5, friendly["hp"], friendly.get("max_hp", friendly["hp"]))
+                        draw_health_bar(screen, friendly["rect"].x, friendly["rect"].y - 10, friendly["rect"].w, 5, friendly["hp"], friendly.get("max_hp", friendly["hp"]))
                 
                 # Draw enemies
                 for enemy in enemies:
                     enemy_color = enemy.get("color", (200, 50, 50))
                     pygame.draw.rect(screen, enemy_color, enemy["rect"])
                     if enemy.get("hp", 0) > 0 and ui_show_health_bars:
-                        draw_health_bar(enemy["rect"].x, enemy["rect"].y - 10, enemy["rect"].w, 5, enemy["hp"], enemy.get("max_hp", enemy["hp"]))
+                        draw_health_bar(screen, enemy["rect"].x, enemy["rect"].y - 10, enemy["rect"].w, 5, enemy["hp"], enemy.get("max_hp", enemy["hp"]))
                 
                 # Draw grenade explosions
                 for explosion in grenade_explosions:
@@ -1266,7 +1275,7 @@ def main():
                     player_color = (255, 100, 100)  # Red when shield is active
                 pygame.draw.rect(screen, player_color, player)
                 if ui_show_player_health_bar:
-                    draw_health_bar(player.x, player.y - 15, player.w, 6, player_hp, player_max_hp)
+                    draw_health_bar(screen, player.x, player.y - 15, player.w, 6, player_hp, player_max_hp)
                     # Draw overshield bar above health bar
                     if overshield > 0:
                         overshield_bar_height = 4
@@ -1291,17 +1300,17 @@ def main():
                 if ui_show_hud:
                     y_pos = 10
                     if ui_show_metrics:
-                        y_pos = render_hud_text(f"HP: {player_hp}/{player_max_hp}", y_pos)
+                        y_pos = render_hud_text(screen, font, f"HP: {player_hp}/{player_max_hp}", y_pos)
                         if overshield > 0:
-                            y_pos = render_hud_text(f"Overshield: {overshield}/{overshield_max}", y_pos)
-                        y_pos = render_hud_text(f"Wave: {wave_number} | Level: {current_level}", y_pos)
-                        y_pos = render_hud_text(f"Score: {score}", y_pos)
+                            y_pos = render_hud_text(screen, font, f"Overshield: {overshield}/{overshield_max}", y_pos)
+                        y_pos = render_hud_text(screen, font, f"Wave: {wave_number} | Level: {current_level}", y_pos)
+                        y_pos = render_hud_text(screen, font, f"Score: {score}", y_pos)
                         if state == STATE_PLAYING:
-                            y_pos = render_hud_text(f"Lives: {lives}", y_pos)
-                        y_pos = render_hud_text(f"Enemies: {len(enemies)}", y_pos)
-                        y_pos = render_hud_text(f"Weapon: {current_weapon_mode.upper()}", y_pos)
+                            y_pos = render_hud_text(screen, font, f"Lives: {lives}", y_pos)
+                        y_pos = render_hud_text(screen, font, f"Enemies: {len(enemies)}", y_pos)
+                        y_pos = render_hud_text(screen, font, f"Weapon: {current_weapon_mode.upper()}", y_pos)
                         if shield_active:
-                            y_pos = render_hud_text("SHIELD ACTIVU", y_pos, (255, 100, 100))
+                            y_pos = render_hud_text(screen, font, "SHIELD ACTIVU", y_pos, (255, 100, 100))
                         
                         # Draw cooldown bars at bottom
                         bar_y = HEIGHT - 30
@@ -1375,14 +1384,14 @@ def main():
                 overlay.fill((0, 0, 0))
                 screen.blit(overlay, (0, 0))
                 
-                draw_centered_text("PAUSED", HEIGHT // 2 - 100, use_big=True)
+                draw_centered_text(screen, font, big_font, WIDTH, "PAUSED", HEIGHT // 2 - 100, use_big=True)
                 
                 y_offset = HEIGHT // 2
                 for i, option in enumerate(pause_options):
                     color = (255, 255, 0) if i == pause_selected else (200, 200, 200)
-                    draw_centered_text(f"{'->' if i == pause_selected else '  '} {option}", y_offset + i * 50, color)
+                    draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == pause_selected else '  '} {option}", y_offset + i * 50, color)
                 
-                draw_centered_text("Press ENTER to select, ESC to unpause", HEIGHT - 100, (150, 150, 150))
+                draw_centered_text(screen, font, big_font, WIDTH, "Press ENTER to select, ESC to unpause", HEIGHT - 100, (150, 150, 150))
             elif state == STATE_GAME_OVER:
                 # Game over screen
                 # (Game over rendering would go here)
@@ -2394,117 +2403,6 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
     clamp_rect_to_screen(enemy_rect)
 
 
-def move_enemy_with_push_cached(enemy_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict],
-                                 cached_moveable_destructible_rects: list,
-                                 cached_trapezoid_rects: list,
-                                 cached_triangle_rects: list):
-    """Optimized enemy movement - enemies cannot go through objects and must navigate around them."""
-    # Cache rects for performance
-    block_rects = [b["rect"] for b in block_list]
-    cached_destructible_rects = [b["rect"] for b in destructible_blocks]
-    cached_giant_rects = [gb["rect"] for gb in giant_blocks]
-    cached_super_giant_rects = [sgb["rect"] for sgb in super_giant_blocks]
-    cached_pickup_rects = [p["rect"] for p in pickups]
-    cached_friendly_rects = [f["rect"] for f in friendly_ai if f.get("hp", 1) > 0]
-    cached_enemy_rects = [e["rect"] for e in enemies if e["rect"] is not enemy_rect]
-
-    for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
-        if axis_dx == 0 and axis_dy == 0:
-            continue
-
-        enemy_rect.x += axis_dx
-        enemy_rect.y += axis_dy
-
-        # Check collisions with all objects - enemies cannot pass through anything
-        collision = False
-        
-        # Check regular blocks
-        for rect in block_rects:
-            if enemy_rect.colliderect(rect):
-                collision = True
-                break
-        
-        # Check destructible blocks
-        if not collision:
-            for rect in cached_destructible_rects:
-                if enemy_rect.colliderect(rect):
-                    collision = True
-                    break
-        
-        # Check moveable destructible blocks
-        if not collision:
-            for rect in cached_moveable_destructible_rects:
-                if enemy_rect.colliderect(rect):
-                    collision = True
-                    break
-        
-        # Check giant blocks (unmovable)
-        if not collision:
-            for rect in cached_giant_rects:
-                if enemy_rect.colliderect(rect):
-                    collision = True
-                    break
-        
-        # Check super giant blocks (unmovable)
-        if not collision:
-            for rect in cached_super_giant_rects:
-                if enemy_rect.colliderect(rect):
-                    collision = True
-                    break
-        
-        # Check trapezoid blocks
-        if not collision:
-            for rect in cached_trapezoid_rects:
-                if enemy_rect.colliderect(rect):
-                    collision = True
-                    break
-        
-        # Check triangle blocks
-        if not collision:
-            for rect in cached_triangle_rects:
-                if enemy_rect.colliderect(rect):
-                    collision = True
-                    break
-        
-        # Check pickups
-        if not collision:
-            for rect in cached_pickup_rects:
-                if enemy_rect.colliderect(rect):
-                    collision = True
-                    break
-        
-        # Check health zone
-        if not collision:
-            if enemy_rect.colliderect(moving_health_zone["rect"]):
-                collision = True
-        
-        # Check player
-        if not collision:
-            if enemy_rect.colliderect(player):
-                collision = True
-        
-        # Check friendly AI
-        if not collision:
-            for rect in cached_friendly_rects:
-                if enemy_rect.colliderect(rect):
-                    collision = True
-                    break
-        
-        # Check other enemies (prevent enemy stacking)
-        if not collision:
-            for rect in cached_enemy_rects:
-                if enemy_rect.colliderect(rect):
-                    collision = True
-                    break
-
-        # If collision detected, revert movement
-        if collision:
-            enemy_rect.x -= axis_dx
-            enemy_rect.y -= axis_dy
-
-    clamp_rect_to_screen(enemy_rect)
-
-
 def rect_offscreen(r: pygame.Rect) -> bool:
     return r.right < 0 or r.left > WIDTH or r.bottom < 0 or r.top > HEIGHT
 
@@ -2565,255 +2463,9 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
     return pygame.Rect(max(0, WIDTH // 2 - w), max(0, HEIGHT // 2 - h), w, h)
 
 
-def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
-    # Apply scaling multipliers from config
-    # Exception: Queen (player clone) has fixed HP and special speed multiplier
-    if t.get("type") == "queen":
-        hp = QUEEN_FIXED_HP  # Fixed health for queen
-        base_speed = t.get("speed", 80)
-        final_speed = base_speed * ENEMY_SPEED_SCALE_MULTIPLIER  # Still apply speed multiplier
-    else:
-        hp = int(t["hp"] * hp_scale * ENEMY_HP_SCALE_MULTIPLIER)  # Apply HP scale multiplier
-        # Cap HP at maximum (except queen)
-        hp = min(hp, ENEMY_HP_CAP)
-        final_speed = t.get("speed", 80) * speed_scale * ENEMY_SPEED_SCALE_MULTIPLIER  # Apply speed multiplier
-    
-    enemy = {
-        "type": t["type"],
-        "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
-        "color": t["color"],
-        "hp": hp,
-        "max_hp": hp,
-        "shoot_cooldown": t["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER,  # Faster fire rate (lower cooldown)
-        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER),
-        "projectile_speed": t["projectile_speed"],
-        "projectile_color": t.get("projectile_color", enemy_projectiles_color),
-        "projectile_shape": t.get("projectile_shape", "circle"),
-        "speed": final_speed,  # Speed (queen gets special multiplier, others get normal scaling)
-    }
-    # Add shield properties if present
-    if t.get("has_shield"):
-        enemy["has_shield"] = True
-        enemy["shield_angle"] = random.uniform(0, 2 * math.pi)
-        enemy["shield_length"] = t.get("shield_length", 50)
-    if t.get("has_reflective_shield"):
-        enemy["has_reflective_shield"] = True
-        enemy["shield_angle"] = random.uniform(0, 2 * math.pi)
-        enemy["shield_length"] = t.get("shield_length", 60)
-        enemy["shield_hp"] = 0
-        enemy["turn_speed"] = t.get("turn_speed", 0.5)
-    # Add queen-specific properties
-    if t.get("type") == "queen":
-        enemy["name"] = t.get("name", "queen")
-        enemy["can_use_grenades"] = t.get("can_use_grenades", False)
-        enemy["grenade_cooldown"] = t.get("grenade_cooldown", 5.0)
-        enemy["time_since_grenade"] = t.get("time_since_grenade", 999.0)
-        enemy["damage_taken_since_rage"] = 0
-        enemy["rage_mode_active"] = False
-        enemy["rage_mode_timer"] = 0.0
-        # rage_damage_threshold is set in template (randomized at module load time)
-        enemy["rage_damage_threshold"] = t.get("rage_damage_threshold", random.randint(300, 500))
-        enemy["predicts_player"] = t.get("predicts_player", False)
-    return enemy
-
-
-def log_enemy_spawns(new_enemies: list[dict]):
-    global enemies_spawned
-    for e in new_enemies:
-        enemies_spawned += 1
-        telemetry.log_enemy_spawn(
-            EnemySpawnEvent(
-                t=run_time,
-                enemy_type=e["type"],
-                x=e["rect"].x,
-                y=e["rect"].y,
-                w=e["rect"].w,
-                h=e["rect"].h,
-                hp=e["hp"],
-            )
-        )
-
-
-def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
-    """Create a friendly AI unit from a template."""
-    # Set max HP to 1000 (10x health - was 100, now 1000 for all friendly AI)
-    # Apply 110% multiplier (1.1x) to all stats
-    max_hp = int(1000 * 1.1)  # 110% health
-    hp = max_hp  # Always start with full health at wave start
-    return {
-        "type": t["type"],
-        "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
-        "color": t["color"],
-        "hp": hp,
-        "max_hp": max_hp,  # Full health, green bar at wave start
-        "shoot_cooldown": t["shoot_cooldown"] / 1.5,  # 150% fire rate (faster = lower cooldown, increased from 1.1)
-        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / 1.5),
-        "projectile_speed": t["projectile_speed"],
-        "projectile_color": t["projectile_color"],
-        "projectile_shape": t["projectile_shape"],
-        "speed": t["speed"] * speed_scale * 1.1,  # 110% movement speed
-        "behavior": t["behavior"],
-        "damage": int(t["damage"] * 1.1),  # 110% damage
-        "target": None,  # Current target enemy
-    }
-
-
-def find_nearest_enemy(friendly_pos: pygame.Vector2) -> dict | None:
-    """Find the nearest enemy to a friendly AI unit."""
-    if not enemies:
-        return None
-    nearest = None
-    min_dist = float("inf")
-    for e in enemies:
-        dist = (pygame.Vector2(e["rect"].center) - friendly_pos).length_squared()
-        if dist < min_dist:
-            min_dist = dist
-            nearest = e
-    return nearest
-
-
-def find_nearest_threat(enemy_pos: pygame.Vector2) -> tuple[pygame.Vector2, str] | None:
-    """Find the nearest threat (player or friendly AI) to an enemy.
-    Prioritizes player over dropped ally, then other friendly AI."""
-    player_pos = pygame.Vector2(player.center)
-    player_dist_sq = (player_pos - enemy_pos).length_squared()
-    player_dist = math.sqrt(player_dist_sq)
-    
-    # Collect friendly AI threats (for fallback if player is not available)
-    dropped_ally_threats = []
-    other_friendly_threats = []
-    for f in friendly_ai:
-        if f["hp"] <= 0:
-            continue
-        friendly_pos = pygame.Vector2(f["rect"].center)
-        friendly_dist_sq = (friendly_pos - enemy_pos).length_squared()
-        friendly_dist = math.sqrt(friendly_dist_sq)
-        if f.get("is_dropped_ally", False):
-            dropped_ally_threats.append((friendly_pos, friendly_dist_sq, "dropped_ally", friendly_dist))
-        else:
-            other_friendly_threats.append((friendly_pos, friendly_dist_sq, "friendly", friendly_dist))
-    
-    # Priority order: Player > Dropped Ally > Other Friendly AI
-    # Player always has highest priority
-    return (player_pos, "player")
-    
-    # Fallback logic (currently unreachable, but kept for potential future use):
-    # If player is not available, prioritize dropped ally, then other friendly AI
-    # if dropped_ally_threats:
-    #     dropped_ally_threats.sort(key=lambda x: x[1])
-    #     return (dropped_ally_threats[0][0], dropped_ally_threats[0][2])
-    # 
-    # if other_friendly_threats:
-    #     other_friendly_threats.sort(key=lambda x: x[1])
-    #     return (other_friendly_threats[0][0], other_friendly_threats[0][2])
-    # 
-    # return None
-
-
-def find_threats_in_dodge_range(enemy_pos: pygame.Vector2, dodge_range: float = 200.0) -> list[pygame.Vector2]:
-    """Find bullets (player or friendly) that are close enough to dodge."""
-    threats = []
-    enemy_v2 = pygame.Vector2(enemy_pos)
-    dodge_range_sq = dodge_range * dodge_range  # Use squared distance for faster comparison
-    
-    # Check player bullets
-    for b in player_bullets:
-        bullet_pos = pygame.Vector2(b["rect"].center)
-        dist_sq = (bullet_pos - enemy_v2).length_squared()
-        if dist_sq < dodge_range_sq:
-            # Only compute actual distance if in range
-            dist = math.sqrt(dist_sq)
-            # Predict where bullet will be
-            bullet_vel = b.get("vel", pygame.Vector2(0, 0))
-            vel_length = bullet_vel.length()
-            time_to_reach = dist / vel_length if vel_length > 0 else 999
-            if time_to_reach < 0.5:  # Only dodge if bullet will reach soon
-                threats.append(bullet_pos)
-    
-    # Check friendly projectiles
-    for fp in friendly_projectiles:
-        bullet_pos = pygame.Vector2(fp["rect"].center)
-        dist_sq = (bullet_pos - enemy_v2).length_squared()
-        if dist_sq < dodge_range_sq:
-            # Only compute actual distance if in range
-            dist = math.sqrt(dist_sq)
-            bullet_vel = fp.get("vel", pygame.Vector2(0, 0))
-            vel_length = bullet_vel.length()
-            time_to_reach = dist / vel_length if vel_length > 0 else 999
-            if time_to_reach < 0.5:
-                threats.append(bullet_pos)
-    
-    return threats
-
-
-def spawn_friendly_ai(count: int, hp_scale: float, speed_scale: float):
-    """Spawn friendly AI units."""
-    global friendly_ai
-    spawned_list = []
-    for _ in range(count):
-        tmpl = random.choice(friendly_ai_templates)
-        friendly = make_friendly_from_template(tmpl, hp_scale, speed_scale)
-        # Use random_spawn_position to prevent spawning on blocks or health zone
-        friendly["rect"] = random_spawn_position((friendly["rect"].w, friendly["rect"].h))
-        friendly_ai.append(friendly)
-        spawned_list.append(friendly)
-    
-    # Log friendly AI spawns
-    for f in spawned_list:
-        telemetry.log_friendly_spawn(
-            FriendlyAISpawnEvent(
-                t=run_time,
-                friendly_type=f["type"],
-                x=f["rect"].x,
-                y=f["rect"].y,
-                w=f["rect"].w,
-                h=f["rect"].h,
-                hp=f["hp"],
-                behavior=f["behavior"],
-            )
-        )
-
-
-def spawn_friendly_projectile(friendly: dict, target: dict):
-    """Spawn a projectile from friendly AI targeting an enemy."""
-    d = vec_toward(
-        friendly["rect"].centerx, friendly["rect"].centery,
-        target["rect"].centerx, target["rect"].centery
-    )
-    r = pygame.Rect(
-        friendly["rect"].centerx - 6,
-        friendly["rect"].centery - 6,
-        12, 12
-    )
-    friendly_projectiles.append({
-        "rect": r,
-        "vel": d * friendly["projectile_speed"],
-        "damage": friendly["damage"],
-        "color": friendly["projectile_color"],
-        "shape": friendly["projectile_shape"],
-        "source_type": friendly["type"],
-        "target_enemy_type": target.get("type", "unknown"),  # Store target type for telemetry
-    })
-    
-    # Log friendly AI shot
-    telemetry.log_friendly_shot(
-        FriendlyAIShotEvent(
-            t=run_time,
-            friendly_type=friendly["type"],
-            origin_x=friendly["rect"].centerx,
-            origin_y=friendly["rect"].centery,
-            target_x=target["rect"].centerx,
-            target_y=target["rect"].centery,
-            target_enemy_type=target.get("type", "unknown"),
-        )
-    )
-    if telemetry_enabled and telemetry:
-        telemetry.flush(force=True)
-
-
 def start_wave(wave_num: int):
     """Spawn a new wave with scaling. Each level has 3 waves, boss on wave 3."""
-    global enemies, wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer, ally_drop_timer, shield_recharge_timer, shield_cooldown_remaining
+    global enemies, wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer, ally_drop_timer, shield_recharge_timer, shield_cooldown_remaining, enemies_spawned
     enemies = []
     boss_active = False
     # Reset lives to 3 at the beginning of each wave
@@ -2845,7 +2497,9 @@ def start_wave(wave_num: int):
         boss["time_since_shot"] = 0.0
         enemies.append(boss)
         boss_active = True
-        log_enemy_spawns([boss])
+        enemies_spawned_ref = [enemies_spawned]
+        log_enemy_spawns([boss], telemetry, run_time, enemies_spawned_ref)
+        enemies_spawned = enemies_spawned_ref[0]
         # Log boss as enemy type for this wave
         telemetry.log_wave_enemy_types(
             WaveEnemyTypeEvent(
@@ -2888,7 +2542,9 @@ def start_wave(wave_num: int):
         enemy_type_counts[enemy_type] = enemy_type_counts.get(enemy_type, 0) + 1
 
     enemies.extend(spawned)
-    log_enemy_spawns(spawned)
+    enemies_spawned_ref = [enemies_spawned]
+    log_enemy_spawns(spawned, telemetry, run_time, enemies_spawned_ref)
+    enemies_spawned = enemies_spawned_ref[0]
     
     # Log enemy types for this wave
     for enemy_type, type_count in enemy_type_counts.items():
@@ -2904,7 +2560,7 @@ def start_wave(wave_num: int):
     # Spawn friendly AI: 2-4 per wave (increased from 1-2)
     # Calculate friendly AI count based on enemy count - more friendly AI
     friendly_count = max(2, min(4, (count + 1) // 2))  # 2-4 friendly per wave
-    spawn_friendly_ai(friendly_count, hp_scale, speed_scale)
+    spawn_friendly_ai(friendly_count, hp_scale, speed_scale, friendly_ai_templates, friendly_ai, random_spawn_position, telemetry, run_time)
     
     wave_active = True
     
@@ -3438,182 +3094,7 @@ def spawn_weapon_drop(enemy: dict):
         })
 
 
-def _create_cached_silver_wall_texture(width: int, height: int) -> pygame.Surface:
-    """Create a cached silver wall texture surface."""
-    surf = pygame.Surface((width, height))
-    silver_base = (192, 192, 192)
-    silver_dark = (160, 160, 160)
-    silver_light = (220, 220, 220)
-    
-    # Fill base
-    surf.fill(silver_base)
-    
-    # Draw metallic grid pattern
-    brick_width = max(8, width // 4)
-    brick_height = max(6, height // 3)
-    
-    # Horizontal mortar lines
-    for y in range(brick_height, height, brick_height):
-        pygame.draw.line(surf, silver_dark, (0, y), (width, y), 1)
-    
-    # Vertical mortar lines (staggered)
-    offset = 0
-    for y in range(0, height, brick_height * 2):
-        for x in range(offset, width, brick_width):
-            pygame.draw.line(surf, silver_dark, (x, y), (x, min(y + brick_height, height)), 1)
-        offset = brick_width // 2 if offset == 0 else 0
-    
-    # Add highlights for metallic shine
-    for i in range(0, width, brick_width):
-        for j in range(0, height, brick_height):
-            highlight_x = i + brick_width // 4
-            highlight_y = j + brick_height // 4
-            if highlight_x < width and highlight_y < height:
-                pygame.draw.circle(surf, silver_light, (highlight_x, highlight_y), 2)
-    
-    return surf
-
-
-def draw_silver_wall_texture(screen, rect: pygame.Rect):
-    """Draw a silver wall texture for indestructible blocks (uses cached surface when possible)."""
-    global _wall_texture_cache
-    # Use cache for common sizes (round to nearest 10 for better cache hit rate)
-    cache_key = (rect.w // 10 * 10, rect.h // 10 * 10)
-    
-    if cache_key not in _wall_texture_cache:
-        _wall_texture_cache[cache_key] = _create_cached_silver_wall_texture(cache_key[0], cache_key[1])
-    
-    cached_surf = _wall_texture_cache[cache_key]
-    # Blit cached surface, scaling if needed
-    if cache_key[0] == rect.w and cache_key[1] == rect.h:
-        screen.blit(cached_surf, rect.topleft)
-    else:
-        # Scale if size doesn't match exactly
-        scaled = pygame.transform.scale(cached_surf, (rect.w, rect.h))
-        screen.blit(scaled, rect.topleft)
-
-
-def _create_cached_cracked_brick_texture(width: int, height: int, crack_level: int) -> pygame.Surface:
-    """Create a cached cracked brick wall texture surface."""
-    surf = pygame.Surface((width, height))
-    brick_red = (180, 80, 60)
-    brick_dark = (140, 60, 40)
-    brick_light = (200, 100, 80)
-    mortar = (100, 100, 100)
-    
-    # Fill base brick color
-    surf.fill(brick_red)
-    
-    # Draw brick pattern
-    brick_width = max(10, width // 4)
-    brick_height = max(8, height // 3)
-    
-    # Horizontal mortar lines
-    for y in range(brick_height, height, brick_height):
-        pygame.draw.line(surf, mortar, (0, y), (width, y), 2)
-    
-    # Vertical mortar lines (staggered brick pattern)
-    offset = 0
-    for y in range(0, height, brick_height * 2):
-        for x in range(offset, width, brick_width):
-            pygame.draw.line(surf, mortar, (x, y), (x, min(y + brick_height, height)), 2)
-        offset = brick_width // 2 if offset == 0 else 0
-    
-    # Add individual brick highlights
-    offset = 0
-    for y in range(0, height, brick_height):
-        for x in range(offset, width, brick_width):
-            brick_rect = pygame.Rect(x + 1, y + 1, min(brick_width - 2, width - x - 1), min(brick_height - 2, height - y - 1))
-            if brick_rect.w > 0 and brick_rect.h > 0:
-                # Light highlight on top-left of each brick
-                pygame.draw.line(surf, brick_light, (brick_rect.left, brick_rect.top), (brick_rect.right, brick_rect.top), 1)
-                pygame.draw.line(surf, brick_light, (brick_rect.left, brick_rect.top), (brick_rect.left, brick_rect.bottom), 1)
-                # Dark shadow on bottom-right
-                pygame.draw.line(surf, brick_dark, (brick_rect.right, brick_rect.top), (brick_rect.right, brick_rect.bottom), 1)
-                pygame.draw.line(surf, brick_dark, (brick_rect.left, brick_rect.bottom), (brick_rect.right, brick_rect.bottom), 1)
-        offset = brick_width // 2 if offset == 0 else 0
-    
-    # Draw cracks based on damage level
-    if crack_level >= 1:
-        center = (width // 2, height // 2)
-        crack_color = (40, 40, 40)
-        # Main crack from center
-        for i in range(crack_level):
-            angle = (i * 2.4) * math.pi / 3
-            end_x = center[0] + math.cos(angle) * (width // 2)
-            end_y = center[1] + math.sin(angle) * (height // 2)
-            pygame.draw.line(surf, crack_color, center, (end_x, end_y), 2)
-        
-        # Additional smaller cracks for higher damage
-        if crack_level >= 2:
-            for i in range(crack_level):
-                angle = (i * 1.8 + 0.5) * math.pi / 3
-                start_x = center[0] + math.cos(angle) * (width // 4)
-                start_y = center[1] + math.sin(angle) * (height // 4)
-                end_x = start_x + math.cos(angle) * (width // 3)
-                end_y = start_y + math.sin(angle) * (height // 3)
-                pygame.draw.line(surf, crack_color, (start_x, start_y), (end_x, end_y), 1)
-    
-    return surf
-
-
-def draw_cracked_brick_wall_texture(screen, rect: pygame.Rect, crack_level: int = 1):
-    """Draw a cracked brick wall texture for destructible blocks (uses cached surface when possible)."""
-    global _wall_texture_cache
-    # Use cache for common sizes (round to nearest 10 for better cache hit rate)
-    cache_key = (rect.w // 10 * 10, rect.h // 10 * 10, crack_level)
-    
-    if cache_key not in _wall_texture_cache:
-        _wall_texture_cache[cache_key] = _create_cached_cracked_brick_texture(cache_key[0], cache_key[1], crack_level)
-    
-    cached_surf = _wall_texture_cache[cache_key]
-    # Blit cached surface, scaling if needed
-    if cache_key[0] == rect.w and cache_key[1] == rect.h:
-        screen.blit(cached_surf, rect.topleft)
-    else:
-        # Scale if size doesn't match exactly
-        scaled = pygame.transform.scale(cached_surf, (rect.w, rect.h))
-        screen.blit(scaled, rect.topleft)
-
-
-def draw_health_bar(x, y, w, h, hp, max_hp):
-    """Draw health bar (uses cached surface for common sizes/ratios when possible)."""
-    global _health_bar_cache
-    hp = max(0, min(hp, max_hp))
-    hp_ratio = hp / max_hp if max_hp > 0 else 0.0
-    
-    # Cache for common health bar sizes (round to nearest 5 for better cache hits)
-    # Only cache if bar is reasonably sized (not too many variations)
-    # Only use cache if the rounded ratio matches the actual ratio (to avoid visual inaccuracies)
-    if w <= 200 and h <= 20:
-        rounded_ratio = int(hp_ratio * 10)  # Round to 10% increments
-        actual_fill = int(w * hp_ratio)
-        cached_fill = int(w * (rounded_ratio / 10.0))
-        
-        # Only use cache if rounded ratio produces the same visual result
-        if actual_fill == cached_fill:
-            cache_key = (w // 5 * 5, h, rounded_ratio)
-            if cache_key not in _health_bar_cache:
-                cached_w, cached_h, cached_ratio = cache_key
-                cached_surf = pygame.Surface((cached_w, cached_h))
-                cached_surf.fill((60, 60, 60))
-                fill_w = int(cached_w * (cached_ratio / 10.0))
-                if fill_w > 0:
-                    pygame.draw.rect(cached_surf, (60, 200, 60), (0, 0, fill_w, cached_h))
-                pygame.draw.rect(cached_surf, (20, 20, 20), (0, 0, cached_w, cached_h), 2)
-                _health_bar_cache[cache_key] = cached_surf
-            
-            # Use cached surface if size matches exactly
-            if cache_key[0] == w and cache_key[1] == h:
-                screen.blit(_health_bar_cache[cache_key], (x, y))
-                return
-    
-    # Fallback to direct drawing for non-cached sizes or when ratio doesn't match
-    pygame.draw.rect(screen, (60, 60, 60), (x, y, w, h))
-    fill_w = int(w * hp_ratio)
-    if fill_w > 0:
-        pygame.draw.rect(screen, (60, 200, 60), (x, y, fill_w, h))
-    pygame.draw.rect(screen, (20, 20, 20), (x, y, w, h), 2)
+# Rendering helper functions are now imported from rendering.py
 
 
 def create_pickup_collection_effect(x: int, y: int, color: tuple[int, int, int]):
@@ -3671,23 +3152,7 @@ def update_pickup_effects(dt: float):
             })
 
 
-def draw_centered_text(text: str, y: int, color=(235, 235, 235), use_big=False):
-    f = big_font if use_big else font
-    surf = f.render(text, True, color)
-    rect = surf.get_rect(center=(WIDTH // 2, y))
-    screen.blit(surf, rect)
-
-
-def draw_projectile(rect: pygame.Rect, color: tuple[int, int, int], shape: str):
-    if shape == "circle":
-        pygame.draw.circle(screen, color, rect.center, rect.w // 2)
-    elif shape == "diamond":
-        cx, cy = rect.center
-        hw, hh = rect.w // 2, rect.h // 2
-        points = [(cx, cy - hh), (cx + hw, cy), (cx, cy + hh), (cx - hw, cy)]
-        pygame.draw.polygon(screen, color, points)
-    else:
-        pygame.draw.rect(screen, color, rect)
+# Rendering helper functions are now imported from rendering.py
 
 
 def spawn_player_bullet_and_log():
@@ -3813,7 +3278,7 @@ def spawn_player_bullet_and_log():
 def spawn_enemy_projectile(enemy: dict):
     """Spawn projectile from enemy targeting nearest threat (player or friendly AI)."""
     e_pos = pygame.Vector2(enemy["rect"].center)
-    threat_result = find_nearest_threat(e_pos)
+    threat_result = find_nearest_threat(e_pos, player, friendly_ai)
     
     # Calculate direction
     if threat_result:
@@ -3901,7 +3366,9 @@ def spawn_boss_projectile(boss: dict, direction: pygame.Vector2):
 
 
 def log_enemy_spawns_for_current_wave():
-    log_enemy_spawns(enemies)
+    enemies_spawned_ref = [enemies_spawned]
+    log_enemy_spawns(enemies, telemetry, run_time, enemies_spawned_ref)
+    enemies_spawned = enemies_spawned_ref[0]
 
 
 def calculate_kill_score(wave_num: int, run_time: float) -> int:
@@ -3913,8 +3380,8 @@ def calculate_kill_score(wave_num: int, run_time: float) -> int:
 enemy_defeat_messages: list[dict] = []  # List of {enemy_type, timer} for defeat messages
 
 def kill_enemy(enemy: dict):
-    """Handle enemy death: drop weapon, update score, remove from list."""
-    global enemies_killed, score, current_level, enemy_defeat_messages
+    """Handle enemy death: drop weapon, update score, remove from list, and clean up projectiles."""
+    global enemies_killed, score, current_level, enemy_defeat_messages, enemy_projectiles, damage_numbers
     is_boss = enemy.get("is_boss", False)
     
     # Add defeat message
@@ -3923,6 +3390,26 @@ def kill_enemy(enemy: dict):
         "enemy_type": enemy_type,
         "timer": 3.0,  # Display for 3 seconds
     })
+    
+    # Remove projectiles and damage numbers associated with this dead enemy
+    enemy_pos = pygame.Vector2(enemy["rect"].center)
+    cleanup_radius_sq = 2500  # 50 pixels squared - projectiles/damage within this range are removed
+    
+    # Remove enemy projectiles that are near the dead enemy's position
+    # (This catches projectiles that were just fired or are still near the enemy)
+    for proj in enemy_projectiles[:]:
+        proj_pos = pygame.Vector2(proj["rect"].center)
+        dist_sq = (proj_pos - enemy_pos).length_squared()
+        # Remove if projectile is close to dead enemy AND matches enemy type
+        # This prevents removing projectiles from other enemies of the same type that are far away
+        if dist_sq < cleanup_radius_sq and proj.get("enemy_type") == enemy_type:
+            enemy_projectiles.remove(proj)
+    
+    # Remove damage numbers near the dead enemy's position
+    for dmg_num in damage_numbers[:]:
+        dmg_pos = pygame.Vector2(dmg_num["x"], dmg_num["y"])
+        if (dmg_pos - enemy_pos).length_squared() < cleanup_radius_sq:
+            damage_numbers.remove(dmg_num)
     
     # If boss is killed, spawn level completion weapon in center
     if is_boss:
@@ -4160,14 +3647,7 @@ def apply_pickup_effect(pickup_type: str):
         overshield = min(overshield_max, overshield + 25)
 
 
-def render_hud_text(text: str, y: int, color=(230, 230, 230)) -> int:
-    """Render HUD text at position and return next Y position (uses cached surface when possible)."""
-    global _hud_text_cache
-    cache_key = (text, color)
-    if cache_key not in _hud_text_cache:
-        _hud_text_cache[cache_key] = font.render(text, True, color)
-    screen.blit(_hud_text_cache[cache_key], (10, y))
-    return y + 24
+# render_hud_text is now imported from rendering.py
 
 
 def reset_after_death():

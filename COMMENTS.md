@@ -547,3 +547,100 @@
 # - Confirm that python game.py still launches and behaves normally.
 # - Summarize which constants were moved.
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------/
+# TASK: FINISH CONFIG EXTRACTION FROM game.py
+#
+# GOAL:
+# Move remaining pure configuration data and tuning values out of game.py into:
+#   - constants.py      (global tuning values, base constants)
+#   - config_weapons.py (weapon definitions, if helpful)
+#   - config_enemies.py (enemy base definitions, if helpful)
+#
+# WHAT TO MOVE:
+# - Pure data that does NOT change at runtime:
+#   * Difficulty multipliers
+#   * Base health/shield values for player classes
+#   * Base damage, cooldown, ammo capacity per weapon
+#   * Enemy base HP, speed, damage, score value, etc.
+#   * Spawn rate multipliers (e.g., EASY/HARD modifiers)
+# - Data that is *used* by the game but not modified by it.
+#
+# WHAT MUST NOT BE MOVED:
+# - Any variable that is mutated during the game.
+# - Lists/dicts that are appended to, popped from, or modified dynamically.
+# - Any object that depends on pygame initialization (Surfaces, Rects, fonts).
+#
+# FILE STRUCTURE:
+# - constants.py: shared tuning constants, global scalar values, simple dicts.
+# - config_weapons.py: weapon definitions as dicts or dataclasses.
+# - config_enemies.py: enemy archetypes as dicts or dataclasses.
+#
+# IMPLEMENTATION:
+# 1) Create config_weapons.py and config_enemies.py if they do not exist.
+# 2) Move appropriate config blocks out of game.py into those files.
+# 3) In game.py, replace the moved definitions with imports:
+#       from constants import *
+#       from config_weapons import WEAPONS  # or similar
+#       from config_enemies import ENEMIES  # or similar
+# 4) Keep the data structures identical so existing code can still index them.
+#
+# CONSTRAINTS:
+# - Do NOT change game logic or behavior.
+# - Do NOT rename keys or reorganize the structure of config dicts unless absolutely necessary.
+# - Do NOT move any runtime state out of game.py.
+#
+# AFTER CHANGES:
+# - Run `python game.py` and confirm the game still behaves exactly the same.
+# - Summarize which config blocks were moved and to which files.
+#--------------------------------------------------------------------------------------------------------------------
+#enemies prioritize player over allies
+#--------------------------------------------------------------------------------------------------------------------
+#fix issue where bullets and damage stay on screen after enemies have died
+#--------------------------------------------------------------------------------------------------------------------
+#GPT;
+# TASK: EXTRACT RENDER HELPERS INTO rendering.py
+#
+# GOAL:
+# Move pure drawing / rendering helper functions out of game.py into a new module
+# named rendering.py, then import and use them from game.py.
+#
+# CANDIDATE FUNCTIONS TO MOVE:
+# - draw_silver_wall_texture(...)
+# - draw_cracked_brick_wall_texture(...)
+# - draw_projectile(...)
+# - draw_health_bar(...)
+# - draw_centered_text(...)
+# - render_hud_text(...)
+# - Any other small helpers that ONLY deal with drawing on a surface.
+#
+# WHAT MUST STAY:
+# - The main game loop and orchestration stay in game.py.
+# - Functions that directly mix logic and drawing should stay in game.py for now.
+#
+# IMPLEMENTATION:
+# 1) Create rendering.py.
+# 2) Move the identified drawing helper functions from game.py into rendering.py.
+# 3) Ensure rendering.py has the minimal imports it needs (e.g., pygame, typing).
+# 4) In game.py, import the moved functions:
+#       from rendering import (
+#           draw_silver_wall_texture,
+#           draw_cracked_brick_wall_texture,
+#           draw_projectile,
+#           draw_health_bar,
+#           draw_centered_text,
+#           render_hud_text,
+#       )
+# 5) Update call sites in game.py only as needed to reference the imported names.
+#    The function signatures and behaviors should remain the same.
+#
+# CONSTRAINTS:
+# - Do NOT change what these functions draw or how they behave.
+# - Do NOT introduce new dependencies beyond pygame/typing/whatever they already used.
+# - Do NOT refactor game logic; this is a pure “move helpers out” step.
+#
+# AFTER CHANGES:
+# - Run `python game.py` to confirm the game still renders as before (HUD, walls,
+#   projectiles, health bars, etc.).
+# - Summarize which functions were moved into rendering.py.
+#--------------------------------------------------------------------------------------------------------------------
+
+#--------------------------------------------------------------------------------------------------------------------
