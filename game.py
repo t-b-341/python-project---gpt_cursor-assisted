@@ -57,6 +57,28 @@ from telemetry import (
 # Import constants
 from constants import *
 
+# Import config data
+from config_enemies import (
+    ENEMY_TEMPLATES,
+    BOSS_TEMPLATE,
+    BASE_ENEMIES_PER_WAVE,
+    MAX_ENEMIES_PER_WAVE,
+    ENEMY_SPAWN_MULTIPLIER,
+    ENEMY_HP_SCALE_MULTIPLIER,
+    ENEMY_SPEED_SCALE_MULTIPLIER,
+    ENEMY_FIRE_RATE_MULTIPLIER,
+    ENEMY_HP_CAP,
+    QUEEN_FIXED_HP,
+    QUEEN_SPEED_MULTIPLIER,
+    FRIENDLY_AI_TEMPLATES,
+)
+from config_weapons import (
+    WEAPON_CONFIGS,
+    WEAPON_NAMES,
+    WEAPON_DISPLAY_COLORS,
+    WEAPON_UNLOCK_ORDER,
+)
+
 
 # Placeholder WIDTH/HEIGHT for module-level initialization
 # Will be updated in main() after pygame.display.init()
@@ -2013,246 +2035,15 @@ for _ in range(max_health_zone_attempts):
     moving_health_zone["rect"].center = (new_x, new_y)
 
 # ----------------------------
-# Enemy templates + cloning
+# Enemy templates are now imported from config_enemies.py
 # ----------------------------
-enemy_templates: list[dict] = [
-    {
-        "type": "pawn",
-        "rect": pygame.Rect(120, 450, 28, 28),
-        "color": (180, 180, 180),  # Gray
-        "hp": 50,
-        "max_hp": 50,
-        "shoot_cooldown": 1.0,  # Basic fire rate
-        "projectile_speed": 300,
-        "projectile_color": (200, 200, 200),
-        "projectile_shape": "circle",
-        "speed": 80,  # Basic movement speed
-        "enemy_class": "pawn",  # Enemy class identifier
-    },
-    {
-        "type": "suicide",
-        "rect": pygame.Rect(200, 200, 48, 48),  # Twice as big (24*2 = 48)
-        "color": (255, 50, 50),  # Bright red
-        "hp": 30,
-        "max_hp": 30,
-        "shoot_cooldown": 999.0,  # Doesn't shoot
-        "projectile_speed": 0,
-        "projectile_color": (255, 0, 0),
-        "projectile_shape": "circle",
-        "speed": 90,  # 0.75x current speed (120 * 0.75 = 90)
-        "is_suicide": True,  # Marks this as suicide enemy
-        "explosion_range": 150,  # Range for grenade explosion
-        "detonation_distance": 50,  # Distance from player to detonate (closer before exploding)
-    },
-    {
-        "type": "grunt",
-        "rect": pygame.Rect(120, 450, 28, 28),
-        "color": (220, 80, 80),
-        "hp": 60,
-        "max_hp": 60,
-        "shoot_cooldown": 0.9,
-        "projectile_speed": 320,
-        "projectile_color": (180, 220, 255),
-        "projectile_shape": "square",
-        "speed": 90,
-    },
-    {
-        "type": "heavy",
-        "rect": pygame.Rect(650, 120, 32, 32),
-        "color": (220, 120, 80),
-        "hp": 80,
-        "max_hp": 80,
-        "shoot_cooldown": 1.2,
-        "projectile_speed": 280,
-        "projectile_color": (255, 190, 120),
-        "projectile_shape": "circle",
-        "speed": 70,
-    },
-    {
-        "type": "stinky",
-        "rect": pygame.Rect(90, 450, 28, 28),
-        "color": (220, 80, 80),
-        "hp": 60,
-        "max_hp": 60,
-        "shoot_cooldown": 0.9,
-        "projectile_speed": 320,
-        "projectile_color": (180, 220, 255),
-        "projectile_shape": "diamond",
-        "speed": 110,
-    },
-    {
-        "type": "baka",
-        "rect": pygame.Rect(90, 450, 28, 28),
-        "color": (100, 80, 80),
-        "hp": 300,
-        "max_hp": 300,
-        "shoot_cooldown": 0.1,
-        "projectile_speed": 500,
-        "projectile_color": (255, 120, 180),
-        "projectile_shape": "square",
-        "speed": 150,
-    },
-    {
-        "type": "neko neko desu",
-        "rect": pygame.Rect(100, 450, 28, 28),
-        "color": (100, 80, 0),
-        "hp": 20,
-        "max_hp": 20,
-        "shoot_cooldown": 0.01,
-        "projectile_speed": 500,
-        "projectile_color": (200, 255, 140),
-        "projectile_shape": "circle",
-        "speed": 160,
-    },
-    {
-        "type": "BIG NEKU",
-        "rect": pygame.Rect(400, 450, 28, 28),
-        "color": (100, 200, 0),
-        "hp": 300,
-        "max_hp": 300,
-        "shoot_cooldown": 1,
-        "projectile_speed": 700,
-        "projectile_color": (160, 200, 255),
-        "projectile_shape": "diamond",
-        "speed": 60,
-    },
-    {
-        "type": "bouncer",
-        "rect": pygame.Rect(500, 500, 30, 30),
-        "color": (255, 100, 100),
-        "hp": 70,
-        "max_hp": 70,
-        "shoot_cooldown": 1.5,
-        "projectile_speed": 350,
-        "projectile_color": (255, 150, 150),
-        "projectile_shape": "square",
-        "speed": 85,
-        "bouncing_projectiles": True,  # shoots bouncing projectiles
-    },
-    {
-        "type": "shield enemy",
-        "rect": pygame.Rect(300, 300, 32, 32),
-        "color": (100, 150, 200),
-        "hp": 100,
-        "max_hp": 100,
-        "shoot_cooldown": 1.0,
-        "projectile_speed": 300,
-        "projectile_color": (150, 200, 255),
-        "projectile_shape": "circle",
-        "speed": 60,
-        "has_shield": True,  # Has directional shield
-        "shield_angle": 0.0,  # Direction shield is facing (radians)
-        "shield_length": 50,  # Length of shield line
-    },
-    {
-        "type": "reflector",
-        "rect": pygame.Rect(400, 400, 36, 36),
-        "color": (200, 150, 100),
-        "hp": 150,
-        "max_hp": 150,
-        "shoot_cooldown": 999.0,  # Doesn't shoot
-        "projectile_speed": 0,
-        "projectile_color": (255, 200, 100),
-        "projectile_shape": "circle",
-        "speed": 40,  # Slow turn speed
-        "has_reflective_shield": True,  # Has reflective shield
-        "shield_angle": 0.0,  # Direction shield is facing (radians)
-        "shield_length": 60,  # Length of shield
-        "shield_hp": 0,  # Damage absorbed by shield (fires back)
-        "turn_speed": 0.5,  # Radians per second turn speed
-    },
-    {
-        "type": "spawner",
-        "rect": pygame.Rect(500, 500, 40, 40),
-        "color": (150, 50, 150),  # Purple
-        "hp": 120,
-        "max_hp": 120,
-        "shoot_cooldown": 999.0,  # Doesn't shoot projectiles
-        "projectile_speed": 0,
-        "projectile_color": (150, 50, 150),
-        "projectile_shape": "circle",
-        "speed": 30,  # Slow movement
-        "is_spawner": True,  # Marks this as a spawner enemy
-        "spawn_cooldown": 5.0,  # Spawns enemies every 5 seconds
-        "time_since_spawn": 0.0,
-        "spawn_count": 0,  # Track how many enemies spawned
-        "max_spawns": 3,  # Maximum enemies to spawn per spawner
-    },
-    {
-        "type": "queen",
-        "name": "queen",  # Explicit name
-        "rect": pygame.Rect(400, 400, 32, 32),
-        "color": (100, 0, 0),  # Dark maroon (player clone)
-        "hp": 5000,  # 5000 health (increased from 2000)
-        "max_hp": 5000,
-        "shoot_cooldown": 1.0,  # 1.0s cooldown
-        "projectile_speed": 350,
-        "projectile_color": (150, 0, 0),
-        "projectile_shape": "circle",
-        "speed": 240,  # 3x standard speed (80 * 3)
-        "is_player_clone": True,  # Marks this as player clone
-        "enemy_class": "queen",  # Enemy class identifier
-        "has_shield": True,  # Queen has shield
-        "shield_angle": 0.0,
-        "shield_length": 60,
-        "can_use_grenades": True,  # Queen can use grenades
-        "grenade_cooldown": 5.0,  # Grenade cooldown for queen
-        "time_since_grenade": 999.0,
-        "damage_taken_since_rage": 0,  # Track damage for rage mode
-        "rage_mode_active": False,  # Rage mode after 300-500 damage
-        "rage_mode_timer": 0.0,  # Rage mode duration (5 seconds)
-        "rage_damage_threshold": random.randint(300, 500),  # Random threshold between 300-500
-        "predicts_player": True,  # Queen also predicts player position
-    },
-    {
-        "type": "queen",
-        "rect": pygame.Rect(400, 400, 32, 32),
-        "color": (100, 0, 0),  # Dark maroon (player clone)
-        "hp": 5000,  # 5000 health (increased from 2000)
-        "max_hp": 5000,
-        "shoot_cooldown": 1.0,  # 1.0s cooldown
-        "projectile_speed": 350,
-        "projectile_color": (150, 0, 0),
-        "projectile_shape": "circle",
-        "speed": 240,  # 3x standard speed (80 * 3)
-        "is_player_clone": True,  # Marks this as player clone
-    },
-    {
-        "type": "patrol",
-        "rect": pygame.Rect(0, 0, 32, 32),
-        "color": (150, 100, 200),  # Purple
-        "hp": 150,
-        "max_hp": 150,
-        "shoot_cooldown": 0.5,
-        "projectile_speed": 400,
-        "projectile_color": (200, 150, 255),
-        "projectile_shape": "circle",
-        "speed": 100,
-        "is_patrol": True,  # Marks this as patrol enemy
-        "patrol_side": 0,  # 0=top, 1=right, 2=bottom, 3=left
-        "patrol_progress": 0.0,  # Progress along current side (0.0 to 1.0)
-        "uses_wave_beam": True,  # Uses wave beam weapon
-    },
+enemy_templates = ENEMY_TEMPLATES  # Alias for compatibility
 
-]
-
-# Boss enemy template (spawned at specific waves)
-boss_template = {
-    "type": "FINAL_BOSS",
-    "rect": pygame.Rect(WIDTH // 2 - 50, HEIGHT // 2 - 50, 100, 100),
-    "color": (255, 0, 0),
-    "hp": 300,
-    "max_hp": 300,
-    "shoot_cooldown": 0.5,
-    "projectile_speed": 400,
-    "projectile_color": (255, 50, 50),
-    "projectile_shape": "circle",
-    "speed": 50,
-    "is_boss": True,
-    "phase": 1,  # Boss has 3 phases
-    "phase_hp_thresholds": [0.66, 0.33],  # Phase 2 at 66% HP, Phase 3 at 33% HP
-    "time_since_shot": 0.0,
-}
+# Boss enemy template is now imported from config_enemies.py
+# Note: rect position will be set at runtime in spawn_boss()
+# boss_template will be created from BOSS_TEMPLATE.copy() when needed in start_wave()
+# We keep a reference here for compatibility, but it will be copied at runtime
+boss_template = BOSS_TEMPLATE  # Reference (will be copied when spawning boss)
 
 
 def clone_enemies_from_templates() -> list[dict]:
@@ -2265,64 +2056,8 @@ enemies: list[dict] = []
 # ----------------------------
 # Friendly AI
 # ----------------------------
-friendly_ai_templates: list[dict] = [
-    {
-        "type": "scout",
-        "rect": pygame.Rect(0, 0, 24, 24),
-        "color": (100, 200, 255),  # Light blue
-        "hp": 400,  # 10x health (was 40)
-        "max_hp": 400,  # 10x health (was 40)
-        "shoot_cooldown": 0.4,
-        "projectile_speed": 600,
-        "projectile_color": (150, 220, 255),
-        "projectile_shape": "circle",
-        "speed": 180,
-        "behavior": "aggressive",  # Charges nearest enemy
-        "damage": 15,
-    },
-    {
-        "type": "guardian",
-        "rect": pygame.Rect(0, 0, 28, 28),
-        "color": (100, 255, 150),  # Light green
-        "hp": 800,  # 10x health (was 80)
-        "max_hp": 800,  # 10x health (was 80)
-        "shoot_cooldown": 0.6,
-        "projectile_speed": 500,
-        "projectile_color": (150, 255, 200),
-        "projectile_shape": "square",
-        "speed": 120,
-        "behavior": "defensive",  # Stays near player, attacks nearby enemies
-        "damage": 20,
-    },
-    {
-        "type": "sniper",
-        "rect": pygame.Rect(0, 0, 22, 22),
-        "color": (255, 200, 100),  # Orange
-        "hp": 300,  # 10x health (was 30)
-        "max_hp": 300,  # 10x health (was 30)
-        "shoot_cooldown": 1.2,
-        "projectile_speed": 800,
-        "projectile_color": (255, 220, 150),
-        "projectile_shape": "diamond",
-        "speed": 100,
-        "behavior": "ranged",  # Keeps distance, snipes enemies
-        "damage": 35,
-    },
-    {
-        "type": "tank",
-        "rect": pygame.Rect(0, 0, 32, 32),
-        "color": (200, 150, 255),  # Purple
-        "hp": 1500,  # 10x health (was 150)
-        "max_hp": 1500,  # 10x health (was 150)
-        "shoot_cooldown": 0.8,
-        "projectile_speed": 400,
-        "projectile_color": (220, 180, 255),
-        "projectile_shape": "square",
-        "speed": 80,
-        "behavior": "tank",  # Slow, high HP, draws enemy fire
-        "damage": 25,
-    },
-]
+# Friendly AI templates are now imported from config_enemies.py
+friendly_ai_templates = FRIENDLY_AI_TEMPLATES  # Alias for compatibility
 
 friendly_ai: list[dict] = []
 
@@ -2336,9 +2071,10 @@ friendly_projectiles: list[dict] = []
 # Enemy projectiles
 # ----------------------------
 enemy_projectiles: list[dict] = []
-enemy_projectile_size = (10, 10)
-enemy_projectile_damage = int(10 * 1.1)  # 110% damage (11 damage)
-enemy_projectiles_color = (200, 200, 200)
+# Enemy projectile constants are now imported from constants.py
+enemy_projectile_size = ENEMY_PROJECTILE_SIZE
+enemy_projectile_damage = ENEMY_PROJECTILE_DAMAGE
+enemy_projectiles_color = ENEMY_PROJECTILES_COLOR
 enemy_projectile_shapes = ["circle", "square", "diamond"]
 
 # ----------------------------
@@ -2373,8 +2109,9 @@ wave_in_level = 1  # Wave within current level (1, 2, or 3)
 wave_respawn_delay = 2.5  # seconds between waves
 time_to_next_wave = 0.0
 wave_active = True
-base_enemies_per_wave = 9  # Increased for more enemies (was 6)
-max_enemies_per_wave = 54  # Increased for more enemies (was 36)
+# Enemy spawn constants are now imported from config_enemies.py
+base_enemies_per_wave = BASE_ENEMIES_PER_WAVE
+max_enemies_per_wave = MAX_ENEMIES_PER_WAVE
 boss_active = False
 
 # Pickups - PICKUP_SPAWN_INTERVAL imported from constants.py
@@ -2829,17 +2566,17 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
 
 
 def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
-    # Apply 110% multipliers (1.1x) to all stats
-    # Exception: Queen (player clone) has fixed 2000 HP and 3x speed, not affected by scaling
+    # Apply scaling multipliers from config
+    # Exception: Queen (player clone) has fixed HP and special speed multiplier
     if t.get("type") == "queen":
-        hp = 5000  # Fixed 5000 health for queen
+        hp = QUEEN_FIXED_HP  # Fixed health for queen
         base_speed = t.get("speed", 80)
-        final_speed = base_speed * 1.1  # Still apply 110% multiplier
+        final_speed = base_speed * ENEMY_SPEED_SCALE_MULTIPLIER  # Still apply speed multiplier
     else:
-        hp = int(t["hp"] * hp_scale * 1.1)  # 110% health
-        # Cap HP at 300 maximum (except queen)
-        hp = min(hp, 300)
-        final_speed = t.get("speed", 80) * speed_scale * 1.1  # 110% movement speed
+        hp = int(t["hp"] * hp_scale * ENEMY_HP_SCALE_MULTIPLIER)  # Apply HP scale multiplier
+        # Cap HP at maximum (except queen)
+        hp = min(hp, ENEMY_HP_CAP)
+        final_speed = t.get("speed", 80) * speed_scale * ENEMY_SPEED_SCALE_MULTIPLIER  # Apply speed multiplier
     
     enemy = {
         "type": t["type"],
@@ -2847,12 +2584,12 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> di
         "color": t["color"],
         "hp": hp,
         "max_hp": hp,
-        "shoot_cooldown": t["shoot_cooldown"] / 1.5,  # 150% fire rate (faster = lower cooldown, increased from 1.1)
-        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / 1.5),
+        "shoot_cooldown": t["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER,  # Faster fire rate (lower cooldown)
+        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER),
         "projectile_speed": t["projectile_speed"],
         "projectile_color": t.get("projectile_color", enemy_projectiles_color),
         "projectile_shape": t.get("projectile_shape", "circle"),
-        "speed": final_speed,  # Speed (queen gets 3x, others get normal scaling)
+        "speed": final_speed,  # Speed (queen gets special multiplier, others get normal scaling)
     }
     # Add shield properties if present
     if t.get("has_shield"):
@@ -2874,6 +2611,7 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> di
         enemy["damage_taken_since_rage"] = 0
         enemy["rage_mode_active"] = False
         enemy["rage_mode_timer"] = 0.0
+        # rage_damage_threshold is set in template (randomized at module load time)
         enemy["rage_damage_threshold"] = t.get("rage_damage_threshold", random.randint(300, 500))
         enemy["predicts_player"] = t.get("predicts_player", False)
     return enemy
@@ -3091,8 +2829,10 @@ def start_wave(wave_num: int):
     
     # Boss appears on wave 3 of each level
     if wave_in_level == 3:
-        # Spawn boss
-        boss = boss_template.copy()
+        # Spawn boss (create a copy from template)
+        boss = BOSS_TEMPLATE.copy()  # Create a copy to modify
+        # Set rect position at runtime (WIDTH/HEIGHT are now available)
+        boss["rect"] = pygame.Rect(WIDTH // 2 - 50, HEIGHT // 2 - 50, 100, 100)
         boss["rect"] = pygame.Rect(WIDTH // 2 - 50, HEIGHT // 2 - 50, 100, 100)
         diff_mult = difficulty_multipliers[difficulty]
         
@@ -3102,8 +2842,8 @@ def start_wave(wave_num: int):
         boss_hp_scale = 1.0 + (current_level - 1) * 0.3
         boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"] * 1.1), 300)  # 110% health
         boss["max_hp"] = boss["hp"]
-        boss["shoot_cooldown"] = boss_template["shoot_cooldown"] / 1.5  # 150% fire rate (faster = lower cooldown, increased from 1.1)
-        boss["speed"] = boss_template["speed"] * 1.1  # 110% movement speed
+        boss["shoot_cooldown"] = boss_template["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER  # Apply fire rate multiplier
+        boss["speed"] = boss_template["speed"] * ENEMY_SPEED_SCALE_MULTIPLIER  # Apply speed multiplier
         
         boss["phase"] = 1
         boss["time_since_shot"] = 0.0
@@ -3136,7 +2876,7 @@ def start_wave(wave_num: int):
     speed_scale = (1.0 + 0.05 * (wave_num - 1)) * diff_mult["enemy_speed"] * level_mult * wave_in_level_mult
     # Apply difficulty to enemy count
     base_count = base_enemies_per_wave + enemy_spawn_boost_level + 2 * (wave_num - 1)
-    count = min(int(base_count * diff_mult["enemy_spawn"] * 3.0), max_enemies_per_wave)  # 3.0x multiplier (increased from 2.0x)
+    count = min(int(base_count * diff_mult["enemy_spawn"] * ENEMY_SPAWN_MULTIPLIER), max_enemies_per_wave)
 
     spawned: list[dict] = []
     # Track enemy types for this wave
@@ -3639,14 +3379,7 @@ def spawn_weapon_in_center(weapon_type: str):
     # Do not spawn basic beam as a pickup
     if weapon_type == "basic":
         return
-    weapon_colors_map = {
-        "rocket": (255, 100, 0),
-        "triple": (100, 200, 255),
-        "bouncing": (100, 255, 100),
-        "giant": (255, 200, 0),
-        "laser": (255, 50, 50),
-        "wave_beam": (50, 255, 50),
-    }
+    # Weapon colors are now imported from config_weapons.py
     weapon_pickup_size = (40, 40)  # Bigger for level completion rewards
     weapon_pickup_rect = pygame.Rect(
         WIDTH // 2 - weapon_pickup_size[0] // 2,
@@ -3657,7 +3390,7 @@ def spawn_weapon_in_center(weapon_type: str):
     pickups.append({
         "type": weapon_type,
         "rect": weapon_pickup_rect,
-        "color": weapon_colors_map.get(weapon_type, (180, 100, 255)),
+        "color": WEAPON_DISPLAY_COLORS.get(weapon_type, (180, 100, 255)),
         "timer": 30.0,  # Level completion weapons last longer
         "age": 0.0,
         "is_weapon_drop": True,
@@ -3702,7 +3435,7 @@ def spawn_weapon_drop(enemy: dict):
         pickups.append({
             "type": weapon_type,
             "rect": weapon_pickup_rect,
-            "color": weapon_colors_map.get(weapon_type, (180, 100, 255)),
+            "color": WEAPON_DISPLAY_COLORS.get(weapon_type, (180, 100, 255)),
             "timer": 10.0,  # Weapon pickups last 10 seconds
             "age": 0.0,
             "is_weapon_drop": True,  # Mark as weapon drop
@@ -4000,18 +3733,13 @@ def spawn_player_bullet_and_log():
     shape = player_bullet_shapes[player_bullet_shape_index % len(player_bullet_shapes)]
     player_bullet_shape_index = (player_bullet_shape_index + 1) % len(player_bullet_shapes)
 
+    # Get weapon config (default to basic if not found)
+    weapon_config = WEAPON_CONFIGS.get(current_weapon_mode, WEAPON_CONFIGS["basic"])
+    
     # Determine shot pattern based on weapon mode
-    if current_weapon_mode == "triple":
-        # Triple shot: three basic beams offset by equal arc (120 degrees total, 60 degrees each side)
-        spread_angle_deg = 30.0  # 30 degrees each side = 60 degree total arc
-        directions = [
-            base_dir,  # center
-            base_dir.rotate(-spread_angle_deg),  # left
-            base_dir.rotate(spread_angle_deg),  # right
-        ]
-    elif current_weapon_mode == "basic":
-        # Basic beam: three beams offset by equal arc (same as triple shot pattern)
-        spread_angle_deg = 30.0  # 30 degrees each side = 60 degree total arc
+    if weapon_config["num_projectiles"] > 1:
+        # Multi-projectile weapons (triple, basic)
+        spread_angle_deg = weapon_config["spread_angle_deg"]
         directions = [
             base_dir,  # center
             base_dir.rotate(-spread_angle_deg),  # left
@@ -4022,33 +3750,24 @@ def spawn_player_bullet_and_log():
 
     # Spawn bullets for each direction
     for d in directions:
-        # Apply stat multipliers
-        size_mult = player_stat_multipliers["bullet_size"]
-        if current_weapon_mode == "giant":
-            size_mult *= 10.0  # 10x size multiplier
-        elif current_weapon_mode == "rocket":
-            size_mult *= 2.5  # Rockets are bigger (2.5x size)
-        elif current_weapon_mode == "bouncing":
-            size_mult *= 2.0  # Bouncing bullets are twice the size
-        
-        # Triple shot: 3x size multiplier
-        if current_weapon_mode == "triple":
-            size_mult *= 3.0
+        # Apply stat multipliers and weapon-specific multipliers
+        size_mult = player_stat_multipliers["bullet_size"] * weapon_config["size_multiplier"]
         
         effective_size = (
             int(player_bullet_size[0] * size_mult),
             int(player_bullet_size[1] * size_mult),
         )
-        effective_speed = player_bullet_speed * player_stat_multipliers["bullet_speed"]
+        effective_speed = player_bullet_speed * player_stat_multipliers["bullet_speed"] * weapon_config["speed_multiplier"]
         base_damage = int(player_bullet_damage * player_stat_multipliers["bullet_damage"])
         
-        # Rocket launcher: more damage and always has explosion
-        if current_weapon_mode == "rocket":
-            effective_damage = int(base_damage * 2.5)  # 2.5x damage
-            rocket_explosion = max(120.0, player_stat_multipliers["bullet_explosion_radius"] + 100.0)  # Increased AOE
+        # Apply weapon damage multiplier
+        effective_damage = int(base_damage * weapon_config["damage_multiplier"])
+        
+        # Rocket launcher: always has explosion
+        if weapon_config["is_rocket"]:
+            rocket_explosion = max(weapon_config["explosion_radius"], player_stat_multipliers["bullet_explosion_radius"] + 100.0)
         else:
-            effective_damage = base_damage
-            rocket_explosion = 0.0
+            rocket_explosion = max(weapon_config["explosion_radius"], player_stat_multipliers["bullet_explosion_radius"])
 
     r = pygame.Rect(
         player.centerx - effective_size[0] // 2,
@@ -4060,13 +3779,13 @@ def spawn_player_bullet_and_log():
             "rect": r,
             "vel": d * effective_speed,
             "shape": shape,
-            "color": (200, 100, 255) if current_weapon_mode == "triple" else (255, 100, 0) if current_weapon_mode == "rocket" else (255, 165, 0) if current_weapon_mode == "bouncing" else player_bullets_color,  # purple for triple, orange for rockets, orange for bouncing bullets
+            "color": weapon_config.get("color", player_bullets_color),  # Use weapon color from config
             "damage": effective_damage,
             "penetration": int(player_stat_multipliers["bullet_penetration"]),
-            "explosion_radius": max(rocket_explosion, player_stat_multipliers["bullet_explosion_radius"]),
+            "explosion_radius": rocket_explosion,
             "knockback": player_stat_multipliers["bullet_knockback"],
-            "bounces": 10 if current_weapon_mode == "bouncing" else 0,  # max bounces
-            "is_rocket": current_weapon_mode == "rocket",
+            "bounces": weapon_config["max_bounces"],  # Max bounces from config
+            "is_rocket": weapon_config["is_rocket"],
         })
     shots_fired += 1
 
@@ -4211,10 +3930,9 @@ def kill_enemy(enemy: dict):
     
     # If boss is killed, spawn level completion weapon in center
     if is_boss:
-        # Weapons unlock in order: basic (start), rocket (level 1), triple (level 2), wave_beam (level 3), giant (level 4)
-        weapon_unlock_order = {1: "rocket", 2: "triple", 3: "wave_beam", 4: "giant"}
-        if current_level in weapon_unlock_order:
-            weapon_to_unlock = weapon_unlock_order[current_level]
+        # Weapon unlock order is now imported from config_weapons.py
+        if current_level in WEAPON_UNLOCK_ORDER:
+            weapon_to_unlock = WEAPON_UNLOCK_ORDER[current_level]
             if weapon_to_unlock not in unlocked_weapons:
                 spawn_weapon_in_center(weapon_to_unlock)
     else:
@@ -4294,28 +4012,11 @@ def apply_pickup_effect(pickup_type: str):
         if previous_weapon_mode == "laser":
             laser_beams.clear()
         current_weapon_mode = "triple"
-        weapon_names = {
-            "giant": "GIANT BULLETS",
-            "triple": "TRIPLE SHOT",
-            "bouncing": "BOUNCING BULLETS",
-            "rocket": "ROCKET LAUNCHER",
-            "laser": "LASER BEAM",
-            "basic": "BASIC FIRE",
-            "wave_beam": "WAVE BEAM"
-        }
-        weapon_colors = {
-            "giant": (255, 200, 0),
-            "triple": (100, 200, 255),
-            "bouncing": (100, 255, 100),
-            "rocket": (255, 100, 0),
-            "laser": (255, 50, 50),
-            "basic": (200, 200, 200),
-            "wave_beam": (50, 255, 50)
-        }
+        # Weapon names and colors are now imported from config_weapons.py
         weapon_pickup_messages.append({
-            "weapon_name": weapon_names.get("triple", "TRIPLE SHOT"),
+            "weapon_name": WEAPON_NAMES.get("triple", "TRIPLE SHOT"),
             "timer": 3.0,
-            "color": weapon_colors.get("triple", (255, 255, 255))
+            "color": WEAPON_DISPLAY_COLORS.get("triple", (255, 255, 255))
         })
         if previous_weapon_mode != current_weapon_mode:
             telemetry.log_player_action(PlayerActionEvent(
@@ -4335,28 +4036,11 @@ def apply_pickup_effect(pickup_type: str):
         if previous_weapon_mode == "laser":
             laser_beams.clear()
         current_weapon_mode = "bouncing"
-        weapon_names = {
-            "giant": "GIANT BULLETS",
-            "triple": "TRIPLE SHOT",
-            "bouncing": "BOUNCING BULLETS",
-            "rocket": "ROCKET LAUNCHER",
-            "laser": "LASER BEAM",
-            "basic": "BASIC FIRE",
-            "wave_beam": "WAVE BEAM"
-        }
-        weapon_colors = {
-            "giant": (255, 200, 0),
-            "triple": (100, 200, 255),
-            "bouncing": (100, 255, 100),
-            "rocket": (255, 100, 0),
-            "laser": (255, 50, 50),
-            "basic": (200, 200, 200),
-            "wave_beam": (50, 255, 50)
-        }
+        # Weapon names and colors are now imported from config_weapons.py
         weapon_pickup_messages.append({
-            "weapon_name": weapon_names.get("bouncing", "BOUNCING BULLETS"),
+            "weapon_name": WEAPON_NAMES.get("bouncing", "BOUNCING BULLETS"),
             "timer": 3.0,
-            "color": weapon_colors.get("bouncing", (255, 255, 255))
+            "color": WEAPON_DISPLAY_COLORS.get("bouncing", (255, 255, 255))
         })
         if previous_weapon_mode != current_weapon_mode:
             telemetry.log_player_action(PlayerActionEvent(
@@ -4376,28 +4060,11 @@ def apply_pickup_effect(pickup_type: str):
         if previous_weapon_mode == "laser":
             laser_beams.clear()
         current_weapon_mode = "rocket"
-        weapon_names = {
-            "giant": "GIANT BULLETS",
-            "triple": "TRIPLE SHOT",
-            "bouncing": "BOUNCING BULLETS",
-            "rocket": "ROCKET LAUNCHER",
-            "laser": "LASER BEAM",
-            "basic": "BASIC FIRE",
-            "wave_beam": "WAVE BEAM"
-        }
-        weapon_colors = {
-            "giant": (255, 200, 0),
-            "triple": (100, 200, 255),
-            "bouncing": (100, 255, 100),
-            "rocket": (255, 100, 0),
-            "laser": (255, 50, 50),
-            "basic": (200, 200, 200),
-            "wave_beam": (50, 255, 50)
-        }
+        # Weapon names and colors are now imported from config_weapons.py
         weapon_pickup_messages.append({
-            "weapon_name": weapon_names.get("rocket", "ROCKET LAUNCHER"),
+            "weapon_name": WEAPON_NAMES.get("rocket", "ROCKET LAUNCHER"),
             "timer": 3.0,
-            "color": weapon_colors.get("rocket", (255, 255, 255))
+            "color": WEAPON_DISPLAY_COLORS.get("rocket", (255, 255, 255))
         })
         if previous_weapon_mode != current_weapon_mode:
             telemetry.log_player_action(PlayerActionEvent(
@@ -4415,28 +4082,11 @@ def apply_pickup_effect(pickup_type: str):
         if previous_weapon_mode == "wave_beam":
             wave_beams.clear()
         current_weapon_mode = "laser"
-        weapon_names = {
-            "giant": "GIANT BULLETS",
-            "triple": "TRIPLE SHOT",
-            "bouncing": "BOUNCING BULLETS",
-            "rocket": "ROCKET LAUNCHER",
-            "laser": "LASER BEAM",
-            "basic": "BASIC FIRE",
-            "wave_beam": "WAVE BEAM"
-        }
-        weapon_colors = {
-            "giant": (255, 200, 0),
-            "triple": (100, 200, 255),
-            "bouncing": (100, 255, 100),
-            "rocket": (255, 100, 0),
-            "laser": (255, 50, 50),
-            "basic": (200, 200, 200),
-            "wave_beam": (50, 255, 50)
-        }
+        # Weapon names and colors are now imported from config_weapons.py
         weapon_pickup_messages.append({
-            "weapon_name": weapon_names.get("laser", "LASER BEAM"),
+            "weapon_name": WEAPON_NAMES.get("laser", "LASER BEAM"),
             "timer": 3.0,
-            "color": weapon_colors.get("laser", (255, 255, 255))
+            "color": WEAPON_DISPLAY_COLORS.get("laser", (255, 255, 255))
         })
         if previous_weapon_mode != current_weapon_mode:
             telemetry.log_player_action(PlayerActionEvent(
@@ -4456,28 +4106,11 @@ def apply_pickup_effect(pickup_type: str):
         if previous_weapon_mode == "laser":
             laser_beams.clear()
         current_weapon_mode = "basic"
-        weapon_names = {
-            "giant": "GIANT BULLETS",
-            "triple": "TRIPLE SHOT",
-            "bouncing": "BOUNCING BULLETS",
-            "rocket": "ROCKET LAUNCHER",
-            "laser": "LASER BEAM",
-            "basic": "BASIC FIRE",
-            "wave_beam": "WAVE BEAM"
-        }
-        weapon_colors = {
-            "giant": (255, 200, 0),
-            "triple": (100, 200, 255),
-            "bouncing": (100, 255, 100),
-            "rocket": (255, 100, 0),
-            "laser": (255, 50, 50),
-            "basic": (200, 200, 200),
-            "wave_beam": (50, 255, 50)
-        }
+        # Weapon names and colors are now imported from config_weapons.py
         weapon_pickup_messages.append({
-            "weapon_name": weapon_names.get("basic", "BASIC FIRE"),
+            "weapon_name": WEAPON_NAMES.get("basic", "BASIC FIRE"),
             "timer": 3.0,
-            "color": weapon_colors.get("basic", (255, 255, 255))
+            "color": WEAPON_DISPLAY_COLORS.get("basic", (255, 255, 255))
         })
         if previous_weapon_mode != current_weapon_mode:
             telemetry.log_player_action(PlayerActionEvent(
@@ -4617,6 +4250,7 @@ def reset_after_death():
     player_bullets.clear()
     enemy_projectiles.clear()
     friendly_ai.clear()
+    
     friendly_projectiles.clear()
 
     wave_number = 1

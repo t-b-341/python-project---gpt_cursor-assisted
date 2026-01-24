@@ -179,3 +179,10 @@ SCORE_TIME_MULTIPLIER = 2
 # ----------------------------
 POS_SAMPLE_INTERVAL = 0.25
 PICKUP_SPAWN_INTERVAL = 7.5
+
+# ----------------------------
+# Enemy projectile constants
+# ----------------------------
+ENEMY_PROJECTILE_SIZE = (10, 10)
+ENEMY_PROJECTILE_DAMAGE = 11  # 110% of base 10 damage
+ENEMY_PROJECTILES_COLOR = (200, 200, 200)

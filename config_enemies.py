@@ -1,0 +1,326 @@
+"""
+Enemy configuration data - base enemy templates and archetypes.
+These are pure data structures that define enemy types and their base properties.
+"""
+
+import pygame
+import random
+
+# Note: pygame.Rect is used here for initial positioning, but these are just templates.
+# The actual rects will be created at runtime when enemies are spawned.
+
+# ----------------------------
+# Enemy Templates
+# ----------------------------
+# Base enemy definitions used to create enemy instances.
+# These templates are cloned and modified at runtime (HP scaling, speed scaling, etc.)
+ENEMY_TEMPLATES: list[dict] = [
+    {
+        "type": "pawn",
+        "rect": pygame.Rect(120, 450, 28, 28),
+        "color": (180, 180, 180),  # Gray
+        "hp": 50,
+        "max_hp": 50,
+        "shoot_cooldown": 1.0,  # Basic fire rate
+        "projectile_speed": 300,
+        "projectile_color": (200, 200, 200),
+        "projectile_shape": "circle",
+        "speed": 80,  # Basic movement speed
+        "enemy_class": "pawn",  # Enemy class identifier
+    },
+    {
+        "type": "suicide",
+        "rect": pygame.Rect(200, 200, 48, 48),  # Twice as big (24*2 = 48)
+        "color": (255, 50, 50),  # Bright red
+        "hp": 30,
+        "max_hp": 30,
+        "shoot_cooldown": 999.0,  # Doesn't shoot
+        "projectile_speed": 0,
+        "projectile_color": (255, 0, 0),
+        "projectile_shape": "circle",
+        "speed": 90,  # 0.75x current speed (120 * 0.75 = 90)
+        "is_suicide": True,  # Marks this as suicide enemy
+        "explosion_range": 150,  # Range for grenade explosion
+        "detonation_distance": 50,  # Distance from player to detonate (closer before exploding)
+    },
+    {
+        "type": "grunt",
+        "rect": pygame.Rect(120, 450, 28, 28),
+        "color": (220, 80, 80),
+        "hp": 60,
+        "max_hp": 60,
+        "shoot_cooldown": 0.9,
+        "projectile_speed": 320,
+        "projectile_color": (180, 220, 255),
+        "projectile_shape": "square",
+        "speed": 90,
+    },
+    {
+        "type": "heavy",
+        "rect": pygame.Rect(650, 120, 32, 32),
+        "color": (220, 120, 80),
+        "hp": 80,
+        "max_hp": 80,
+        "shoot_cooldown": 1.2,
+        "projectile_speed": 280,
+        "projectile_color": (255, 190, 120),
+        "projectile_shape": "circle",
+        "speed": 70,
+    },
+    {
+        "type": "stinky",
+        "rect": pygame.Rect(90, 450, 28, 28),
+        "color": (220, 80, 80),
+        "hp": 60,
+        "max_hp": 60,
+        "shoot_cooldown": 0.9,
+        "projectile_speed": 320,
+        "projectile_color": (180, 220, 255),
+        "projectile_shape": "diamond",
+        "speed": 110,
+    },
+    {
+        "type": "baka",
+        "rect": pygame.Rect(90, 450, 28, 28),
+        "color": (100, 80, 80),
+        "hp": 300,
+        "max_hp": 300,
+        "shoot_cooldown": 0.1,
+        "projectile_speed": 500,
+        "projectile_color": (255, 120, 180),
+        "projectile_shape": "square",
+        "speed": 150,
+    },
+    {
+        "type": "neko neko desu",
+        "rect": pygame.Rect(100, 450, 28, 28),
+        "color": (100, 80, 0),
+        "hp": 20,
+        "max_hp": 20,
+        "shoot_cooldown": 0.01,
+        "projectile_speed": 500,
+        "projectile_color": (200, 255, 140),
+        "projectile_shape": "circle",
+        "speed": 160,
+    },
+    {
+        "type": "BIG NEKU",
+        "rect": pygame.Rect(400, 450, 28, 28),
+        "color": (100, 200, 0),
+        "hp": 300,
+        "max_hp": 300,
+        "shoot_cooldown": 1,
+        "projectile_speed": 700,
+        "projectile_color": (160, 200, 255),
+        "projectile_shape": "diamond",
+        "speed": 60,
+    },
+    {
+        "type": "bouncer",
+        "rect": pygame.Rect(500, 500, 30, 30),
+        "color": (255, 100, 100),
+        "hp": 70,
+        "max_hp": 70,
+        "shoot_cooldown": 1.5,
+        "projectile_speed": 350,
+        "projectile_color": (255, 150, 150),
+        "projectile_shape": "square",
+        "speed": 85,
+        "bouncing_projectiles": True,  # shoots bouncing projectiles
+    },
+    {
+        "type": "shield enemy",
+        "rect": pygame.Rect(300, 300, 32, 32),
+        "color": (100, 150, 200),
+        "hp": 100,
+        "max_hp": 100,
+        "shoot_cooldown": 1.0,
+        "projectile_speed": 300,
+        "projectile_color": (150, 200, 255),
+        "projectile_shape": "circle",
+        "speed": 60,
+        "has_shield": True,  # Has directional shield
+        "shield_angle": 0.0,  # Direction shield is facing (radians)
+        "shield_length": 50,  # Length of shield line
+    },
+    {
+        "type": "reflector",
+        "rect": pygame.Rect(400, 400, 36, 36),
+        "color": (200, 150, 100),
+        "hp": 150,
+        "max_hp": 150,
+        "shoot_cooldown": 999.0,  # Doesn't shoot
+        "projectile_speed": 0,
+        "projectile_color": (255, 200, 100),
+        "projectile_shape": "circle",
+        "speed": 40,  # Slow turn speed
+        "has_reflective_shield": True,  # Has reflective shield
+        "shield_angle": 0.0,  # Direction shield is facing (radians)
+        "shield_length": 60,  # Length of shield
+        "shield_hp": 0,  # Damage absorbed by shield (fires back)
+        "turn_speed": 0.5,  # Radians per second turn speed
+    },
+    {
+        "type": "spawner",
+        "rect": pygame.Rect(500, 500, 40, 40),
+        "color": (150, 50, 150),  # Purple
+        "hp": 120,
+        "max_hp": 120,
+        "shoot_cooldown": 999.0,  # Doesn't shoot projectiles
+        "projectile_speed": 0,
+        "projectile_color": (150, 50, 150),
+        "projectile_shape": "circle",
+        "speed": 30,  # Slow movement
+        "is_spawner": True,  # Marks this as a spawner enemy
+        "spawn_cooldown": 5.0,  # Spawns enemies every 5 seconds
+        "time_since_spawn": 0.0,
+        "spawn_count": 0,  # Track how many enemies spawned
+        "max_spawns": 3,  # Maximum enemies to spawn per spawner
+    },
+    {
+        "type": "queen",
+        "name": "queen",  # Explicit name
+        "rect": pygame.Rect(400, 400, 32, 32),
+        "color": (100, 0, 0),  # Dark maroon (player clone)
+        "hp": 5000,  # 5000 health (increased from 2000)
+        "max_hp": 5000,
+        "shoot_cooldown": 1.0,  # 1.0s cooldown
+        "projectile_speed": 350,
+        "projectile_color": (150, 0, 0),
+        "projectile_shape": "circle",
+        "speed": 240,  # 3x standard speed (80 * 3)
+        "is_player_clone": True,  # Marks this as player clone
+        "enemy_class": "queen",  # Enemy class identifier
+        "has_shield": True,  # Queen has shield
+        "shield_angle": 0.0,
+        "shield_length": 60,
+        "can_use_grenades": True,  # Queen can use grenades
+        "grenade_cooldown": 5.0,  # Grenade cooldown for queen
+        "time_since_grenade": 999.0,
+        "damage_taken_since_rage": 0,  # Track damage for rage mode
+        "rage_mode_active": False,  # Rage mode after 300-500 damage
+        "rage_mode_timer": 0.0,  # Rage mode duration (5 seconds)
+        "rage_damage_threshold": random.randint(300, 500),  # Random threshold between 300-500
+        "predicts_player": True,  # Queen also predicts player position
+    },
+    {
+        "type": "patrol",
+        "rect": pygame.Rect(0, 0, 32, 32),
+        "color": (150, 100, 200),  # Purple
+        "hp": 150,
+        "max_hp": 150,
+        "shoot_cooldown": 0.5,
+        "projectile_speed": 400,
+        "projectile_color": (200, 150, 255),
+        "projectile_shape": "circle",
+        "speed": 100,
+        "is_patrol": True,  # Marks this as patrol enemy
+        "patrol_side": 0,  # 0=top, 1=right, 2=bottom, 3=left
+        "patrol_progress": 0.0,  # Progress along current side (0.0 to 1.0)
+        "uses_wave_beam": True,  # Uses wave beam weapon
+    },
+]
+
+# ----------------------------
+# Boss Enemy Template
+# ----------------------------
+# Special boss enemy template (spawned at specific waves)
+# Note: rect position will be set at runtime (center of screen)
+BOSS_TEMPLATE: dict = {
+    "type": "FINAL_BOSS",
+    "rect": pygame.Rect(0, 0, 100, 100),  # Size only, position set at runtime
+    "color": (255, 0, 0),
+    "hp": 300,  # Note: This may be scaled at runtime
+    "max_hp": 300,
+    "shoot_cooldown": 0.5,
+    "projectile_speed": 400,
+    "projectile_color": (255, 50, 50),
+    "projectile_shape": "circle",
+    "speed": 50,
+    "is_boss": True,
+    "phase": 1,  # Boss has 3 phases
+    "phase_hp_thresholds": [0.66, 0.33],  # Phase 2 at 66% HP, Phase 3 at 33% HP
+    "time_since_shot": 0.0,
+}
+
+# ----------------------------
+# Enemy Spawn Configuration
+# ----------------------------
+BASE_ENEMIES_PER_WAVE = 9  # Base enemy count per wave
+MAX_ENEMIES_PER_WAVE = 54  # Maximum enemies per wave
+ENEMY_SPAWN_MULTIPLIER = 3.0  # Multiplier applied to base count (increased from 2.0x)
+
+# ----------------------------
+# Enemy Scaling Configuration
+# ----------------------------
+# These multipliers are applied when creating enemies from templates
+ENEMY_HP_SCALE_MULTIPLIER = 1.1  # 110% health multiplier
+ENEMY_SPEED_SCALE_MULTIPLIER = 1.1  # 110% speed multiplier
+ENEMY_FIRE_RATE_MULTIPLIER = 1.5  # 150% fire rate (faster = lower cooldown)
+ENEMY_HP_CAP = 300  # Maximum HP for non-queen enemies
+
+# Queen-specific constants (not affected by normal scaling)
+QUEEN_FIXED_HP = 5000  # Queen has fixed HP (doesn't scale)
+QUEEN_SPEED_MULTIPLIER = 3.0  # Queen moves 3x standard speed
+
+# ----------------------------
+# Friendly AI Templates
+# ----------------------------
+FRIENDLY_AI_TEMPLATES: list[dict] = [
+    {
+        "type": "scout",
+        "rect": pygame.Rect(0, 0, 24, 24),
+        "color": (100, 200, 255),  # Light blue
+        "hp": 400,  # 10x health (was 40)
+        "max_hp": 400,  # 10x health (was 40)
+        "shoot_cooldown": 0.4,
+        "projectile_speed": 600,
+        "projectile_color": (150, 220, 255),
+        "projectile_shape": "circle",
+        "speed": 180,
+        "behavior": "aggressive",  # Charges nearest enemy
+        "damage": 15,
+    },
+    {
+        "type": "guardian",
+        "rect": pygame.Rect(0, 0, 28, 28),
+        "color": (100, 255, 150),  # Light green
+        "hp": 800,  # 10x health (was 80)
+        "max_hp": 800,  # 10x health (was 80)
+        "shoot_cooldown": 0.6,
+        "projectile_speed": 500,
+        "projectile_color": (150, 255, 200),
+        "projectile_shape": "square",
+        "speed": 120,
+        "behavior": "defensive",  # Stays near player, attacks nearby enemies
+        "damage": 20,
+    },
+    {
+        "type": "sniper",
+        "rect": pygame.Rect(0, 0, 22, 22),
+        "color": (255, 200, 100),  # Orange
+        "hp": 300,  # 10x health (was 30)
+        "max_hp": 300,  # 10x health (was 30)
+        "shoot_cooldown": 1.2,
+        "projectile_speed": 800,
+        "projectile_color": (255, 220, 150),
+        "projectile_shape": "diamond",
+        "speed": 100,
+        "behavior": "ranged",  # Keeps distance, snipes enemies
+        "damage": 35,
+    },
+    {
+        "type": "tank",
+        "rect": pygame.Rect(0, 0, 32, 32),
+        "color": (200, 150, 255),  # Purple
+        "hp": 1500,  # 10x health (was 150)
+        "max_hp": 1500,  # 10x health (was 150)
+        "shoot_cooldown": 0.8,
+        "projectile_speed": 400,
+        "projectile_color": (220, 180, 255),
+        "projectile_shape": "square",
+        "speed": 80,
+        "behavior": "tank",  # Slow, high HP, draws enemy fire
+        "damage": 25,
+    },
+]
