@@ -312,7 +312,8 @@
 #set to show HUD by default
 #game; fix overshield bar and health bar overlay, and amount shown in health and overshield, show bars full, with health and overshield amounts full
 #--------------------------------------------------------
-
+#start with shield, overshield, and drop ally charged at beginning of round, and add a "ALLY DROP" progress bar that is purple when charged
+#--------------------------------------------------------
 
 import math
 import warnings
@@ -2143,7 +2144,7 @@ def spawn_friendly_projectile(friendly: dict, target: dict):
 
 def start_wave(wave_num: int):
     """Spawn a new wave with scaling. Each level has 3 waves, boss on wave 3."""
-    global enemies, wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer, ally_drop_timer
+    global enemies, wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer, ally_drop_timer, shield_recharge_timer, shield_cooldown_remaining
     enemies = []
     boss_active = False
     # Reset lives to 3 at the beginning of each wave
@@ -2239,6 +2240,9 @@ def start_wave(wave_num: int):
     # Charge overshield at wave start
     overshield_recharge_timer = overshield_recharge_cooldown  # Set to full charge
     ally_drop_timer = ally_drop_cooldown  # Charge ally drop at wave start
+    # Charge shield at wave start
+    shield_recharge_timer = shield_recharge_cooldown  # Set to full charge
+    shield_cooldown_remaining = 0.0  # Shield ready to use
     
     # Log wave start event
     telemetry.log_wave(
@@ -7184,7 +7188,7 @@ try:
             bar_width = 150
             bar_height = 25
             bar_spacing = 10
-            total_bars_width = (bar_width + bar_spacing) * 4 - bar_spacing  # 4 bars: bomb, missile, shield, overshield
+            total_bars_width = (bar_width + bar_spacing) * 5 - bar_spacing  # 5 bars: bomb, missile, shield, overshield, ally drop
             bars_start_x = (WIDTH - total_bars_width) // 2
             bars_y = HEIGHT - 100  # Above controls
             
@@ -7231,6 +7235,17 @@ try:
             pygame.draw.rect(screen, (150, 150, 150), (overshield_bar_x, bars_y, bar_width, bar_height), 2)
             overshield_text = small_font.render("OVERSHLD", True, (255, 255, 255))
             screen.blit(overshield_text, (overshield_bar_x + (bar_width - overshield_text.get_width()) // 2, bars_y + (bar_height - overshield_text.get_height()) // 2))
+            
+            # Ally drop recharge bar
+            ally_drop_bar_x = bars_start_x + (bar_width + bar_spacing) * 4
+            ally_drop_readiness = min(1.0, ally_drop_timer / ally_drop_cooldown)
+            ally_drop_ready = ally_drop_timer >= ally_drop_cooldown
+            pygame.draw.rect(screen, (40, 40, 40), (ally_drop_bar_x, bars_y, bar_width, bar_height))
+            ally_drop_bar_color = (200, 100, 255) if ally_drop_ready else (150, 50, 200)  # Purple when ready, darker purple when charging
+            pygame.draw.rect(screen, ally_drop_bar_color, (ally_drop_bar_x, bars_y, int(bar_width * ally_drop_readiness), bar_height))
+            pygame.draw.rect(screen, (150, 150, 150), (ally_drop_bar_x, bars_y, bar_width, bar_height), 2)
+            ally_drop_text = small_font.render("ALLY DROP", True, (255, 255, 255))
+            screen.blit(ally_drop_text, (ally_drop_bar_x + (bar_width - ally_drop_text.get_width()) // 2, bars_y + (bar_height - ally_drop_text.get_height()) // 2))
             
             # Controls display at bottom of screen
             controls_y = HEIGHT - 60
