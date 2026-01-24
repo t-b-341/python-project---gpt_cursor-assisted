@@ -2674,13 +2674,12 @@ def find_nearest_enemy(friendly_pos: pygame.Vector2) -> dict | None:
 
 def find_nearest_threat(enemy_pos: pygame.Vector2) -> tuple[pygame.Vector2, str] | None:
     """Find the nearest threat (player or friendly AI) to an enemy.
-    Prioritizes dropped ally over player, then other friendly AI."""
-    threats = []
+    Prioritizes player over dropped ally, then other friendly AI."""
     player_pos = pygame.Vector2(player.center)
     player_dist_sq = (player_pos - enemy_pos).length_squared()
     player_dist = math.sqrt(player_dist_sq)
     
-    # Add friendly AI threats (prioritize dropped ally)
+    # Collect friendly AI threats (for fallback if player is not available)
     dropped_ally_threats = []
     other_friendly_threats = []
     for f in friendly_ai:
@@ -2690,28 +2689,25 @@ def find_nearest_threat(enemy_pos: pygame.Vector2) -> tuple[pygame.Vector2, str]
         friendly_dist_sq = (friendly_pos - enemy_pos).length_squared()
         friendly_dist = math.sqrt(friendly_dist_sq)
         if f.get("is_dropped_ally", False):
-            # Dropped ally has highest priority
             dropped_ally_threats.append((friendly_pos, friendly_dist_sq, "dropped_ally", friendly_dist))
         else:
             other_friendly_threats.append((friendly_pos, friendly_dist_sq, "friendly", friendly_dist))
     
-    # Add player as threat (lowest priority)
-    threats.append((player_pos, player_dist_sq, "player", player_dist))
-    
-    if not threats and not dropped_ally_threats and not other_friendly_threats:
-        return None
-    
-    # Prioritize dropped ally first, then other friendly AI, then player
-    if dropped_ally_threats:
-        dropped_ally_threats.sort(key=lambda x: x[1])
-        return (dropped_ally_threats[0][0], dropped_ally_threats[0][2])
-    
-    if other_friendly_threats:
-        other_friendly_threats.sort(key=lambda x: x[1])
-        return (other_friendly_threats[0][0], other_friendly_threats[0][2])
-    
-    # Return player if no friendly threats
+    # Priority order: Player > Dropped Ally > Other Friendly AI
+    # Player always has highest priority
     return (player_pos, "player")
+    
+    # Fallback logic (currently unreachable, but kept for potential future use):
+    # If player is not available, prioritize dropped ally, then other friendly AI
+    # if dropped_ally_threats:
+    #     dropped_ally_threats.sort(key=lambda x: x[1])
+    #     return (dropped_ally_threats[0][0], dropped_ally_threats[0][2])
+    # 
+    # if other_friendly_threats:
+    #     other_friendly_threats.sort(key=lambda x: x[1])
+    #     return (other_friendly_threats[0][0], other_friendly_threats[0][2])
+    # 
+    # return None
 
 
 def find_threats_in_dodge_range(enemy_pos: pygame.Vector2, dodge_range: float = 200.0) -> list[pygame.Vector2]:
