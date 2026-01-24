@@ -442,7 +442,7 @@ def main():
                                     previous_game_state = STATE_PLAYING
                                 
                                 run_id = telemetry.start_run(run_started_at, player_max_hp) if telemetry_enabled else None
-                                start_wave(wave_number)
+                                start_wave(wave_number, game_state)
                     
                     # Controls rebinding
                     if state == STATE_CONTROLS and controls_rebinding:
@@ -491,7 +491,7 @@ def main():
                             # Find nearest enemy as target
                             target_enemy = None
                             min_dist = float("inf")
-                            for enemy in enemies:
+                            for enemy in game_state.enemies:
                                 dist = (pygame.Vector2(enemy["rect"].center) - pygame.Vector2(player.center)).length_squared()
                                 if dist < min_dist:
                                     min_dist = dist
@@ -753,13 +753,13 @@ def main():
                         direction,
                         pattern,
                         wave_beam_length,
-                        amplitude=50.0,
+                        amplitude=7.0,  # 7 pixels amplitude as specified
                         frequency=0.02,
                         time_offset=run_time
                     )
                     wave_beams.append({
                         "points": points,
-                        "color": (50, 255, 50),
+                        "color": (50, 255, 50),  # Lime green
                         "width": wave_beam_width,
                         "damage": wave_beam_damage,
                         "timer": 0.2
@@ -777,7 +777,7 @@ def main():
                             if line_rect_intersection(beam["start"], beam["end"], enemy["rect"]):
                                 enemy["hp"] -= beam["damage"] * dt * 60  # Damage per frame
                                 if enemy["hp"] <= 0:
-                                    kill_enemy(enemy)
+                                    kill_enemy(enemy, game_state)
                 
                 # Update wave beams
                 for beam in wave_beams[:]:
@@ -791,12 +791,12 @@ def main():
                             if hit_pos:
                                 enemy["hp"] -= beam["damage"] * dt * 60
                                 if enemy["hp"] <= 0:
-                                    kill_enemy(enemy)
+                                    kill_enemy(enemy, game_state)
                 
                 # Enemy updates
                 for enemy in game_state.enemies[:]:
                     if enemy.get("hp", 1) <= 0:
-                        kill_enemy(enemy)
+                        kill_enemy(enemy, game_state)
                         continue
                     
                     # Enemy AI: find target and move towards it
@@ -807,6 +807,17 @@ def main():
                         target_pos, target_type = target_info
                         direction = vec_toward(enemy_pos.x, enemy_pos.y, target_pos.x, target_pos.y)
                         enemy_speed = enemy.get("speed", 80) * dt
+                        
+                        # Add some random wandering to make enemies move around more
+                        # Occasionally add a small random offset to movement direction
+                        if random.random() < 0.1:  # 10% chance per frame
+                            wander_angle = random.uniform(-0.3, 0.3)  # Small random angle
+                            cos_a = math.cos(wander_angle)
+                            sin_a = math.sin(wander_angle)
+                            direction = pygame.Vector2(
+                                direction.x * cos_a - direction.y * sin_a,
+                                direction.x * sin_a + direction.y * cos_a
+                            ).normalize()
                         
                         # Dodge bullets if in range
                         dodge_threats = find_threats_in_dodge_range(enemy_pos, player_bullets, friendly_projectiles, 200.0)
@@ -827,7 +838,7 @@ def main():
                         if target_info:
                             target_pos, target_type = target_info
                             if enemy.get("is_predictive", False):
-                                spawn_enemy_projectile_predictive(enemy, direction)
+                                spawn_enemy_projectile_predictive(enemy, direction, game_state)
                             else:
                                 spawn_enemy_projectile(enemy, game_state)
                         enemy["shoot_cooldown"] = 0.0
@@ -848,17 +859,17 @@ def main():
                             damage = bullet.get("damage", player_bullet_damage)
                             enemy["hp"] -= damage
                             
-                            # Damage number
+                            # Damage number (displayed for 2 seconds)
                             damage_numbers.append({
                                 "x": enemy["rect"].centerx,
                                 "y": enemy["rect"].y - 20,
-                                "damage": int(damage),
-                                "timer": 1.0,
+                                "damage": int(damage),  # Display as integer
+                                "timer": 2.0,  # Disappear after 2 seconds
                                 "color": (255, 255, 100)
                             })
                             
                             if enemy["hp"] <= 0:
-                                kill_enemy(enemy)
+                                kill_enemy(enemy, game_state)
                             
                             # Remove bullet (unless it has penetration)
                             if bullet.get("penetration", 0) <= 0:
@@ -882,12 +893,12 @@ def main():
                                     # Bounce bullet
                                     bullet["vel"] = bullet["vel"].reflect(pygame.Vector2(1, 0))
                 
-                for proj in enemy_projectiles[:]:
+                for proj in game_state.enemy_projectiles[:]:
                     proj["rect"].x += int(proj["vel"].x * dt)
                     proj["rect"].y += int(proj["vel"].y * dt)
                     
                     if rect_offscreen(proj["rect"]):
-                        enemy_projectiles.remove(proj)
+                        game_state.enemy_projectiles.remove(proj)
                         continue
                     
                     # Check collision with player
@@ -899,10 +910,10 @@ def main():
                             if player_hp <= 0:
                                 if lives > 0:
                                     lives -= 1
-                                    reset_after_death()
+                                    reset_after_death(game_state)
                                 else:
                                     state = STATE_GAME_OVER
-                        enemy_projectiles.remove(proj)
+                        game_state.enemy_projectiles.remove(proj)
                 
                 # Pickup collection
                 for pickup in pickups[:]:
@@ -940,8 +951,18 @@ def main():
                         if proj["rect"].colliderect(enemy["rect"]):
                             damage = proj.get("damage", 20)
                             enemy["hp"] -= damage
+                            
+                            # Damage number (displayed for 2 seconds)
+                            damage_numbers.append({
+                                "x": enemy["rect"].centerx,
+                                "y": enemy["rect"].y - 20,
+                                "damage": int(damage),  # Display as integer
+                                "timer": 2.0,  # Disappear after 2 seconds
+                                "color": (255, 255, 100)
+                            })
+                            
                             if enemy["hp"] <= 0:
-                                kill_enemy(enemy)
+                                kill_enemy(enemy, game_state)
                             game_state.friendly_projectiles.remove(proj)
                             break
                 
@@ -960,9 +981,20 @@ def main():
                         enemy_pos = pygame.Vector2(enemy["rect"].center)
                         dist = (enemy_pos - explosion_pos).length()
                         if dist <= explosion["radius"]:
-                            enemy["hp"] -= explosion["damage"]
+                            damage = explosion["damage"]
+                            enemy["hp"] -= damage
+                            
+                            # Damage number (displayed for 2 seconds)
+                            damage_numbers.append({
+                                "x": enemy["rect"].centerx,
+                                "y": enemy["rect"].y - 20,
+                                "damage": int(damage),  # Display as integer
+                                "timer": 2.0,  # Disappear after 2 seconds
+                                "color": (255, 200, 100)  # Slightly different color for explosion damage
+                            })
+                            
                             if enemy["hp"] <= 0:
-                                kill_enemy(enemy)
+                                kill_enemy(enemy, game_state)
                     
                     # Damage destructible blocks
                     for block in destructible_blocks[:] + moveable_destructible_blocks[:]:
@@ -979,11 +1011,11 @@ def main():
                 
                 # Missile updates
                 for missile in missiles[:]:
-                    if missile["target_enemy"] not in enemies:
+                    if missile["target_enemy"] not in game_state.enemies:
                         # Target died, find new target
                         target_enemy = None
                         min_dist = float("inf")
-                        for enemy in enemies:
+                        for enemy in game_state.enemies:
                             dist = (pygame.Vector2(enemy["rect"].center) - pygame.Vector2(missile["rect"].center)).length_squared()
                             if dist < min_dist:
                                 min_dist = dist
@@ -1008,17 +1040,28 @@ def main():
                     if missile["target_enemy"] and missile["rect"].colliderect(missile["target_enemy"]["rect"]):
                         # Explode
                         explosion_pos = pygame.Vector2(missile["rect"].center)
-                        for enemy in enemies[:]:
+                        for enemy in game_state.enemies[:]:
                             enemy_pos = pygame.Vector2(enemy["rect"].center)
                             dist = (enemy_pos - explosion_pos).length()
                             if dist <= missile["explosion_radius"]:
-                                enemy["hp"] -= missile["damage"]
+                                damage = missile["damage"]
+                                enemy["hp"] -= damage
+                                
+                                # Damage number (displayed for 2 seconds)
+                                damage_numbers.append({
+                                    "x": enemy["rect"].centerx,
+                                    "y": enemy["rect"].y - 20,
+                                    "damage": int(damage),  # Display as integer
+                                    "timer": 2.0,  # Disappear after 2 seconds
+                                    "color": (255, 150, 50)  # Orange color for missile damage
+                                })
+                                
                                 if enemy["hp"] <= 0:
-                                    kill_enemy(enemy)
+                                    kill_enemy(enemy, game_state)
                         missiles.remove(missile)
                 
                 # Wave management
-                if wave_active and len(enemies) == 0:
+                if wave_active and len(game_state.enemies) == 0:
                     time_to_next_wave += dt
                     if time_to_next_wave >= 3.0:  # 3 second delay between waves
                         wave_number += 1
@@ -1030,7 +1073,7 @@ def main():
                                 state = STATE_VICTORY
                                 wave_active = False
                         if state != STATE_VICTORY:
-                            start_wave(wave_number)
+                            start_wave(wave_number, game_state)
                             time_to_next_wave = 0.0
             
             # Rendering
@@ -1278,21 +1321,17 @@ def main():
                     pygame.draw.rect(screen, (255, 200, 0), missile["rect"])
                     pygame.draw.rect(screen, (255, 100, 0), missile["rect"], 2)
                 
-                # Draw player
+                # Draw player (circle with border)
                 player_color = (255, 255, 255)
+                border_color = (200, 200, 200)
                 if shield_active:
                     player_color = (255, 100, 100)  # Red when shield is active
-                pygame.draw.rect(screen, player_color, player)
-                if ui_show_player_health_bar:
-                    draw_health_bar(screen, player.x, player.y - 15, player.w, 6, player_hp, player_max_hp)
-                    # Draw overshield bar above health bar
-                    if overshield > 0:
-                        overshield_bar_height = 4
-                        overshield_bar_width = player.w
-                        overshield_fill = int((overshield / overshield_max) * overshield_bar_width)
-                        pygame.draw.rect(screen, (60, 60, 60), (player.x, player.y - 20, overshield_bar_width, overshield_bar_height))
-                        pygame.draw.rect(screen, (255, 150, 0), (player.x, player.y - 20, overshield_fill, overshield_bar_height))
-                        pygame.draw.rect(screen, (20, 20, 20), (player.x, player.y - 20, overshield_bar_width, overshield_bar_height), 1)
+                    border_color = (255, 150, 150)  # Lighter red border when shield active
+                # Draw border circle (slightly larger)
+                pygame.draw.circle(screen, border_color, player.center, player.w // 2 + 2, 2)
+                # Draw player circle
+                pygame.draw.circle(screen, player_color, player.center, player.w // 2)
+                # Health bar and overshield bar moved to bottom of screen (drawn later in HUD section)
                 
                 # Draw laser beams
                 for beam in laser_beams:
@@ -1316,10 +1355,34 @@ def main():
                         y_pos = render_hud_text(screen, font, f"Score: {score}", y_pos)
                         if state == STATE_PLAYING:
                             y_pos = render_hud_text(screen, font, f"Lives: {lives}", y_pos)
-                        y_pos = render_hud_text(screen, font, f"Enemies: {len(enemies)}", y_pos)
+                        y_pos = render_hud_text(screen, font, f"Enemies: {len(game_state.enemies)}", y_pos)
                         y_pos = render_hud_text(screen, font, f"Weapon: {current_weapon_mode.upper()}", y_pos)
                         if shield_active:
                             y_pos = render_hud_text(screen, font, "SHIELD ACTIVU", y_pos, (255, 100, 100))
+                        
+                        # Draw health bar and overshield bar at bottom of screen (above controls)
+                        health_bar_y = HEIGHT - 80
+                        health_bar_height = 20
+                        health_bar_width = 300
+                        
+                        # Draw overshield bar (above health bar, only if active)
+                        if overshield > 0:
+                            overshield_bar_y = health_bar_y - 25
+                            overshield_bar_height = 15
+                            overshield_fill = int((overshield / overshield_max) * health_bar_width)
+                            pygame.draw.rect(screen, (60, 60, 60), (10, overshield_bar_y, health_bar_width, overshield_bar_height))
+                            pygame.draw.rect(screen, (255, 150, 0), (10, overshield_bar_y, overshield_fill, overshield_bar_height))
+                            pygame.draw.rect(screen, (20, 20, 20), (10, overshield_bar_y, health_bar_width, overshield_bar_height), 2)
+                            overshield_text = small_font.render(f"Armor: {int(overshield)}/{int(overshield_max)}", True, (255, 255, 255))
+                            screen.blit(overshield_text, (15, overshield_bar_y + 2))
+                        
+                        # Draw health bar
+                        health_fill = int((player_hp / player_max_hp) * health_bar_width)
+                        pygame.draw.rect(screen, (60, 60, 60), (10, health_bar_y, health_bar_width, health_bar_height))
+                        pygame.draw.rect(screen, (100, 255, 100), (10, health_bar_y, health_fill, health_bar_height))
+                        pygame.draw.rect(screen, (20, 20, 20), (10, health_bar_y, health_bar_width, health_bar_height), 2)
+                        health_text = small_font.render(f"HP: {int(player_hp)}/{int(player_max_hp)}", True, (255, 255, 255))
+                        screen.blit(health_text, (15, health_bar_y + 2))
                         
                         # Draw cooldown bars at bottom
                         bar_y = HEIGHT - 30
@@ -1366,12 +1429,12 @@ def main():
                         small_font_surf = small_font.render("OVERSHIELD (TAB)", True, (255, 255, 255))
                         screen.blit(small_font_surf, (overshield_x + 5, bar_y + 2))
                 
-                # Draw damage numbers
+                # Draw damage numbers (fade out over 2 seconds)
                 for dmg_num in damage_numbers[:]:
                     if dmg_num["timer"] > 0:
-                        alpha = int(255 * (dmg_num["timer"] / 1.0))
+                        alpha = int(255 * (dmg_num["timer"] / 2.0))  # Fade over 2 seconds
                         color = (*dmg_num["color"][:3], alpha) if len(dmg_num["color"]) > 3 else dmg_num["color"]
-                        text_surf = small_font.render(str(dmg_num["damage"]), True, color[:3])
+                        text_surf = small_font.render(str(int(dmg_num["damage"])), True, color[:3])  # Ensure integer display
                         screen.blit(text_surf, (dmg_num["x"], dmg_num["y"]))
                     else:
                         damage_numbers.remove(dmg_num)
@@ -2472,10 +2535,10 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
     return pygame.Rect(max(0, WIDTH // 2 - w), max(0, HEIGHT // 2 - h), w, h)
 
 
-def start_wave(wave_num: int):
+def start_wave(wave_num: int, state: GameState):
     """Spawn a new wave with scaling. Each level has 3 waves, boss on wave 3."""
-    global enemies, wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer, ally_drop_timer, shield_recharge_timer, shield_cooldown_remaining, enemies_spawned
-    enemies = []
+    global wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer, ally_drop_timer, shield_recharge_timer, shield_cooldown_remaining, enemies_spawned
+    state.enemies = []
     boss_active = False
     # Reset lives to 3 at the beginning of each wave
     lives = 3  # Reset to 3 lives at the beginning of each wave
@@ -2504,7 +2567,7 @@ def start_wave(wave_num: int):
         
         boss["phase"] = 1
         boss["time_since_shot"] = 0.0
-        enemies.append(boss)
+        state.enemies.append(boss)
         boss_active = True
         enemies_spawned_ref = [enemies_spawned]
         log_enemy_spawns([boss], telemetry, run_time, enemies_spawned_ref)
@@ -2550,7 +2613,7 @@ def start_wave(wave_num: int):
         enemy_type = enemy["type"]
         enemy_type_counts[enemy_type] = enemy_type_counts.get(enemy_type, 0) + 1
 
-    enemies.extend(spawned)
+    state.enemies.extend(spawned)
     enemies_spawned_ref = [enemies_spawned]
     log_enemy_spawns(spawned, telemetry, run_time, enemies_spawned_ref)
     enemies_spawned = enemies_spawned_ref[0]
@@ -2679,7 +2742,7 @@ def generate_wave_beam_points(start_pos: pygame.Vector2, direction: pygame.Vecto
     num_points = max(200, length // 5)  # Generate more points for smoother solid line
     step = length / num_points
     
-    # Undulation: 0.5 second period = 4 * pi radians per second
+    # Undulation: 0.5 second period = 4 * pi radians per second (2 * pi / 0.5)
     undulation_phase = time_offset * 4 * math.pi  # Phase offset for 0.5 second period
     
     for i in range(num_points + 1):
@@ -3388,9 +3451,9 @@ def calculate_kill_score(wave_num: int, run_time: float) -> int:
 # Enemy defeat messages
 enemy_defeat_messages: list[dict] = []  # List of {enemy_type, timer} for defeat messages
 
-def kill_enemy(enemy: dict):
+def kill_enemy(enemy: dict, state: GameState):
     """Handle enemy death: drop weapon, update score, remove from list, and clean up projectiles."""
-    global enemies_killed, score, current_level, enemy_defeat_messages, enemy_projectiles, damage_numbers
+    global enemies_killed, score, current_level, enemy_defeat_messages, damage_numbers
     is_boss = enemy.get("is_boss", False)
     
     # Add defeat message
@@ -3406,13 +3469,13 @@ def kill_enemy(enemy: dict):
     
     # Remove enemy projectiles that are near the dead enemy's position
     # (This catches projectiles that were just fired or are still near the enemy)
-    for proj in enemy_projectiles[:]:
+    for proj in state.enemy_projectiles[:]:
         proj_pos = pygame.Vector2(proj["rect"].center)
         dist_sq = (proj_pos - enemy_pos).length_squared()
         # Remove if projectile is close to dead enemy AND matches enemy type
         # This prevents removing projectiles from other enemies of the same type that are far away
         if dist_sq < cleanup_radius_sq and proj.get("enemy_type") == enemy_type:
-            enemy_projectiles.remove(proj)
+            state.enemy_projectiles.remove(proj)
     
     # Remove damage numbers near the dead enemy's position
     for dmg_num in damage_numbers[:]:
@@ -3432,7 +3495,7 @@ def kill_enemy(enemy: dict):
         spawn_weapon_drop(enemy)
     
     try:
-        enemies.remove(enemy)
+        state.enemies.remove(enemy)
     except ValueError:
         pass  # Already removed
     enemies_killed += 1
@@ -3659,10 +3722,10 @@ def apply_pickup_effect(pickup_type: str):
 # render_hud_text is now imported from rendering.py
 
 
-def reset_after_death():
+def reset_after_death(state: GameState):
     global player_hp, player_time_since_shot, pos_timer, previous_weapon_mode, current_weapon_mode
     global previous_boost_state, previous_slow_state, player_current_zones
-    global enemies, player_bullets, enemy_projectiles, wave_number, time_to_next_wave, wave_active
+    global enemies, wave_number, time_to_next_wave, wave_active
     global current_weapon_mode, overshield, unlocked_weapons, wave_in_level, current_level
     global jump_cooldown_timer, jump_timer, is_jumping, jump_velocity
     global laser_beams, laser_time_since_shot
@@ -3732,15 +3795,15 @@ def reset_after_death():
     player.y = (HEIGHT - player.h) // 2
     clamp_rect_to_screen(player)
 
-    player_bullets.clear()
-    enemy_projectiles.clear()
+    state.player_bullets.clear()
+    state.enemy_projectiles.clear()
     friendly_ai.clear()
     
-    friendly_projectiles.clear()
+    state.friendly_projectiles.clear()
 
     wave_number = 1
     time_to_next_wave = 0.0
-    start_wave(wave_number)
+    start_wave(wave_number, state)
 
 
 if __name__ == "__main__":

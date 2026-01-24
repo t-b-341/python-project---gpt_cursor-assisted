@@ -7,8 +7,6 @@ This document contains all improvement suggestions and TODO items for the game. 
 - Make player a circle with a border around it
 - Make enemies move around the map more
 - Fix health bar at bottom of screen, armor bar above it when active
-- Make player stick out more on map by making player 10% larger, and have a highlight around the player - FIXED: Increased size to 28x28 and added glowing highlight
-- Make player's model a circle - FIXED: Changed from rectangle to circle with circular highlight
 - Make wave beam a solid line rather than dots, and turn the beam lime green
 - Make wave beam an undulating wave, with a period of 1 second, and a amplitude of 10 pixels
 - Make the wave beam have a period of 0.5 seconds, and a amplitude of 7 pixels
@@ -42,12 +40,16 @@ This document contains all improvement suggestions and TODO items for the game. 
 - Give player 3x health, 1.5x movement speed
 - Increase player health by 10x
 - Increase player base health to 250
+- Decrease ally drop cooldown to 10 seconds
 
 ### Weapons & Combat
 - Add a map to key 1 for the basic fire, then key 2 for the rocket launcher, then key 3 for the triple shot, then key 4 for the bouncing bullets, then key 5 for the giant bullets
 - Add a special pickup that adds a laser beam weapon that the player can use to destroy enemies from a distance, that's a long ray, but doesn't cut through solid blocks, but breaks temporary barriers
 - Make weapons drop in the center of the screen, and the player has to pick them up to use them, adding one with each level completed
 - Add in a beam selection option in the pre-game menu (useful for testing beams)
+- Fix wave beam draw to be constant, not flashing
+- Label beam upgrades with text
+- Fix shots staying displayed in map after shot has moved past position
 - Beam selection controls don't work
 - Change beam selections to only be sine beam (instead of the other trig functions), and change beam selection to include rockets, bounce beam, etc., for ease of testing
 - In menu, set default beam selection to basic - FIXED: Changed default selection to index 6 (basic)
@@ -97,6 +99,9 @@ This document contains all improvement suggestions and TODO items for the game. 
 - Make enemies prioritize player damage, unless player is over half the map away from them, then prioritize allies closeby
 - Make it so that enemies cannot go through other objects, and must go around
 - If enemies haven't moved for 5 seconds, have them change direction away from an object they are stuck on
+- Make enemies move around the map more
+- Make allies move around map more
+- Remove allies from map
 - Add more enemies, and friendly ai, and give the ai more health (50-100), with their bar being full and green at the beginning of the waves
 - Change all enemies to have no more than 300 health each. The enemies can have health lower than that.
 - Increase enemy and ally movement speed by 110%
@@ -201,6 +206,7 @@ This document contains all improvement suggestions and TODO items for the game. 
 - Set to show HUD by default
 - Fix text overlap in "ready to start" menu with weapon basic, and other text
 - Fix text overlap in "select player class" menu
+- Add restart game to menu in-game
 - Game; Make a placeholder text for each drop saying whether it's health, or which weapon it is
 - Game; Change shape of healing pattern with each stage between triangles and rectangles
 - Game; add controls at bottom of screen (wasd to move, mouse + click to aim and shoot) or (wasd to move, arrow keys to aim and shoot), grenade, and which weapon is mapped to which weapon slot with first letter of weapon name
@@ -266,6 +272,7 @@ This document contains all improvement suggestions and TODO items for the game. 
 - Fix issue where wave beams get stuck displayed after beam switched - FIXED: Added beam clearing when switching weapons
 - Fix endurance mode crash when game starts
 - Game; fix overshield bar and health bar overlay, and amount shown in health and overshield, show bars full, with health and overshield amounts full
+- Fix shots staying displayed in map after shot has moved past position
 
 ## Miscellaneous
 
@@ -282,7 +289,7 @@ This document contains all improvement suggestions and TODO items for the game. 
 ## Completed Items
 
 - Make player stick out more on map by making player 10% larger, and have a highlight around the player - FIXED: Increased size to 28x28 and added glowing highlight
-- Make player's model a circle - FIXED: Changed from rectangle to circle with circular highlight
+- Note: Player is currently drawn as a rectangle; "Make player a circle with a border" is still pending
 - Make bouncing bullets projectiles twice the size, and projectiles orange - FIXED: Added 2x size multiplier and orange color
 - In menu, set default beam selection to basic - FIXED: Changed default selection to index 6 (basic)
 - Fix issue where allies do not disappear after dying - FIXED: Added cleanup checks and hazard collision handling

@@ -642,5 +642,99 @@
 #   projectiles, health bars, etc.).
 # - Summarize which functions were moved into rendering.py.
 #--------------------------------------------------------------------------------------------------------------------
+# TASK: EXTRACT ENEMY/ALLY BEHAVIOR HELPERS
+#
+# GOAL:
+# Move enemy- and ally-related helper functions out of game.py into:
+#   - enemies.py  (enemy movement, targeting, behavior helpers)
+#   - allies.py   (ally movement/behavior helpers)  [optional but preferred]
+#
+# CANDIDATE FUNCTIONS TO MOVE (EXAMPLES):
+# - move_enemy_with_push_cached(...)
+# - find_nearest_threat(...)
+# - find_nearest_enemy(...)
+# - any small, reusable functions that operate on enemy or ally data structures
+#   but do not directly depend on the main loop.
+#
+# IMPLEMENTATION:
+# 1) Create enemies.py (and allies.py if there are clear ally-specific helpers).
+# 2) Move enemy-related helpers into enemies.py.
+# 3) Move ally-related helpers into allies.py.
+# 4) In game.py, import them:
+#       from enemies import move_enemy_with_push_cached, find_nearest_threat, find_nearest_enemy
+#       from allies import update_friendly_ai   # or whichever functions exist
+# 5) Keep function signatures the same so existing call sites in game.py work
+#    without major changes.
+#
+# CONSTRAINTS:
+# - Do NOT change the logic of enemy or ally behavior in this step.
+# - Do NOT change data formats of enemies/allies (dict structure, etc.).
+# - Do NOT move the main update loop; only helpers.
+# - Keep imports minimal in enemies.py/allies.py (only what they need).
+#
+# AFTER CHANGES:
+# - Run `python game.py` to confirm that enemy and ally behavior matches the
+#   previous version (movement, targeting, interactions).
+# - Summarize which functions were moved into enemies.py/allies.py.
+
+#--------------------------------------------------------------------------------------------------------------------
+# TASK: INTRODUCE A BASIC GameState CONTAINER (FIRST STEP ONLY)
+#
+# GOAL:
+# Define a GameState dataclass to group some core game lists (enemies,
+# projectiles, allies, etc.) and start using it in a limited, gentle way,
+# WITHOUT rewriting the whole game.
+#
+# SCOPE OF THIS STEP:
+# - Create GameState in a new file state.py.
+# - Use GameState for a small subset of global lists (for example:
+#   enemies, player_bullets, enemy_projectiles, friendly_projectiles).
+# - Update a LIMITED number of functions to accept a GameState instance
+#   instead of reading/modifying those globals directly.
+#
+# IMPLEMENTATION:
+# 1) Create state.py with something like:
+#       from dataclasses import dataclass, field
+#
+#       @dataclass
+#       class GameState:
+#           enemies: list = field(default_factory=list)
+#           player_bullets: list = field(default_factory=list)
+#           enemy_projectiles: list = field(default_factory=list)
+#           friendly_projectiles: list = field(default_factory=list)
+#           # (Optionally add more fields later; keep this minimal at first.)
+#
+# 2) In game.py:
+#    - Import GameState: from state import GameState
+#    - In main(), create a GameState instance:
+#          state = GameState()
+#    - Replace the corresponding global lists with fields on state, for example:
+#          # Instead of: enemies = []
+#          # Use:       state.enemies
+#
+# 3) Update a small number of functions that operate heavily on these lists
+#    (e.g., projectile update / spawn functions, basic enemy update) so they
+#    accept a `state` parameter instead of relying on global variables.
+#
+# 4) Keep all other globals as-is for now. This is a FIRST STEP ONLY.
+#
+# CONSTRAINTS:
+# - Do NOT attempt to move ALL globals into GameState in one pass.
+# - Do NOT change game behavior or data formats.
+# - Do NOT refactor unrelated systems while doing this.
+#
+# AFTER CHANGES:
+# - Run `python game.py` and verify gameplay is unchanged.
+# - Summarize:
+#   * What fields were added to GameState.
+#   * Which functions were updated to use the GameState instance.
+
+#--------------------------------------------------------------------------------------------------------------------
+# (Improvement comments moved to GAME_IMPROVEMENTS.md)
+
+#--------------------------------------------------------------------------------------------------------------------
+# (Improvement comments moved to GAME_IMPROVEMENTS.md)
+
+#--------------------------------------------------------------------------------------------------------------------
 
 #--------------------------------------------------------------------------------------------------------------------
