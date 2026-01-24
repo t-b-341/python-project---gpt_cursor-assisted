@@ -313,7 +313,149 @@
 #game; fix overshield bar and health bar overlay, and amount shown in health and overshield, show bars full, with health and overshield amounts full
 #--------------------------------------------------------
 #start with shield, overshield, and drop ally charged at beginning of round, and add a "ALLY DROP" progress bar that is purple when charged
+#--------------------------------------------------------/ 1-24-26--------------------------------------------------------------------------------------
+#GPT prompt to profile game.py;
+#"This repository contains a game.py file that launches the game immediately on import.
+#I want you to automatically create, run, and collect profiling results for this game using cProfile, without modifying game.py itself.
+#Your tasks:
+#Inspect game.py to detect how the game starts (it runs on import).
+#Create a new file called profile_game.py that:
+#Executes game.py in a controlled way using the runpy module:
+#runpy.run_module("game", run_name="__main__")
+#Wraps this module execution inside a cProfile.Profile() context.
+#Automatically stops profiling after ~10 seconds to avoid infinite loops.
+#Saves human-readable results to profiling_results.txt sorted by cumulative time (limit to top 150 lines).
+#Saves the raw stats to profiling_results.prof for SnakeViz.
+#After creating the script, automatically run it using:
+#python profile_game.py
+#If any error occurs (import errors, missing modules, runpy issues), fix the script automatically and retry up to 3 times.
+#At the end, verify both profiling files exist.
+#Output for me:
+#the first 60 lines of profiling_results.txt
+#the detected startup mechanism of the game
+#the top ~10 slowest functions summarised.
+#Perform all steps automatically with no follow-up questions unless game.py is missing."**
 #--------------------------------------------------------
+#GPT prompt post_profiling;
+# You are working in a Python repo that uses Pygame with a large monolithic file `game.py` (~7,000+ lines).
+# The game is fully playable. Do NOT refactor the entire file or change core logic.
+
+# CONTEXT:
+# I recently ran a cProfile performance pass.
+# The clear bottleneck is rendering: Surface.blit, pygame.draw.polygon, pygame.draw.rect,
+# pygame.draw.line, pygame.draw.circle, Surface.fill, and pygame.display.flip dominate runtime.
+# Physics, AI, collision, and telemetry are relatively cheap.
+
+# GOAL:
+# Perform a minimal, safe optimization pass that reduces rendering overhead by:
+# 1. Reducing the number of draw calls per frame.
+# 2. Caching static or rarely-changing geometry into pre-rendered surfaces.
+# 3. Keeping visual output and gameplay behavior effectively the same.
+
+# HARD CONSTRAINTS (very important):
+# - Do NOT restructure the file or split systems apart.
+# - Do NOT rename major systems.
+# - Do NOT change game rules, input, enemy logic, ally logic, or telemetry behavior.
+# - Do NOT modify database schema or telemetry.py logic.
+# - Do NOT introduce new external dependencies.
+# - Do NOT perform large-scale refactors or move big code blocks around.
+# - Preserve all existing comments and TODOs where possible.
+
+# FOCUS AREAS TO OPTIMIZE (from profiling results):
+# - update_hazard_obstacles
+# - draw_cracked_brick_wall_texture
+# - draw_silver_wall_texture
+# - generate_paraboloid_points
+# - draw_projectile
+# - draw_health_bar
+# - render_hud_text
+# - Any hot loops doing thousands of polygon/rect/line/blit calls per frame.
+
+# ALLOWED STRATEGIES:
+# 1. Pre-render static geometry/textures:
+#    - Create one or more cached pygame.Surface objects at startup or when level layout changes.
+#    - Draw static terrain, walls, cracked textures, silver walls, and hazard patterns ONCE.
+#    - During each frame, blit these cached surfaces instead of redrawing all shapes.
+#
+# 2. Reduce redundant draw calls:
+#    - If many tiny shapes are drawn per frame but rarely change, merge them into fewer surfaces.
+#    - Convert repeated polygon/rect/line drawing into pre-batched surfaces.
+#    - Look for predictable static geometry and combine it.
+#
+# 3. Cache text rendering:
+#    - Cache rendered font surfaces for HUD elements that don't change every frame.
+#    - Only re-render text when its underlying value changes.
+#
+# 4. Keep gameplay identical:
+#    - Do not change hitboxes, positions, or logic.
+#    - Do not alter gameplay behavior; only optimize draws.
+
+# IMPLEMENTATION GUIDELINES:
+# - Add small helper functions or cached surfaces near relevant drawing code.
+# - If needed, add a small initialization step (e.g., init_cached_surfaces()) called during setup.
+# - Keep modifications localized; avoid touching unrelated systems.
+# - Globals for cached surfaces are allowed but should be clearly named.
+
+# VALIDATION STEPS:
+# 1. After changes, run the game:
+#    - Ensure it launches without errors.
+#    - Ensure menus, HUD, enemies, and terrain render correctly.
+# 2. Optionally re-run the profiler (profile_game.py):
+#    - Confirm cumulative time for rendering calls decreases.
+
+# DELIVERABLES:
+# - Updated `game.py` with localized render optimizations.
+# - A short explanation describing:
+#   - What was optimized.
+#   - Where caching or batching was applied.
+#   - Any trade-offs or notes for future improvements.
+
+# Reminder: This is a SURGICAL optimization pass focused ONLY on rendering.
+# Avoid touching anything outside the draw/render systems.
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------/
+#GPT verification post-rendering optimization;
+# VERIFY RENDERING OPTIMIZATION CHANGES
+#
+# You are verifying the recent rendering optimization changes made to `game.py`.
+# Do NOT make additional refactors or broad changes.
+# Do NOT rewrite large sections of code.
+# Only confirm correctness and fix local issues caused specifically by the optimization pass.
+#
+# WHAT TO VERIFY:
+# 1. The game starts without errors.
+# 2. The cached surfaces, pre-rendered textures, and batched draw calls work correctly.
+# 3. The following must render as before:
+#    - Player, enemies, allies
+#    - Projectiles
+#    - Static geometry (walls, cracked texture, silver texture)
+#    - Hazards and obstacle visuals
+#    - Health bars, HUD text, menus
+# 4. The visual output must match the original behavior:
+#    - No missing graphics
+#    - No invisible terrain
+#    - No duplicated drawing
+#    - No flickering, overdraw, or weird artifacts
+# 5. Cached surfaces should update correctly IF level geometry changes.
+#
+# FIX SCOPE:
+# - If there are errors, missing textures, or incorrect visuals from the caching changes:
+#   * Fix ONLY those problems in the smallest, most localized way possible.
+# - Do NOT rewrite logic unrelated to rendering.
+# - Do NOT alter core gameplay, physics, AI, or telemetry.
+# - Keep modifications minimal and safe.
+#
+# OPTIONAL (if safe to perform):
+# - Briefly run the profiling script (`python profile_game.py`) to ensure render times have improved.
+# - Show me the top 40 lines of the new profiling output if the script was re-run successfully.
+#
+# FINAL OUTPUT REQUIREMENTS:
+# - Summarize what visual issues (if any) were found.
+# - Summarize what local fixes you applied (if any).
+# - Confirm the game now renders correctly with the cached surfaces and optimizations.
+#
+# AGAIN, DO NOT perform large refactors. Only verify and fix local issues from the render optimization.
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 
 import math
 import warnings
@@ -375,6 +517,19 @@ pygame.init()
 
 # Welcome message when game launches
 print("welcome to my game! :D")
+
+# ----------------------------
+# Rendering cache for performance optimization
+# ----------------------------
+# Cache for pre-rendered wall textures (key: (width, height, crack_level), value: Surface)
+_wall_texture_cache = {}
+# Cache for pre-rendered static block surfaces
+_cached_trapezoid_surfaces = {}
+_cached_triangle_surfaces = {}
+# Cache for HUD text surfaces (key: (text, color), value: Surface)
+_hud_text_cache = {}
+# Cache for health bar surfaces (key: (width, height, hp_ratio), value: Surface)
+_health_bar_cache = {}
 
 # ----------------------------
 # Controls (remappable)
@@ -2774,107 +2929,178 @@ def spawn_weapon_drop(enemy: dict):
         })
 
 
-def draw_silver_wall_texture(screen, rect: pygame.Rect):
-    """Draw a silver wall texture for indestructible blocks."""
-    # Base silver color
+def _create_cached_silver_wall_texture(width: int, height: int) -> pygame.Surface:
+    """Create a cached silver wall texture surface."""
+    surf = pygame.Surface((width, height))
     silver_base = (192, 192, 192)
     silver_dark = (160, 160, 160)
     silver_light = (220, 220, 220)
     
     # Fill base
-    pygame.draw.rect(screen, silver_base, rect)
+    surf.fill(silver_base)
     
-    # Draw metallic grid pattern (brick-like but metallic)
-    brick_width = max(8, rect.w // 4)
-    brick_height = max(6, rect.h // 3)
+    # Draw metallic grid pattern
+    brick_width = max(8, width // 4)
+    brick_height = max(6, height // 3)
     
     # Horizontal mortar lines
-    for y in range(rect.top + brick_height, rect.bottom, brick_height):
-        pygame.draw.line(screen, silver_dark, (rect.left, y), (rect.right, y), 1)
+    for y in range(brick_height, height, brick_height):
+        pygame.draw.line(surf, silver_dark, (0, y), (width, y), 1)
     
-    # Vertical mortar lines (staggered for brick pattern)
+    # Vertical mortar lines (staggered)
     offset = 0
-    for y in range(rect.top, rect.bottom, brick_height * 2):
-        for x in range(rect.left + offset, rect.right, brick_width):
-            pygame.draw.line(screen, silver_dark, (x, y), (x, min(y + brick_height, rect.bottom)), 1)
+    for y in range(0, height, brick_height * 2):
+        for x in range(offset, width, brick_width):
+            pygame.draw.line(surf, silver_dark, (x, y), (x, min(y + brick_height, height)), 1)
         offset = brick_width // 2 if offset == 0 else 0
     
     # Add highlights for metallic shine
-    for i in range(0, rect.w, brick_width):
-        for j in range(0, rect.h, brick_height):
-            highlight_x = rect.left + i + brick_width // 4
-            highlight_y = rect.top + j + brick_height // 4
-            if highlight_x < rect.right and highlight_y < rect.bottom:
-                pygame.draw.circle(screen, silver_light, (highlight_x, highlight_y), 2)
+    for i in range(0, width, brick_width):
+        for j in range(0, height, brick_height):
+            highlight_x = i + brick_width // 4
+            highlight_y = j + brick_height // 4
+            if highlight_x < width and highlight_y < height:
+                pygame.draw.circle(surf, silver_light, (highlight_x, highlight_y), 2)
+    
+    return surf
 
 
-def draw_cracked_brick_wall_texture(screen, rect: pygame.Rect, crack_level: int = 1):
-    """Draw a cracked brick wall texture for destructible blocks."""
-    # Brick colors
+def draw_silver_wall_texture(screen, rect: pygame.Rect):
+    """Draw a silver wall texture for indestructible blocks (uses cached surface when possible)."""
+    # Use cache for common sizes (round to nearest 10 for better cache hit rate)
+    cache_key = (rect.w // 10 * 10, rect.h // 10 * 10)
+    
+    if cache_key not in _wall_texture_cache:
+        _wall_texture_cache[cache_key] = _create_cached_silver_wall_texture(cache_key[0], cache_key[1])
+    
+    cached_surf = _wall_texture_cache[cache_key]
+    # Blit cached surface, scaling if needed
+    if cache_key[0] == rect.w and cache_key[1] == rect.h:
+        screen.blit(cached_surf, rect.topleft)
+    else:
+        # Scale if size doesn't match exactly
+        scaled = pygame.transform.scale(cached_surf, (rect.w, rect.h))
+        screen.blit(scaled, rect.topleft)
+
+
+def _create_cached_cracked_brick_texture(width: int, height: int, crack_level: int) -> pygame.Surface:
+    """Create a cached cracked brick wall texture surface."""
+    surf = pygame.Surface((width, height))
     brick_red = (180, 80, 60)
     brick_dark = (140, 60, 40)
     brick_light = (200, 100, 80)
     mortar = (100, 100, 100)
     
     # Fill base brick color
-    pygame.draw.rect(screen, brick_red, rect)
+    surf.fill(brick_red)
     
     # Draw brick pattern
-    brick_width = max(10, rect.w // 4)
-    brick_height = max(8, rect.h // 3)
+    brick_width = max(10, width // 4)
+    brick_height = max(8, height // 3)
     
     # Horizontal mortar lines
-    for y in range(rect.top + brick_height, rect.bottom, brick_height):
-        pygame.draw.line(screen, mortar, (rect.left, y), (rect.right, y), 2)
+    for y in range(brick_height, height, brick_height):
+        pygame.draw.line(surf, mortar, (0, y), (width, y), 2)
     
     # Vertical mortar lines (staggered brick pattern)
     offset = 0
-    for y in range(rect.top, rect.bottom, brick_height * 2):
-        for x in range(rect.left + offset, rect.right, brick_width):
-            pygame.draw.line(screen, mortar, (x, y), (x, min(y + brick_height, rect.bottom)), 2)
+    for y in range(0, height, brick_height * 2):
+        for x in range(offset, width, brick_width):
+            pygame.draw.line(surf, mortar, (x, y), (x, min(y + brick_height, height)), 2)
         offset = brick_width // 2 if offset == 0 else 0
     
     # Add individual brick highlights
     offset = 0
-    for y in range(rect.top, rect.bottom, brick_height):
-        for x in range(rect.left + offset, rect.right, brick_width):
-            brick_rect = pygame.Rect(x + 1, y + 1, min(brick_width - 2, rect.right - x - 1), min(brick_height - 2, rect.bottom - y - 1))
+    for y in range(0, height, brick_height):
+        for x in range(offset, width, brick_width):
+            brick_rect = pygame.Rect(x + 1, y + 1, min(brick_width - 2, width - x - 1), min(brick_height - 2, height - y - 1))
             if brick_rect.w > 0 and brick_rect.h > 0:
                 # Light highlight on top-left of each brick
-                pygame.draw.line(screen, brick_light, (brick_rect.left, brick_rect.top), (brick_rect.right, brick_rect.top), 1)
-                pygame.draw.line(screen, brick_light, (brick_rect.left, brick_rect.top), (brick_rect.left, brick_rect.bottom), 1)
+                pygame.draw.line(surf, brick_light, (brick_rect.left, brick_rect.top), (brick_rect.right, brick_rect.top), 1)
+                pygame.draw.line(surf, brick_light, (brick_rect.left, brick_rect.top), (brick_rect.left, brick_rect.bottom), 1)
                 # Dark shadow on bottom-right
-                pygame.draw.line(screen, brick_dark, (brick_rect.right, brick_rect.top), (brick_rect.right, brick_rect.bottom), 1)
-                pygame.draw.line(screen, brick_dark, (brick_rect.left, brick_rect.bottom), (brick_rect.right, brick_rect.bottom), 1)
+                pygame.draw.line(surf, brick_dark, (brick_rect.right, brick_rect.top), (brick_rect.right, brick_rect.bottom), 1)
+                pygame.draw.line(surf, brick_dark, (brick_rect.left, brick_rect.bottom), (brick_rect.right, brick_rect.bottom), 1)
         offset = brick_width // 2 if offset == 0 else 0
     
     # Draw cracks based on damage level
     if crack_level >= 1:
-        center = rect.center
+        center = (width // 2, height // 2)
         crack_color = (40, 40, 40)
         # Main crack from center
         for i in range(crack_level):
             angle = (i * 2.4) * math.pi / 3
-            end_x = center[0] + math.cos(angle) * (rect.w // 2)
-            end_y = center[1] + math.sin(angle) * (rect.h // 2)
-            pygame.draw.line(screen, crack_color, center, (end_x, end_y), 2)
+            end_x = center[0] + math.cos(angle) * (width // 2)
+            end_y = center[1] + math.sin(angle) * (height // 2)
+            pygame.draw.line(surf, crack_color, center, (end_x, end_y), 2)
         
         # Additional smaller cracks for higher damage
         if crack_level >= 2:
             for i in range(crack_level):
                 angle = (i * 1.8 + 0.5) * math.pi / 3
-                start_x = center[0] + math.cos(angle) * (rect.w // 4)
-                start_y = center[1] + math.sin(angle) * (rect.h // 4)
-                end_x = start_x + math.cos(angle) * (rect.w // 3)
-                end_y = start_y + math.sin(angle) * (rect.h // 3)
-                pygame.draw.line(screen, crack_color, (start_x, start_y), (end_x, end_y), 1)
+                start_x = center[0] + math.cos(angle) * (width // 4)
+                start_y = center[1] + math.sin(angle) * (height // 4)
+                end_x = start_x + math.cos(angle) * (width // 3)
+                end_y = start_y + math.sin(angle) * (height // 3)
+                pygame.draw.line(surf, crack_color, (start_x, start_y), (end_x, end_y), 1)
+    
+    return surf
+
+
+def draw_cracked_brick_wall_texture(screen, rect: pygame.Rect, crack_level: int = 1):
+    """Draw a cracked brick wall texture for destructible blocks (uses cached surface when possible)."""
+    # Use cache for common sizes (round to nearest 10 for better cache hit rate)
+    cache_key = (rect.w // 10 * 10, rect.h // 10 * 10, crack_level)
+    
+    if cache_key not in _wall_texture_cache:
+        _wall_texture_cache[cache_key] = _create_cached_cracked_brick_texture(cache_key[0], cache_key[1], crack_level)
+    
+    cached_surf = _wall_texture_cache[cache_key]
+    # Blit cached surface, scaling if needed
+    if cache_key[0] == rect.w and cache_key[1] == rect.h:
+        screen.blit(cached_surf, rect.topleft)
+    else:
+        # Scale if size doesn't match exactly
+        scaled = pygame.transform.scale(cached_surf, (rect.w, rect.h))
+        screen.blit(scaled, rect.topleft)
 
 
 def draw_health_bar(x, y, w, h, hp, max_hp):
+    """Draw health bar (uses cached surface for common sizes/ratios when possible)."""
     hp = max(0, min(hp, max_hp))
+    hp_ratio = hp / max_hp if max_hp > 0 else 0.0
+    
+    # Cache for common health bar sizes (round to nearest 5 for better cache hits)
+    # Only cache if bar is reasonably sized (not too many variations)
+    # Only use cache if the rounded ratio matches the actual ratio (to avoid visual inaccuracies)
+    if w <= 200 and h <= 20:
+        rounded_ratio = int(hp_ratio * 10)  # Round to 10% increments
+        actual_fill = int(w * hp_ratio)
+        cached_fill = int(w * (rounded_ratio / 10.0))
+        
+        # Only use cache if rounded ratio produces the same visual result
+        if actual_fill == cached_fill:
+            cache_key = (w // 5 * 5, h, rounded_ratio)
+            if cache_key not in _health_bar_cache:
+                cached_w, cached_h, cached_ratio = cache_key
+                cached_surf = pygame.Surface((cached_w, cached_h))
+                cached_surf.fill((60, 60, 60))
+                fill_w = int(cached_w * (cached_ratio / 10.0))
+                if fill_w > 0:
+                    pygame.draw.rect(cached_surf, (60, 200, 60), (0, 0, fill_w, cached_h))
+                pygame.draw.rect(cached_surf, (20, 20, 20), (0, 0, cached_w, cached_h), 2)
+                _health_bar_cache[cache_key] = cached_surf
+            
+            # Use cached surface if size matches exactly
+            if cache_key[0] == w and cache_key[1] == h:
+                screen.blit(_health_bar_cache[cache_key], (x, y))
+                return
+    
+    # Fallback to direct drawing for non-cached sizes or when ratio doesn't match
     pygame.draw.rect(screen, (60, 60, 60), (x, y, w, h))
-    fill_w = int(w * (hp / max_hp)) if max_hp > 0 else 0
-    pygame.draw.rect(screen, (60, 200, 60), (x, y, fill_w, h))
+    fill_w = int(w * hp_ratio)
+    if fill_w > 0:
+        pygame.draw.rect(screen, (60, 200, 60), (x, y, fill_w, h))
     pygame.draw.rect(screen, (20, 20, 20), (x, y, w, h), 2)
 
 
@@ -3523,8 +3749,11 @@ def apply_pickup_effect(pickup_type: str):
 
 
 def render_hud_text(text: str, y: int, color=(230, 230, 230)) -> int:
-    """Render HUD text at position and return next Y position."""
-    screen.blit(font.render(text, True, color), (10, y))
+    """Render HUD text at position and return next Y position (uses cached surface when possible)."""
+    cache_key = (text, color)
+    if cache_key not in _hud_text_cache:
+        _hud_text_cache[cache_key] = font.render(text, True, color)
+    screen.blit(_hud_text_cache[cache_key], (10, y))
     return y + 24
 
 
@@ -6596,25 +6825,71 @@ try:
             continue
 
         # Draw trapezoid blocks hanging off screen edges (draw first so they appear behind other blocks)
+        # Use cached surfaces for static geometry
         for tb in trapezoid_blocks:
-            # Draw trapezoid as polygon
-            pygame.draw.polygon(screen, tb["color"], tb["points"])
-            # Draw border to indicate indestructible
-            pygame.draw.polygon(screen, (255, 255, 255), tb["points"], 3)
-            # Draw pattern lines on visible portion (only draw lines within screen bounds)
-            visible_points = [(x, y) for x, y in tb["points"] if 0 <= x <= WIDTH and 0 <= y <= HEIGHT]
-            if len(visible_points) >= 2:
-                # Draw some pattern lines on the visible portion
-                for i in range(0, len(visible_points) - 1):
-                    pygame.draw.line(screen, (tb["color"][0] + 20, tb["color"][1] + 20, tb["color"][2] + 20),
-                                    visible_points[i], visible_points[i + 1], 2)
+            # Create cache key based on block ID (use id() or a unique identifier)
+            block_id = id(tb)
+            if block_id not in _cached_trapezoid_surfaces:
+                # Create cached surface for this trapezoid
+                # Calculate bounding box (handle both tuples and Vector2 objects)
+                if tb["points"]:
+                    min_x = min(int(p.x) if hasattr(p, 'x') else p[0] for p in tb["points"])
+                    max_x = max(int(p.x) if hasattr(p, 'x') else p[0] for p in tb["points"])
+                    min_y = min(int(p.y) if hasattr(p, 'y') else p[1] for p in tb["points"])
+                    max_y = max(int(p.y) if hasattr(p, 'y') else p[1] for p in tb["points"])
+                    surf_w = max_x - min_x + 10
+                    surf_h = max_y - min_y + 10
+                    cached_surf = pygame.Surface((surf_w, surf_h), pygame.SRCALPHA)
+                    # Draw to cached surface (offset points to surface coordinates)
+                    offset_points = []
+                    for p in tb["points"]:
+                        if hasattr(p, 'x'):
+                            offset_points.append((int(p.x) - min_x + 5, int(p.y) - min_y + 5))
+                        else:
+                            offset_points.append((p[0] - min_x + 5, p[1] - min_y + 5))
+                    pygame.draw.polygon(cached_surf, tb["color"], offset_points)
+                    pygame.draw.polygon(cached_surf, (255, 255, 255), offset_points, 3)
+                    # Draw pattern lines
+                    if len(offset_points) >= 2:
+                        for i in range(0, len(offset_points) - 1):
+                            pattern_color = (tb["color"][0] + 20, tb["color"][1] + 20, tb["color"][2] + 20)
+                            pygame.draw.line(cached_surf, pattern_color, offset_points[i], offset_points[i + 1], 2)
+                    _cached_trapezoid_surfaces[block_id] = (cached_surf, (min_x - 5, min_y - 5))
+            
+            # Blit cached surface
+            if block_id in _cached_trapezoid_surfaces:
+                cached_surf, offset = _cached_trapezoid_surfaces[block_id]
+                screen.blit(cached_surf, offset)
         
         # Draw triangle blocks (decorative border elements)
         for tr in triangle_blocks:
-            # Draw triangle as polygon
-            pygame.draw.polygon(screen, tr["color"], tr["points"])
-            # Draw border to indicate indestructible
-            pygame.draw.polygon(screen, (255, 255, 255), tr["points"], 2)
+            # Create cache key based on block ID
+            block_id = id(tr)
+            if block_id not in _cached_triangle_surfaces:
+                # Create cached surface for this triangle
+                if tr["points"]:
+                    min_x = min(int(p.x) if hasattr(p, 'x') else p[0] for p in tr["points"])
+                    max_x = max(int(p.x) if hasattr(p, 'x') else p[0] for p in tr["points"])
+                    min_y = min(int(p.y) if hasattr(p, 'y') else p[1] for p in tr["points"])
+                    max_y = max(int(p.y) if hasattr(p, 'y') else p[1] for p in tr["points"])
+                    surf_w = max_x - min_x + 10
+                    surf_h = max_y - min_y + 10
+                    cached_surf = pygame.Surface((surf_w, surf_h), pygame.SRCALPHA)
+                    # Draw to cached surface
+                    offset_points = []
+                    for p in tr["points"]:
+                        if hasattr(p, 'x'):
+                            offset_points.append((int(p.x) - min_x + 5, int(p.y) - min_y + 5))
+                        else:
+                            offset_points.append((p[0] - min_x + 5, p[1] - min_y + 5))
+                    pygame.draw.polygon(cached_surf, tr["color"], offset_points)
+                    pygame.draw.polygon(cached_surf, (255, 255, 255), offset_points, 2)
+                    _cached_triangle_surfaces[block_id] = (cached_surf, (min_x - 5, min_y - 5))
+            
+            # Blit cached surface
+            if block_id in _cached_triangle_surfaces:
+                cached_surf, offset = _cached_triangle_surfaces[block_id]
+                screen.blit(cached_surf, offset)
         
         # Indestructible blocks drawn with destructible blocks (see below)
         
