@@ -281,6 +281,30 @@ def main():
                             choice = pause_options[pause_selected]
                             if choice == "Continue":
                                 state = previous_game_state if previous_game_state else STATE_PLAYING
+                            elif choice == "Restart Game":
+                                # Restart game: reset to menu
+                                state = STATE_MENU
+                                menu_section = 0
+                                # Reset game state
+                                game_state.enemies.clear()
+                                game_state.player_bullets.clear()
+                                game_state.enemy_projectiles.clear()
+                                game_state.friendly_projectiles.clear()
+                                friendly_ai.clear()
+                                grenade_explosions.clear()
+                                missiles.clear()
+                                wave_number = 1
+                                wave_in_level = 1
+                                current_level = 1
+                                player_hp = player_max_hp
+                                lives = 3
+                                score = 0
+                                run_time = 0.0
+                                survival_time = 0.0
+                                wave_active = False
+                                time_to_next_wave = 0.0
+                                unlocked_weapons = {"basic"}
+                                current_weapon_mode = "basic"
                             elif choice == "Quit":
                                 running = False
                     
@@ -493,7 +517,8 @@ def main():
                                 "radius": 0,
                                 "max_radius": grenade_radius,
                                 "timer": 0.3,  # Explosion duration
-                                "damage": grenade_damage
+                                "damage": grenade_damage,
+                                "source": "player"  # Mark as player grenade for immunity
                             })
                             grenade_time_since_used = 0.0
                     
@@ -653,6 +678,24 @@ def main():
                 
                 # Update hazard obstacles
                 update_hazard_obstacles(dt)
+                
+                # Check paraboloid/trapezoid hazards for enemy collision and damage
+                for hazard in hazard_obstacles:
+                    if hazard.get("points") and len(hazard["points"]) > 2:
+                        hazard_damage = hazard.get("damage", 10)
+                        for enemy in game_state.enemies[:]:
+                            enemy_center = pygame.Vector2(enemy["rect"].center)
+                            # Check if enemy is inside hazard shape
+                            if check_point_in_hazard(enemy_center, hazard["points"], hazard["bounding_rect"]):
+                                enemy["hp"] -= hazard_damage * dt  # Damage per second
+                                if enemy["hp"] <= 0:
+                                    kill_enemy(enemy, game_state)
+                
+                # Update enemy defeat message timers
+                for msg in enemy_defeat_messages[:]:
+                    msg["timer"] -= dt
+                    if msg["timer"] <= 0:
+                        enemy_defeat_messages.remove(msg)
                 
                 # Update pickup effects
                 update_pickup_effects(dt)
@@ -858,41 +901,47 @@ def main():
                         direction = vec_toward(enemy_pos.x, enemy_pos.y, target_pos.x, target_pos.y)
                         enemy_speed = enemy.get("speed", 80) * dt
                         
-                        # If enemy is stuck (hasn't moved for 5 seconds), change direction away from obstacle
-                        if stuck_timer >= 5.0:
-                            # Move in opposite direction from target (away from obstacle)
-                            direction = -direction
-                            # Add random component to help escape
-                            random_angle = random.uniform(0, 2 * math.pi)
-                            escape_dir = pygame.Vector2(math.cos(random_angle), math.sin(random_angle))
-                            direction = (direction + escape_dir * 0.5).normalize()
-                            stuck_timer = 0.0  # Reset stuck timer after escape attempt
-                            enemy["stuck_timer"] = stuck_timer
+                        # When 5 or fewer enemies remain, all enemies move directly towards player
+                        if len(game_state.enemies) <= 5:
+                            # Direct movement towards player (no wandering when few enemies remain)
+                            direction = vec_toward(enemy_pos.x, enemy_pos.y, player.centerx, player.centery)
+                        else:
+                            # If enemy is stuck (hasn't moved for 5 seconds), change direction away from obstacle
+                            if stuck_timer >= 5.0:
+                                # Move in opposite direction from target (away from obstacle)
+                                direction = -direction
+                                # Add random component to help escape
+                                random_angle = random.uniform(0, 2 * math.pi)
+                                escape_dir = pygame.Vector2(math.cos(random_angle), math.sin(random_angle))
+                                direction = (direction + escape_dir * 0.5).normalize()
+                                stuck_timer = 0.0  # Reset stuck timer after escape attempt
+                                enemy["stuck_timer"] = stuck_timer
+                            
+                            # Add some random wandering to make enemies move around more
+                            # Occasionally add a random offset to movement direction
+                            if random.random() < 0.25:  # 25% chance per frame (increased from 10%)
+                                wander_angle = random.uniform(-0.8, 0.8)  # Larger random angle (increased from 0.3)
+                                cos_a = math.cos(wander_angle)
+                                sin_a = math.sin(wander_angle)
+                                direction = pygame.Vector2(
+                                    direction.x * cos_a - direction.y * sin_a,
+                                    direction.x * sin_a + direction.y * cos_a
+                                ).normalize()
+                            
+                            # Additional random movement: sometimes move in a completely random direction
+                            if random.random() < 0.05:  # 5% chance to move randomly instead of toward target
+                                random_angle = random.uniform(0, 2 * math.pi)
+                                direction = pygame.Vector2(math.cos(random_angle), math.sin(random_angle))
                         
-                        # Add some random wandering to make enemies move around more
-                        # Occasionally add a random offset to movement direction
-                        if random.random() < 0.25:  # 25% chance per frame (increased from 10%)
-                            wander_angle = random.uniform(-0.8, 0.8)  # Larger random angle (increased from 0.3)
-                            cos_a = math.cos(wander_angle)
-                            sin_a = math.sin(wander_angle)
-                            direction = pygame.Vector2(
-                                direction.x * cos_a - direction.y * sin_a,
-                                direction.x * sin_a + direction.y * cos_a
-                            ).normalize()
-                        
-                        # Additional random movement: sometimes move in a completely random direction
-                        if random.random() < 0.05:  # 5% chance to move randomly instead of toward target
-                            random_angle = random.uniform(0, 2 * math.pi)
-                            direction = pygame.Vector2(math.cos(random_angle), math.sin(random_angle))
-                        
-                        # Dodge bullets if in range
-                        dodge_threats = find_threats_in_dodge_range(enemy_pos, player_bullets, friendly_projectiles, 200.0)
-                        if dodge_threats:
-                            # Try to dodge by moving perpendicular
-                            dodge_dir = pygame.Vector2(-direction.y, direction.x)  # Perpendicular
-                            if random.random() < 0.5:
-                                dodge_dir = -dodge_dir
-                            direction = (direction + dodge_dir * 0.5).normalize()
+                        # Dodge bullets if in range (only if more than 5 enemies remain)
+                        if len(game_state.enemies) > 5:
+                            dodge_threats = find_threats_in_dodge_range(enemy_pos, player_bullets, friendly_projectiles, 200.0)
+                            if dodge_threats:
+                                # Try to dodge by moving perpendicular
+                                dodge_dir = pygame.Vector2(-direction.y, direction.x)  # Perpendicular
+                                if random.random() < 0.5:
+                                    dodge_dir = -dodge_dir
+                                direction = (direction + dodge_dir * 0.5).normalize()
                         
                         move_x = int(direction.x * enemy_speed)
                         move_y = int(direction.y * enemy_speed)
@@ -953,16 +1002,139 @@ def main():
                         
                         enemy["time_since_missile"] = time_since_missile
                     
-                    # Enemy shooting
-                    enemy["shoot_cooldown"] = enemy.get("shoot_cooldown", 999.0) + dt
-                    if enemy["shoot_cooldown"] >= enemy.get("shoot_cooldown_time", 1.0):
+                    # Suicide enemy: detonate when close to player
+                    if enemy.get("is_suicide"):
+                        player_pos = pygame.Vector2(player.center)
+                        enemy_pos = pygame.Vector2(enemy["rect"].center)
+                        dist_to_player = (enemy_pos - player_pos).length()
+                        detonation_distance = enemy.get("detonation_distance", 50)
+                        
+                        if dist_to_player <= detonation_distance:
+                            # Detonate - create explosion
+                            explosion_range = enemy.get("explosion_range", 150)
+                            grenade_explosions.append({
+                                "x": enemy["rect"].centerx,
+                                "y": enemy["rect"].centery,
+                                "radius": 0,
+                                "max_radius": explosion_range,
+                                "timer": 0.3,
+                                "damage": 500,  # Same as player grenade
+                            })
+                            # Damage player if in range
+                            if dist_to_player <= explosion_range:
+                                if not shield_active and not (testing_mode and invulnerability_mode):
+                                    damage = 500
+                                    player_hp -= damage
+                                    damage_taken += damage
+                                    if player_hp <= 0:
+                                        if lives > 0:
+                                            lives -= 1
+                                            reset_after_death(game_state)
+                                        else:
+                                            state = STATE_GAME_OVER
+                            # Remove suicide enemy (despawns after detonation)
+                            kill_enemy(enemy, game_state)
+                            continue
+                    
+                    # Spawner enemy: spawn enemies during round
+                    if enemy.get("is_spawner"):
+                        time_since_spawn = enemy.get("time_since_spawn", 0.0) + dt
+                        spawn_cooldown = enemy.get("spawn_cooldown", 5.0)
+                        spawn_count = enemy.get("spawn_count", 0)
+                        max_spawns = enemy.get("max_spawns", 3)
+                        
+                        if time_since_spawn >= spawn_cooldown and spawn_count < max_spawns:
+                            # Spawn a new enemy
+                            tmpl = random.choice(enemy_templates)
+                            # Don't spawn another spawner or boss
+                            while tmpl.get("type") in ["spawner", "FINAL_BOSS"]:
+                                tmpl = random.choice(enemy_templates)
+                            
+                            spawned_enemy = make_enemy_from_template(tmpl, 1.0, 1.0)
+                            spawned_enemy["rect"] = random_spawn_position((spawned_enemy["rect"].w, spawned_enemy["rect"].h))
+                            spawned_enemy["spawned_by"] = enemy  # Track parent spawner
+                            game_state.enemies.append(spawned_enemy)
+                            enemy["spawn_count"] = spawn_count + 1
+                            enemy["time_since_spawn"] = 0.0
+                            
+                            # Log spawn
+                            if telemetry_enabled and telemetry:
+                                enemies_spawned_ref = [enemies_spawned]
+                                log_enemy_spawns([spawned_enemy], telemetry, run_time, enemies_spawned_ref)
+                                enemies_spawned = enemies_spawned_ref[0]
+                        else:
+                            enemy["time_since_spawn"] = time_since_spawn
+                    
+                    # Patrol enemy: patrol outside border of map
+                    if enemy.get("is_patrol"):
+                        patrol_side = enemy.get("patrol_side", 0)
+                        patrol_progress = enemy.get("patrol_progress", 0.0)
+                        patrol_speed = 0.3 * dt  # Progress speed
+                        
+                        patrol_progress += patrol_speed
+                        if patrol_progress >= 1.0:
+                            patrol_progress = 0.0
+                            patrol_side = (patrol_side + 1) % 4  # Cycle through sides
+                            enemy["patrol_side"] = patrol_side
+                        
+                        enemy["patrol_progress"] = patrol_progress
+                        
+                        # Calculate position along border
+                        border_margin = 50  # Distance from edge
+                        if patrol_side == 0:  # Top
+                            x = border_margin + (WIDTH - 2 * border_margin) * patrol_progress
+                            y = border_margin
+                        elif patrol_side == 1:  # Right
+                            x = WIDTH - border_margin
+                            y = border_margin + (HEIGHT - 2 * border_margin) * patrol_progress
+                        elif patrol_side == 2:  # Bottom
+                            x = WIDTH - border_margin - (WIDTH - 2 * border_margin) * patrol_progress
+                            y = HEIGHT - border_margin
+                        else:  # Left
+                            x = border_margin
+                            y = HEIGHT - border_margin - (HEIGHT - 2 * border_margin) * patrol_progress
+                        
+                        enemy["rect"].center = (int(x), int(y))
+                    
+                    # Reflector enemy: turn shield towards player (slow turn speed)
+                    if enemy.get("has_reflective_shield"):
                         if target_info:
                             target_pos, target_type = target_info
-                            if enemy.get("is_predictive", False):
-                                spawn_enemy_projectile_predictive(enemy, direction, game_state)
+                            enemy_center = pygame.Vector2(enemy["rect"].center)
+                            to_target = (target_pos - enemy_center).normalize()
+                            target_angle = math.atan2(to_target.y, to_target.x)
+                            
+                            # Turn shield towards target (slow turn speed)
+                            shield_angle = enemy.get("shield_angle", 0.0)
+                            turn_speed = enemy.get("turn_speed", 0.5) * dt
+                            
+                            # Calculate angle difference
+                            angle_diff = target_angle - shield_angle
+                            # Normalize to [-pi, pi]
+                            while angle_diff > math.pi:
+                                angle_diff -= 2 * math.pi
+                            while angle_diff < -math.pi:
+                                angle_diff += 2 * math.pi
+                            
+                            # Turn towards target
+                            if abs(angle_diff) > turn_speed:
+                                shield_angle += turn_speed if angle_diff > 0 else -turn_speed
                             else:
-                                spawn_enemy_projectile(enemy, game_state)
-                        enemy["shoot_cooldown"] = 0.0
+                                shield_angle = target_angle
+                            
+                            enemy["shield_angle"] = shield_angle
+                    
+                    # Enemy shooting (reflector doesn't shoot normally)
+                    if not enemy.get("has_reflective_shield"):
+                        enemy["shoot_cooldown"] = enemy.get("shoot_cooldown", 999.0) + dt
+                        if enemy["shoot_cooldown"] >= enemy.get("shoot_cooldown_time", 1.0):
+                            if target_info:
+                                target_pos, target_type = target_info
+                                if enemy.get("is_predictive", False):
+                                    spawn_enemy_projectile_predictive(enemy, direction, game_state)
+                                else:
+                                    spawn_enemy_projectile(enemy, game_state)
+                            enemy["shoot_cooldown"] = 0.0
                 
                 # Bullet/projectile updates
                 for bullet in game_state.player_bullets[:]:
@@ -977,31 +1149,98 @@ def main():
                     # Check collision with enemies
                     for enemy in game_state.enemies[:]:
                         if bullet["rect"].colliderect(enemy["rect"]):
-                            damage = bullet.get("damage", player_bullet_damage)
-                            enemy["hp"] -= damage
-                            
-                            # Damage number (displayed for 2 seconds)
-                            damage_numbers.append({
-                                "x": enemy["rect"].centerx,
-                                "y": enemy["rect"].y - 20,
-                                "damage": int(damage),  # Display as integer
-                                "timer": 2.0,  # Disappear after 2 seconds
-                                "color": (255, 255, 100)
-                            })
-                            
-                            if enemy["hp"] <= 0:
-                                kill_enemy(enemy, game_state)
-                            
-                            # Remove bullet (unless it has penetration)
-                            if bullet.get("penetration", 0) <= 0:
-                                game_state.player_bullets.remove(bullet)
-                                break
+                            # Reflector enemy: reflective shield absorbs damage and fires back
+                            if enemy.get("has_reflective_shield"):
+                                # Calculate angle from enemy to bullet
+                                enemy_center = pygame.Vector2(enemy["rect"].center)
+                                bullet_center = pygame.Vector2(bullet["rect"].center)
+                                bullet_dir = (bullet_center - enemy_center).normalize()
+                                
+                                # Check if bullet hits the shield (front-facing)
+                                shield_angle = enemy.get("shield_angle", 0.0)
+                                shield_dir = pygame.Vector2(math.cos(shield_angle), math.sin(shield_angle))
+                                
+                                # Check if bullet is coming from shield direction (within 90 degrees)
+                                dot_product = bullet_dir.dot(-shield_dir)  # Negative because shield faces away from enemy
+                                if dot_product > 0.0:  # Bullet hits shield
+                                    # Absorb damage into shield
+                                    damage = bullet.get("damage", player_bullet_damage)
+                                    enemy["shield_hp"] = enemy.get("shield_hp", 0) + damage
+                                    
+                                    # Fire back reflected projectile
+                                    if enemy["shield_hp"] > 0:
+                                        reflected_dir = -bullet_dir  # Reflect back
+                                        reflected_proj = pygame.Rect(
+                                            enemy["rect"].centerx - enemy_projectile_size[0] // 2,
+                                            enemy["rect"].centery - enemy_projectile_size[1] // 2,
+                                            enemy_projectile_size[0],
+                                            enemy_projectile_size[1]
+                                        )
+                                        game_state.enemy_projectiles.append({
+                                            "rect": reflected_proj,
+                                            "vel": reflected_dir * enemy.get("projectile_speed", 300),
+                                            "enemy_type": enemy["type"],
+                                            "color": enemy.get("projectile_color", enemy_projectiles_color),
+                                            "shape": enemy.get("projectile_shape", "circle"),
+                                            "bounces": 0,
+                                        })
+                                        enemy["shield_hp"] = 0  # Reset shield HP after firing
+                                    
+                                    # Remove bullet (shield blocks it)
+                                    game_state.player_bullets.remove(bullet)
+                                    break
+                                else:
+                                    # Bullet hits enemy from behind (no shield protection)
+                                    damage = bullet.get("damage", player_bullet_damage)
+                                    enemy["hp"] -= damage
+                                    
+                                    # Damage number (displayed for 2 seconds)
+                                    damage_numbers.append({
+                                        "x": enemy["rect"].centerx,
+                                        "y": enemy["rect"].y - 20,
+                                        "damage": int(damage),  # Display as integer
+                                        "timer": 2.0,  # Disappear after 2 seconds
+                                        "color": (255, 255, 100)
+                                    })
+                                    
+                                    if enemy["hp"] <= 0:
+                                        kill_enemy(enemy, game_state)
+                                    
+                                    # Remove bullet (unless it has penetration)
+                                    if bullet.get("penetration", 0) <= 0:
+                                        game_state.player_bullets.remove(bullet)
+                                        break
+                                    else:
+                                        bullet["penetration"] -= 1
                             else:
-                                bullet["penetration"] -= 1
+                                # Normal enemy collision
+                                damage = bullet.get("damage", player_bullet_damage)
+                                enemy["hp"] -= damage
+                                
+                                # Damage number (displayed for 2 seconds)
+                                damage_numbers.append({
+                                    "x": enemy["rect"].centerx,
+                                    "y": enemy["rect"].y - 20,
+                                    "damage": int(damage),  # Display as integer
+                                    "timer": 2.0,  # Disappear after 2 seconds
+                                    "color": (255, 255, 100)
+                                })
+                                
+                                if enemy["hp"] <= 0:
+                                    kill_enemy(enemy, game_state)
+                                
+                                # Remove bullet (unless it has penetration)
+                                if bullet.get("penetration", 0) <= 0:
+                                    game_state.player_bullets.remove(bullet)
+                                    break
+                                else:
+                                    bullet["penetration"] -= 1
                     
-                    # Check collision with blocks
-                    # Bullets can only pass through walls if they have penetration > 0
+                    # Check collision with blocks and obstacles
+                    # Bullets can only pass through destructible walls if they have penetration > 0
+                    # All other obstacles (giant blocks, trapezoids, triangles) always stop bullets
                     if not bullet.get("removed", False):
+                        # Check destructible blocks (can be penetrated with penetration > 0)
                         for block in destructible_blocks + moveable_destructible_blocks:
                             if block.get("is_destructible") and bullet["rect"].colliderect(block["rect"]):
                                 # If bullet has penetration, it passes through blocks (doesn't stop)
@@ -1023,6 +1262,59 @@ def main():
                                     else:
                                         # Bounce bullet
                                         bullet["vel"] = bullet["vel"].reflect(pygame.Vector2(1, 0))
+                        
+                        # Check giant blocks (always stop bullets, no penetration)
+                        if not bullet.get("removed", False):
+                            for block in giant_blocks + super_giant_blocks:
+                                if bullet["rect"].colliderect(block["rect"]):
+                                    if not bullet.get("bouncing", False):
+                                        game_state.player_bullets.remove(bullet)
+                                        bullet["removed"] = True
+                                        break
+                                    else:
+                                        # Bounce bullet
+                                        bullet["vel"] = bullet["vel"].reflect(pygame.Vector2(1, 0))
+                        
+                        # Check trapezoid blocks (always stop bullets, no penetration)
+                        if not bullet.get("removed", False):
+                            for tb in trapezoid_blocks:
+                                if bullet["rect"].colliderect(tb.get("bounding_rect", tb.get("rect"))):
+                                    if not bullet.get("bouncing", False):
+                                        game_state.player_bullets.remove(bullet)
+                                        bullet["removed"] = True
+                                        break
+                                    else:
+                                        # Bounce bullet
+                                        bullet["vel"] = bullet["vel"].reflect(pygame.Vector2(1, 0))
+                        
+                        # Check triangle blocks (always stop bullets, no penetration)
+                        if not bullet.get("removed", False):
+                            for tr in triangle_blocks:
+                                if bullet["rect"].colliderect(tr.get("bounding_rect", tr.get("rect"))):
+                                    if not bullet.get("bouncing", False):
+                                        game_state.player_bullets.remove(bullet)
+                                        bullet["removed"] = True
+                                        break
+                                    else:
+                                        # Bounce bullet
+                                        bullet["vel"] = bullet["vel"].reflect(pygame.Vector2(1, 0))
+                        
+                        # Check hazard obstacles (paraboloids/trapezoids) - bullets push hazards
+                        if not bullet.get("removed", False):
+                            for hazard in hazard_obstacles:
+                                if hazard.get("points") and len(hazard["points"]) > 2:
+                                    bullet_center = pygame.Vector2(bullet["rect"].center)
+                                    # Check if bullet is inside hazard shape
+                                    if check_point_in_hazard(bullet_center, hazard["points"], hazard["bounding_rect"]):
+                                        # Push hazard in direction of bullet velocity
+                                        bullet_vel = bullet.get("vel", pygame.Vector2(0, 0))
+                                        if bullet_vel.length_squared() > 0:
+                                            push_force = bullet_vel.normalize() * 200.0  # Push force
+                                            hazard["velocity"] += push_force * dt
+                                        # Remove bullet (hazards stop bullets)
+                                        game_state.player_bullets.remove(bullet)
+                                        bullet["removed"] = True
+                                        break
                 
                 for proj in game_state.enemy_projectiles[:]:
                     proj["rect"].x += int(proj["vel"].x * dt)
@@ -1164,6 +1456,24 @@ def main():
                             
                             if enemy["hp"] <= 0:
                                 kill_enemy(enemy, game_state)
+                    
+                    # Damage player if in explosion radius (make player immune to own bomb damage)
+                    player_pos = pygame.Vector2(player.center)
+                    player_dist = (player_pos - explosion_pos).length()
+                    if player_dist <= explosion["radius"]:
+                        # Player is immune to their own grenade/bomb damage
+                        # Only damage player if explosion is from enemy (not player grenade)
+                        if explosion.get("source") != "player":
+                            if not shield_active and not (testing_mode and invulnerability_mode):
+                                damage = explosion.get("damage", 500)
+                                player_hp -= damage
+                                damage_taken += damage
+                                if player_hp <= 0:
+                                    if lives > 0:
+                                        lives -= 1
+                                        reset_after_death(game_state)
+                                    else:
+                                        state = STATE_GAME_OVER
                     
                     # Damage destructible blocks
                     for block in destructible_blocks[:] + moveable_destructible_blocks[:]:
@@ -1672,6 +1982,17 @@ def main():
                         pygame.draw.rect(screen, (255, 255, 255), (overshield_x, bar_y, bar_width, bar_height), 2)
                         small_font_surf = small_font.render("OVERSHIELD (TAB)", True, (255, 255, 255))
                         screen.blit(small_font_surf, (overshield_x + 5, bar_y + 2))
+                        
+                        # Draw controls at bottom of screen
+                        controls_y = HEIGHT - 10
+                        controls_text = ""
+                        if aiming_mode == AIM_ARROWS:
+                            controls_text = "WASD: Move | Arrow Keys: Aim & Shoot | E: Bomb | R: Missile | Q: Ally Drop | TAB: Overshield | LALT: Shield | SPACE: Dash"
+                        else:
+                            controls_text = "WASD: Move | Mouse + Click: Aim & Shoot | E: Bomb | R: Missile | Q: Ally Drop | TAB: Overshield | LALT: Shield | SPACE: Dash"
+                        controls_surf = small_font.render(controls_text, True, (150, 150, 150))
+                        controls_rect = controls_surf.get_rect(center=(WIDTH // 2, controls_y))
+                        screen.blit(controls_surf, controls_rect)
                 
                 # Draw damage numbers (fade out over 2 seconds)
                 # Note: Timers are decremented in the update loop above
@@ -1683,6 +2004,21 @@ def main():
                         screen.blit(text_surf, (dmg_num["x"], dmg_num["y"]))
                     else:
                         damage_numbers.remove(dmg_num)
+                
+                # Draw enemy defeat messages in bottom right corner
+                defeat_y_start = HEIGHT - 100  # Start from bottom, work upwards
+                for i, msg in enumerate(enemy_defeat_messages[-5:]):  # Show last 5 messages
+                    if msg["timer"] > 0:
+                        enemy_type = msg.get("enemy_type", "enemy")
+                        alpha = int(255 * (msg["timer"] / 3.0))  # Fade over 3 seconds
+                        color = (255, 200, 100, alpha)  # Orange color with alpha
+                        text = f"{enemy_type.upper()} DEFEATED!"
+                        text_surf = small_font.render(text, True, color[:3])
+                        text_rect = text_surf.get_rect()
+                        # Position in bottom right corner, stacked upwards
+                        x_pos = WIDTH - text_rect.width - 20
+                        y_pos = defeat_y_start - (i * 25)  # Stack messages with 25px spacing
+                        screen.blit(text_surf, (x_pos, y_pos))
                 
                 # Draw weapon pickup messages
                 # Note: Timers are decremented in the update loop above
@@ -2566,9 +2902,9 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
     # Include giant and super giant blocks (unmovable) - player cannot pass through
     giant_block_rects = [gb["rect"] for gb in giant_blocks]
     super_giant_block_rects = [sgb["rect"] for sgb in super_giant_blocks]
-    # Include friendly AI rects - player cannot pass through allies
-    friendly_ai_rects = [f["rect"] for f in friendly_ai if f.get("hp", 1) > 0]
-    all_collision_rects = block_rects + destructible_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects + giant_block_rects + super_giant_block_rects + friendly_ai_rects
+    # Friendly AI rects removed - player can now fly through allies
+    # friendly_ai_rects = [f["rect"] for f in friendly_ai if f.get("hp", 1) > 0]
+    all_collision_rects = block_rects + destructible_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects + giant_block_rects + super_giant_block_rects  # Removed friendly_ai_rects
 
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -2643,13 +2979,13 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
                     hit_block = sgb
                     hit_is_unpushable = True  # Can't push super giant blocks
                     break
-        # Check friendly AI (allies) - player cannot pass through or push
-        if hit_block is None:
-            for f in friendly_ai:
-                if f.get("hp", 1) > 0 and player_rect.colliderect(f["rect"]):
-                    hit_block = f
-                    hit_is_unpushable = True  # Can't push allies
-                    break
+        # Friendly AI (allies) - player can now fly through allies (collision removed)
+        # if hit_block is None:
+        #     for f in friendly_ai:
+        #         if f.get("hp", 1) > 0 and player_rect.colliderect(f["rect"]):
+        #             hit_block = f
+        #             hit_is_unpushable = True  # Can't push allies
+        #             break
 
         if hit_block is None:
             continue
@@ -2841,8 +3177,10 @@ def start_wave(wave_num: int, state: GameState):
     global wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer, ally_drop_timer, shield_recharge_timer, shield_cooldown_remaining, enemies_spawned
     state.enemies = []
     boss_active = False
-    # Reset lives to 3 at the beginning of each wave
-    lives = 3  # Reset to 3 lives at the beginning of each wave
+    # Reset lives to 3 at the beginning of each wave (unless in endurance mode)
+    # In endurance mode, lives is set to 999 and should not be reset
+    if lives != 999:
+        lives = 3  # Reset to 3 lives at the beginning of each wave
     
     # Calculate level and wave within level (1-based)
     current_level = min(max_level, (wave_num - 1) // 3 + 1)
@@ -3776,6 +4114,25 @@ def kill_enemy(enemy: dict, state: GameState):
     global enemies_killed, score, current_level, enemy_defeat_messages, damage_numbers
     is_boss = enemy.get("is_boss", False)
     
+    # Spawner enemy: when killed, all spawned enemies die
+    if enemy.get("is_spawner"):
+        # Find and kill all enemies spawned by this spawner
+        for spawned_enemy in state.enemies[:]:
+            if spawned_enemy.get("spawned_by") is enemy:
+                # Recursively kill spawned enemy (but don't drop weapons for spawned enemies)
+                spawned_enemy_type = spawned_enemy.get("type", "enemy")
+                # Remove projectiles
+                for proj in state.enemy_projectiles[:]:
+                    if proj.get("enemy_type") == spawned_enemy_type:
+                        state.enemy_projectiles.remove(proj)
+                # Remove from list
+                try:
+                    state.enemies.remove(spawned_enemy)
+                except ValueError:
+                    pass
+                enemies_killed += 1
+                score += calculate_kill_score(wave_number, run_time)
+    
     # Add defeat message
     enemy_type = enemy.get("type", "enemy")
     enemy_defeat_messages.append({
@@ -3809,8 +4166,9 @@ def kill_enemy(enemy: dict, state: GameState):
             if weapon_to_unlock not in unlocked_weapons:
                 spawn_weapon_in_center(weapon_to_unlock)
     else:
-        # Regular enemies drop weapons randomly
-        spawn_weapon_drop(enemy)
+        # Regular enemies drop weapons randomly (except suicide enemies which despawn)
+        if not enemy.get("is_suicide"):
+            spawn_weapon_drop(enemy)
     
     try:
         state.enemies.remove(enemy)

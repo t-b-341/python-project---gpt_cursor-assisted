@@ -90,6 +90,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (255, 120, 180),
         "projectile_shape": "square",
         "speed": 150,
+        "is_predictive": True,  # Predicts and shoots ahead of player's location
     },
     {
         "type": "neko neko desu",

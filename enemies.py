@@ -224,6 +224,10 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> di
         enemy["shield_length"] = t.get("shield_length", 60)
         enemy["shield_hp"] = 0
         enemy["turn_speed"] = t.get("turn_speed", 0.5)
+    # Add predictive enemy property (for enemies that predict player position)
+    if t.get("is_predictive"):
+        enemy["is_predictive"] = True
+    
     # Add queen-specific properties
     if t.get("type") == "queen":
         enemy["name"] = t.get("name", "queen")

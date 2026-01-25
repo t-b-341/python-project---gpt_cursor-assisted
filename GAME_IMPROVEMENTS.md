@@ -1,6 +1,6 @@
 # Game Improvements
 
-This document contains all improvement suggestions and TODO items for the game. These were extracted from comments in `game.py` for better organization.
+This document contains all improvement suggestions and TODO items for the game file "game.py". These were extracted from comments in `game.py` for better organization.
 
 ## Visual Improvements
 
@@ -12,109 +12,55 @@ This document contains all improvement suggestions and TODO items for the game. 
 - Make the wave beam have a period of 0.5 seconds, and a amplitude of 7 pixels
 - Add texture into indestructible, moveable blocks that makes it looks like a silver wall
 - Add texture into destructible, moveable blocks that makes it looks like a cracked brick wall
-- Change player bullet color
-- Change enemy bullet colors
-- Make the rockets shot size bigger
-- Make bouncing bullets projectiles twice the size, and projectiles orange - FIXED: Added 2x size multiplier and orange color
 - Make damage done to enemies displayed over their health bar as an integer
 - Make it so that after the player damages an enemy, the damage given number goes away after 2 seconds
 - Make the weapon pickup messages display for 3 seconds, and then fade out
 - Make health bar and HP amount above the control information at bottom of screen in-game
-- Remove giant and super giant labels from obstacles
 
-## Gameplay Features
+/## Gameplay Features
 
 ### Player Mechanics
-- Add boost mechanic using shift, and slow down mechanic using ctrl
-- Add space bar to jump in direction of movement?
-- Change "jump" name to "dash" in game and controls
-- Add a shield for use with left alt key that lasts 2 seconds, and takes 10-15 seconds to recharge
 - Make the player turn red while the shield is active, and a text displays in the hud SHIELD ACTIVU (spelled like that)
-- Make "tab" key create an overshield the amount of the player's health that is an orange bar that stacks on top of the player's health, and recharges every 45 seconds, with a progress bar on the bottom
-- When wave starts, start with overshield charged
 - Start with shield, overshield, and drop ally charged at beginning of round, and add a "ALLY DROP" progress bar that is purple when charged
-- Make it so that player is immune to player bomb damage
 - Make a status bar at the bottom of the screen that shows player bomb readiness status with a progress bar that is red when not ready, and purple when ready and says "BOMB" in it
-- Put shield recharge bar on the bottom
-- Make a recharge bar for the missile, place on bottom
-- Give player 3x health, 1.5x movement speed
-- Increase player health by 10x
-- Increase player base health to 250
-- Decrease ally drop cooldown to 10 seconds
+- Decrease ally drop cooldown to 5 seconds, increase ally's rate of fire, and remove all other spawned allies, and make enemies focus on ally, unless are some radius away from ally
+#make missile shots a three shot burst
+#put name of pickup over pickup, and increase pickup size 2x
+#make WAVE STARTS IN 3, 2, 1 countdown in between waves, with wave number listed (ex: wave 2 starting in 3, 2, 1...)
 
 ### Weapons & Combat
-- Add a map to key 1 for the basic fire, then key 2 for the rocket launcher, then key 3 for the triple shot, then key 4 for the bouncing bullets, then key 5 for the giant bullets
-- Add a special pickup that adds a laser beam weapon that the player can use to destroy enemies from a distance, that's a long ray, but doesn't cut through solid blocks, but breaks temporary barriers
-- Make weapons drop in the center of the screen, and the player has to pick them up to use them, adding one with each level completed
-- Add in a beam selection option in the pre-game menu (useful for testing beams)
+#make large red enemy's shots disappear after they are shot, they are lingering
+- Add in a testing section of the pre-game menu, and include beam selection option (for testing beams), and invulnerability selection (for testing)
 - Fix wave beam draw to be constant, not flashing
-- Label beam upgrades with text
-- Fix shots staying displayed in map after shot has moved past position
-- Beam selection controls don't work
-- Change beam selections to only be sine beam (instead of the other trig functions), and change beam selection to include rockets, bounce beam, etc., for ease of testing
-- In menu, set default beam selection to basic - FIXED: Changed default selection to index 6 (basic)
-- Take away wave beam as a starting weapon, leave it as only a pickup, leaving the player only with the basic beam and the other weapons as pickups
-- Spawn with wave_beam in slot 2, in addition to basic
-- When player collects a pickup, automatically switch to that weapon, and display the weapon name on the screen
-- Do not drop the basic beam as a pickup weapon
-- Make a weapon name document for reference, with enemy names
-- Make wave beam second to last dropped, giant beam last
+- Verify: Do not drop the basic beam as a pickup weapon
+- Make a weapon name document for reference
 - Make beam selector harder to access (testing mode? if yes, display beam selection)
 - Fix triple shot beam to include two more beams, offset by an equal arc on each side of center beam, and increase beam shot size to 3x current size, and turn purple
 - Change triple shot to basic beam, with three beams in total, offset by an equal arc
-- Make aoe bigger for rocket beam
-- Make bomb do more damage
-- Add in a grenade to use with e with an aoe of a radius that is 10x the player space that kills enemies and does damage to destructible obstacles
-- Add a missile that seeks enemies and explodes on contact with "r" key
-- Add a beam that fires in a sine wave pattern, and the beam is a line that is 10 pixels wide, and 1000 pixels long, and the beam is fired from the player's position, and the beam is fired in a sine wave pattern, and the beam is fired in a cosine wave pattern, and the beam is fired in a tangent wave pattern, and the beam is fired in a cotangent wave pattern, and the beam is fired in a secant wave pattern, and the beam is fired in a cosecant wave pattern, and the beam is fired in a arcsecant wave pattern, and the beam is fired in a arccosecant wave pattern, and the beam is fired in a arcsecant wave pattern, and the beam is fired in a arccosecant wave pattern
+/
 
 ### Pickups
-- Make pickups bigger, add in another pickup that increases the player's max health
-- Add a pickup for boost
-- Add a pickup for more firing speed
-- Add a pickup that increases the player's speed
-- Add a pickup that increases the player's firing rate
-- Add a pickup that increases the player's bullet size
-- Add a pickup that increases the player's bullet speed
-- Add a pickup that increases the player's bullet damage
-- Add a pickup that increases the player's bullet knockback
-- Add a pickup that increases the player's bullet penetration
-- Add a pickup that increases the player's bullet explosion radius
-- Make pickup that increases the shot size to 10x regular size, and another pickup that increase the shot beams to 3 beams
-- Add a pickup that bounces shots around on the walls
-- Add a pickup timer, and effects around the pickup, and an effect when the player picks up the pickup
-- Add a pickup that functions like a rocket launcher with a longer rate of fire, but the shots do more damage with an area of effect
-- Add a pickup that increases the player's overshield
+- Add a pickup that creates the player's bullet penetration, otherwise player cannot shoot through walls
+- Add a pickup effect when the player picks up a pickup
 - Add a pickup that increases the player's health regeneration rate
 - Add in a pickup that randomizes, with an on screen element on the HUD, how much base damage is multiplied by
-- Randomize the pickups, so that the player never knows what they will get
-- Stack pickups so that the player can get a combo of pickups
-- Health pickups are worth 100 health
-- Make a list of all pickups, and their effects, and their spawn order
+#reduce player health by 0.75x
+- Make a list of all pickups, and their effects, and their spawn order in a document labeled PICKUP_INFO.md
+/
 
 ### Enemies & AI
-- Enemy movement
-- Enemy respawn timer
-- Make enemies move around the map more
-- Make enemies prioritize player damage, unless player is over half the map away from them, then prioritize allies closeby
-- Make it so that enemies cannot go through other objects, and must go around
+#create space between trapezoids on right hand side, and triangles to allow player to get into outer part of map
 - If enemies haven't moved for 5 seconds, have them change direction away from an object they are stuck on
-- Make enemies move around the map more
-- Make allies move around map more
 - Remove allies from map
-- Add more enemies, and friendly ai, and give the ai more health (50-100), with their bar being full and green at the beginning of the waves
-- Change all enemies to have no more than 300 health each. The enemies can have health lower than that.
-- Increase enemy and ally movement speed by 110%
-- Increase enemy and ally health by 110%
-- Increase enemy and ally damage by 110%
-- Increase enemy and ally fire rate by 110%
-- Increase rate of fire for all enemies
+/- Add more enemies
+#make allies drop from ally drop
 - Create enemy classes; pawn = basic beam, basic movement speed
 - Create enemy classes; queen = maroon, "player copy"
 - Make player clone (maroon enemy) have 2000 health, and move 3x standard speed
 - Increase "queen" rate of fire, and raise health to 5000, and give shield like "shield enemy" that activates and deactivates at rates of 10-20 seconds each phase, enabled for 5-10 seconds
-- Change queen shoot cooldown to 0.2s, and update in WEAPON_AND_ENEMY_REFERENCE.md
-- Change queen shot cooldown to 1 second, and update in WEAPON_AND_ENEMY_REFERENCE.md
+/#spawn no more than three queens per wave, give them missiles that fire with a 10 second cool down
+#make obstacles prevent shots from going through them
+#make parabolas damage enemies, and kill them when their health drops to zero
 - Make an enemy that predicts and shoots ahead of player's location; dark maroon rhomboid
 - Make an enemy "patrol" that patrols the outside border of the map, with the wave beam
 - Add an enemy that shoots shots that bounce around on the walls
@@ -123,37 +69,18 @@ This document contains all improvement suggestions and TODO items for the game. 
 - Add in suicide enemy that goes towards player and detonates themselves with grenade, and disappears after detonating, and damages player if in range of grenade; when enemy dies, the enemy despawns
 - Make suicide enemies blow up when closer to player, not at beginning of wave
 - Make suicide enemy twice as big, and 0.75x current movement speed
-- Game; enemy type - spawner - spawns enemies during round
-- Add a pickup for enemies spawn more often, that enemies can pick up, and that you have to shoot to destroy the pickup
-- Once there are 5 enemies remaining, have them move towards the player, and the player has to move to avoid them, and the player has to shoot them to kill them
-- Update WEAPON_AND_ENEMY_REFERNCE.md to reflect most recent weapons, their spawn order, enemies with their names, and their behavior patterns
-- After each enemy dies, put in bottom right corner a text feed that updates "(enemy type) defeated!"
-- Verify when health = zero, enemies and allies die and disappear from map
+- Game; enemy type - spawner - spawns enemies during round, but when killed, all spawned enemies die
+- Once there are 5 enemies remaining, have them move towards the player
+-verify: After each enemy dies, put in bottom right corner a text feed that updates "(enemy type) defeated!"
+/- Verify when health = zero, enemies and allies die and disappear from map
 
 ### Friendly AI
-- Add friendly AI, about 1-2 per every 3-5 enemies that move independently, and attack the enemies, and help the player, with a health bar and various spawn classes and behavior patterns
-- Make the friendly AI move, and make the enemy AI focus on the player, and the friendly, and move in response to the player and the friendly's bullets, and position
-- Fix the health bars for the friendly ai, and make their health bars full and green at the beginning of the waves
-- Make it so I cannot fly through allies
-- Make it so that allies disappear after dying
-- Make it so that allies disappear after dying - FIXED: Added cleanup checks and hazard collision handling
-- Give allies 10x more health
-- Game; fix ally collision to prevent player position and allies from being in the same spot
-- New control: "ally_drop" key, "q": drop an ally behind you that regenerates every 30 seconds, that distracts all enemies chasing you
+- Make it so I can fly through allies - VERIFIED: Implemented - Friendly AI collision removed from player movement (lines 2905-2907, 2982)
 
-### Levels & Waves
-- Survival timer, waves, multiple levels
-- Make each level 3 waves, increasing in difficulty, with the last wave being the boss
-- Make 3 different levels, with the final level being a boss with 10,000 health
-- Multiple levels, with different themes and enemies, and pickups, and powerups
-- Make lives 3 per wave, resetting at the beginning of each wave
-- When player dies, keep enemy state on screen and allow player to continue next life from death point
-- Allow the player to start in endurance mode
-- Fix endurance mode crash when game starts
-- Continue? after game is done, to add an endurance mode for postgame
-- By end of game it's a bullet hell with the player having all their tools
+/### Levels & Waves
 
 ### Geometry & Blocks
+
 - Make the map bigger, and add in more geometry, with areas of health recovery, and overshields (extra health bar that can be used to block damage)
 - Add in more squares and rectangles that can be moved around, but have health bars that enemies can shoot at to destroy them
 - Add in more moveable blocks
