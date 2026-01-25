@@ -35,11 +35,18 @@ def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) ->
         "projectile_speed": t["projectile_speed"],
         "projectile_color": t["projectile_color"],
         "projectile_shape": t["projectile_shape"],
-        "speed": t["speed"] * speed_scale * 1.1,  # 110% movement speed
+        "speed": t["speed"] * speed_scale * 2.2,  # 2x movement speed (was 1.1)
         "behavior": t["behavior"],
         "damage": int(t["damage"] * 1.1),  # 110% damage
         "target": None,  # Current target enemy
     }
+    if t.get("fires_missiles"):
+        data["fires_missiles"] = True
+        data["missile_burst_interval"] = t.get("missile_burst_interval", 7.0)
+        data["missile_burst_count"] = t.get("missile_burst_count", 3)
+        data["missile_damage"] = t.get("missile_damage", 300)
+        data["missile_explosion_radius"] = t.get("missile_explosion_radius", 80)
+        data["ally_missile_cooldown"] = 0.0
     return Friendly(data)
 
 
@@ -133,10 +140,12 @@ def update_friendly_ai(
     state=None,
     *,
     player_rect=None,
+    spawn_ally_missile_func=None,
 ):
     """Update friendly AI movement, targeting, and shooting.
     Allies follow the player around the map; move target is always player (or ally_command_target when active).
     Enemy is used only for shooting when in range.
+    Allies with fires_missiles use spawn_ally_missile_func for 3-shot burst every 7s (or template interval).
     
     Args:
         friendly_ai: List of friendly AI units (modified in place)
@@ -149,6 +158,7 @@ def update_friendly_ai(
         spawn_friendly_projectile_func: Function to spawn friendly projectile
         state: Game state (for ally_command_target); optional
         player_rect: If provided, used as follow target; otherwise state.player_rect. Pass explicitly so ally follows reliably.
+        spawn_ally_missile_func: Optional (friendly, target, state) -> None for missile-firing allies.
     """
     if player_rect is None and state is not None:
         player_rect = getattr(state, "player_rect", None)
@@ -181,7 +191,13 @@ def update_friendly_ai(
             move_enemy_with_push_func(friendly["rect"], move_x, move_y, blocks)
 
         if target:
-            friendly["shoot_cooldown"] = friendly.get("shoot_cooldown", 0.0) + dt
-            if friendly["shoot_cooldown"] >= friendly.get("shoot_cooldown_time", 0.5):
-                spawn_friendly_projectile_func(friendly, target)
-                friendly["shoot_cooldown"] = 0.0
+            if friendly.get("fires_missiles") and spawn_ally_missile_func and state is not None:
+                friendly["ally_missile_cooldown"] = friendly.get("ally_missile_cooldown", 0.0) + dt
+                if friendly["ally_missile_cooldown"] >= friendly.get("missile_burst_interval", 7.0):
+                    spawn_ally_missile_func(friendly, target, state)
+                    friendly["ally_missile_cooldown"] = 0.0
+            else:
+                friendly["shoot_cooldown"] = friendly.get("shoot_cooldown", 0.0) + dt
+                if friendly["shoot_cooldown"] >= friendly.get("shoot_cooldown_time", 0.5):
+                    spawn_friendly_projectile_func(friendly, target)
+                    friendly["shoot_cooldown"] = 0.0

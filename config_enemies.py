@@ -330,4 +330,23 @@ FRIENDLY_AI_TEMPLATES: list[dict] = [
         "behavior": "tank",  # Slow, high HP, draws enemy fire
         "damage": 25,
     },
+    {
+        "type": "striker",
+        "rect": pygame.Rect(0, 0, 26, 26),
+        "color": (255, 180, 100),  # Amber
+        "hp": 70,
+        "max_hp": 70,
+        "shoot_cooldown": 2.0,
+        "projectile_speed": 400,
+        "projectile_color": (255, 200, 120),
+        "projectile_shape": "diamond",
+        "speed": 140,
+        "behavior": "ranged",
+        "damage": 20,
+        "fires_missiles": True,
+        "missile_burst_interval": 7.0,
+        "missile_burst_count": 3,
+        "missile_damage": 300,
+        "missile_explosion_radius": 80,
+    },
 ]

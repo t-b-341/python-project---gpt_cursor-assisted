@@ -31,6 +31,7 @@ def update(state: "GameState", dt: float) -> None:
     _handle_enemy_projectile_block_collisions(state, ctx)
     _handle_enemy_projectile_player_collisions(state, ctx)
     _handle_enemy_projectile_friendly_collisions(state, ctx)
+    _handle_teleporter_player(state, ctx)
     _handle_pickup_player_collisions(state, ctx)
     _handle_health_zone_player_dt(state, dt, ctx)
     _handle_friendly_projectile_offscreen_blocks_enemies(state, ctx)
@@ -339,6 +340,23 @@ def _handle_enemy_projectile_friendly_collisions(state, ctx: dict) -> None:
             if friendly["hp"] <= 0 and friendly in state.friendly_ai:
                 state.friendly_ai.remove(friendly)
             break
+
+
+def _handle_teleporter_player(state, ctx: dict) -> None:
+    """Teleport player to linked pad when touching a teleporter. Only player can overlap; cooldown prevents instant re-trigger."""
+    player = state.player_rect
+    pads = ctx.get("teleporter_pads", [])
+    if not player or not pads:
+        return
+    if getattr(state, "teleporter_cooldown", 0) > 0:
+        return
+    for pad in pads:
+        link = pad.get("linked_rect")
+        if not link or not player.colliderect(pad["rect"]):
+            continue
+        player.center = link.center
+        state.teleporter_cooldown = 0.5
+        break
 
 
 def _handle_pickup_player_collisions(state, ctx: dict) -> None:

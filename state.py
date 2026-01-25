@@ -79,6 +79,7 @@ class GameState:
     dropped_ally: Optional[dict] = None
     ally_command_target: Optional[tuple[float, float]] = None  # Mouse position for "allies go here"
     ally_command_timer: float = 0.0  # Seconds until allies stop following command
+    teleporter_cooldown: float = 0.0  # Seconds after teleport before can teleport again
 
     # Player stat multipliers (from pickups)
     player_stat_multipliers: dict = field(default_factory=lambda: {

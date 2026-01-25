@@ -340,6 +340,17 @@ def _draw_terrain(screen: pygame.Surface, state, ctx: dict) -> None:
             border_color = (50, 255, 50)
             pygame.draw.rect(screen, border_color, zone["rect"], 3)
 
+    # Teleporter pads: green rhomboids with purple border, ~1.5x player
+    for pad in ctx.get("teleporter_pads", []):
+        r = pad.get("rect")
+        if not r:
+            continue
+        cx, cy = r.centerx, r.centery
+        half = r.w // 2  # 21 for 42
+        pts = [(cx, cy - half), (cx + half, cy), (cx, cy + half), (cx - half, cy)]
+        pygame.draw.polygon(screen, (50, 220, 80), pts)  # green
+        pygame.draw.polygon(screen, (180, 80, 220), pts, 3)  # purple border
+
 
 def _draw_pickups(screen: pygame.Surface, state, ctx: dict) -> None:
     """Draw pickups and their labels."""

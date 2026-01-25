@@ -193,6 +193,7 @@ def main():
                 lambda f, t: spawn_friendly_projectile(f, t, s.friendly_projectiles, vec_toward, telemetry, s.run_time),
                 state=s,
                 player_rect=getattr(s, "player_rect", None),
+                spawn_ally_missile_func=lambda f, t, st: spawn_ally_missile(f, t, st),
             ),
             # Collision system
             "kill_enemy": kill_enemy,
@@ -204,6 +205,7 @@ def main():
             "triangle_blocks": triangle_blocks,
             "hazard_obstacles": hazard_obstacles,
             "moving_health_zone": moving_health_zone,
+            "teleporter_pads": teleporter_pads,
             "check_point_in_hazard": check_point_in_hazard,
             "line_rect_intersection": line_rect_intersection,
             "testing_mode": testing_mode,
@@ -316,8 +318,8 @@ def main():
                     if len(game_state.player_name_input) < 20:  # Limit name length
                         game_state.player_name_input += event.text
                 
-                # Ally direction command: left-click during play sends allies toward mouse position
-                if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                # Ally direction command: right-click during play sends allies toward mouse position
+                if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
                     game_state.ally_command_target = (float(event.pos[0]), float(event.pos[1]))
                     game_state.ally_command_timer = 5.0
 
@@ -751,6 +753,7 @@ def main():
                 game_state.shield_recharge_timer += dt
                 game_state.ally_drop_timer += dt
                 game_state.ally_command_timer = max(0.0, getattr(game_state, "ally_command_timer", 0.0) - dt)
+                game_state.teleporter_cooldown = max(0.0, getattr(game_state, "teleporter_cooldown", 0.0) - dt)
                 game_state.fire_rate_buff_t += dt
                 game_state.pos_timer += dt
                 continue_blink_t += dt
@@ -1003,6 +1006,7 @@ def main():
                     "super_giant_blocks": super_giant_blocks,
                     "hazard_obstacles": hazard_obstacles,
                     "moving_health_zone": moving_health_zone,
+                    "teleporter_pads": teleporter_pads,
                     "small_font": small_font,
                     "weapon_names": WEAPON_NAMES,
                     "WIDTH": WIDTH,
@@ -1714,6 +1718,42 @@ for _ in range(max_health_zone_attempts):
     new_y = random.randint(100, HEIGHT - 250)
     moving_health_zone["rect"].center = (new_x, new_y)
 
+# Teleporter pads: one per half of map, nothing overlaps except player (like health zone). ~1.5x player (42).
+TELEPORTER_SIZE = 42  # 1.5 * player size (28)
+teleporter_pad_a = {"rect": pygame.Rect(0, 0, TELEPORTER_SIZE, TELEPORTER_SIZE), "linked_rect": None}
+teleporter_pad_b = {"rect": pygame.Rect(0, 0, TELEPORTER_SIZE, TELEPORTER_SIZE), "linked_rect": None}
+teleporter_pad_a["linked_rect"] = teleporter_pad_b["rect"]
+teleporter_pad_b["linked_rect"] = teleporter_pad_a["rect"]
+teleporter_pads = [teleporter_pad_a, teleporter_pad_b]
+for idx, pad in enumerate(teleporter_pads):
+    for _ in range(max_health_zone_attempts):
+        overlaps = False
+        if idx == 0:
+            pad["rect"].center = (random.randint(80, WIDTH // 2 - 60), random.randint(80, HEIGHT - 80))
+        else:
+            pad["rect"].center = (random.randint(WIDTH // 2 + 60, WIDTH - 80), random.randint(80, HEIGHT - 80))
+        for block_list in [destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks]:
+            for block in block_list:
+                if pad["rect"].colliderect(block["rect"]):
+                    overlaps = True
+                    break
+            if overlaps:
+                break
+        if not overlaps:
+            for tb in trapezoid_blocks:
+                if pad["rect"].colliderect(tb.get("bounding_rect", tb.get("rect"))):
+                    overlaps = True
+                    break
+        if not overlaps:
+            for tr in triangle_blocks:
+                if pad["rect"].colliderect(tr.get("bounding_rect", tr.get("rect"))):
+                    overlaps = True
+                    break
+        if not overlaps and not pad["rect"].colliderect(moving_health_zone["rect"]):
+            other = teleporter_pads[1 - idx]
+            if not pad["rect"].colliderect(other["rect"]):
+                break
+
 # ----------------------------
 # Enemy templates are now imported from config_enemies.py
 # ----------------------------
@@ -2100,6 +2140,13 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
             if enemy_rect.colliderect(moving_health_zone["rect"]):
                 collision = True
         
+        # Check teleporter pads (nothing overlaps except player)
+        if not collision:
+            for pad in teleporter_pads:
+                if enemy_rect.colliderect(pad["rect"]):
+                    collision = True
+                    break
+        
         # Check player
         if not collision and state.player_rect is not None:
             if enemy_rect.colliderect(state.player_rect):
@@ -2209,6 +2256,9 @@ def random_spawn_position(size: tuple[int, int], state: GameState, max_attempts:
             continue
         # Prevent spawning in health recovery zone
         if candidate.colliderect(moving_health_zone["rect"]):
+            continue
+        # Prevent spawning on teleporter pads (nothing overlaps except player)
+        if any(candidate.colliderect(pad["rect"]) for pad in teleporter_pads):
             continue
         return candidate
     # fallback: top-left corner inside bounds
@@ -3007,6 +3057,27 @@ def spawn_boss_projectile(boss: dict, direction: pygame.Vector2, state: GameStat
 def calculate_kill_score(wave_num: int, run_time: float) -> int:
     """Calculate score for killing an enemy."""
     return SCORE_BASE_POINTS + (wave_num * SCORE_WAVE_MULTIPLIER) + int(run_time * SCORE_TIME_MULTIPLIER)
+
+
+def spawn_ally_missile(friendly: dict, target_enemy: dict, state: GameState) -> None:
+    """Spawn a 3-shot burst of seeking missiles from an ally (e.g. striker) toward target_enemy."""
+    burst = friendly.get("missile_burst_count", 3)
+    damage = friendly.get("missile_damage", 300)
+    radius = friendly.get("missile_explosion_radius", 80)
+    speed_val = 500
+    burst_offsets = [(-10, -10), (0, -15), (10, -10)]
+    for i in range(burst):
+        ox, oy = burst_offsets[i % len(burst_offsets)]
+        cx, cy = friendly["rect"].centerx, friendly["rect"].centery
+        r = pygame.Rect(cx - 8 + ox, cy - 8 + oy, 16, 16)
+        state.missiles.append({
+            "rect": r,
+            "vel": pygame.Vector2(0, 0),
+            "target_enemy": target_enemy,
+            "speed": speed_val,
+            "damage": damage,
+            "explosion_radius": radius,
+        })
 
 
 def kill_enemy(enemy: dict, state: GameState) -> None:
