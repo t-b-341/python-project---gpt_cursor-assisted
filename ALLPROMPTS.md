@@ -878,6 +878,8 @@ add in an ally type that fires missiles, at one 3 shot burst every 7 seconds, an
 right click to change ally movement direction and focus, where player can guide allies. if player doesn't click, allies function as normal
 add in teleporter from one half of map to another half of map, treat teleporters like health area spawn, where nothing can overlap with teleporter, except for player
 make teleport points green rhomboids with purple border, approximately 1.5x the size of the player
+make teleporters be located in top left quadrant, and bottom right quadrant
+create enemy classes: ambient, basic, large, super large. ambient is located stationary, and fires rockets every 6 seconds at player, one shot, with the ability for player to dodge out of the way of the rocket. place 3 ambient enemies at the start of each round, randomly, non-overlapping, on the map. basic enemies are the current smallest enemy size, large is the next larger size, with super large 4x the size of large, with super lodge firing rockets, and the ability to set off grenades that only damage the player and allies
 
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------

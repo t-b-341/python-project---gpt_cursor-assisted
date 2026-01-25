@@ -1729,9 +1729,11 @@ for idx, pad in enumerate(teleporter_pads):
     for _ in range(max_health_zone_attempts):
         overlaps = False
         if idx == 0:
-            pad["rect"].center = (random.randint(80, WIDTH // 2 - 60), random.randint(80, HEIGHT - 80))
+            # Top-left quadrant
+            pad["rect"].center = (random.randint(80, WIDTH // 2 - 60), random.randint(80, HEIGHT // 2 - 60))
         else:
-            pad["rect"].center = (random.randint(WIDTH // 2 + 60, WIDTH - 80), random.randint(80, HEIGHT - 80))
+            # Bottom-right quadrant
+            pad["rect"].center = (random.randint(WIDTH // 2 + 60, WIDTH - 80), random.randint(HEIGHT // 2 + 60, HEIGHT - 80))
         for block_list in [destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks]:
             for block in block_list:
                 if pad["rect"].colliderect(block["rect"]):
