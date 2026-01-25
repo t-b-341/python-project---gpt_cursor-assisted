@@ -14,7 +14,22 @@ import random
 # ----------------------------
 # Base enemy definitions used to create enemy instances.
 # These templates are cloned and modified at runtime (HP scaling, speed scaling, etc.)
+# Size classes: basic = smallest (28), large = next (32–40), super_large = 4x large (128)
 ENEMY_TEMPLATES: list[dict] = [
+    {
+        "type": "ambient",
+        "rect": pygame.Rect(0, 0, 26, 26),
+        "color": (120, 120, 140),
+        "hp": 40,
+        "max_hp": 40,
+        "shoot_cooldown": 6.0,  # Fires one rocket at player every 6s (dodgeable)
+        "projectile_speed": 220,  # Slow enough to dodge
+        "projectile_color": (200, 100, 80),
+        "projectile_shape": "circle",
+        "speed": 0,  # Stationary
+        "is_ambient": True,
+        "rocket_cooldown": 0.0,
+    },
     {
         "type": "pawn",
         "rect": pygame.Rect(120, 450, 28, 28),
@@ -26,7 +41,8 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (200, 200, 200),
         "projectile_shape": "circle",
         "speed": 80,  # Basic movement speed
-        "enemy_class": "pawn",  # Enemy class identifier
+        "enemy_class": "pawn",
+        "enemy_size_class": "basic",
     },
     {
         "type": "suicide",
@@ -54,6 +70,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (180, 220, 255),
         "projectile_shape": "square",
         "speed": 90,
+        "enemy_size_class": "basic",
     },
     {
         "type": "heavy",
@@ -66,6 +83,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (255, 190, 120),
         "projectile_shape": "circle",
         "speed": 70,
+        "enemy_size_class": "large",
     },
     {
         "type": "stinky",
@@ -78,6 +96,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (180, 220, 255),
         "projectile_shape": "diamond",
         "speed": 110,
+        "enemy_size_class": "basic",
     },
     {
         "type": "baka",
@@ -90,7 +109,8 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (255, 120, 180),
         "projectile_shape": "square",
         "speed": 150,
-        "is_predictive": True,  # Predicts and shoots ahead of player's location
+        "is_predictive": True,
+        "enemy_size_class": "basic",
     },
     {
         "type": "neko neko desu",
@@ -103,6 +123,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (200, 255, 140),
         "projectile_shape": "circle",
         "speed": 160,
+        "enemy_size_class": "basic",
     },
     {
         "type": "BIG NEKU",
@@ -115,6 +136,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (160, 200, 255),
         "projectile_shape": "diamond",
         "speed": 60,
+        "enemy_size_class": "basic",
     },
     {
         "type": "bouncer",
@@ -127,7 +149,8 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (255, 150, 150),
         "projectile_shape": "square",
         "speed": 85,
-        "bouncing_projectiles": True,  # shoots bouncing projectiles
+        "bouncing_projectiles": True,
+        "enemy_size_class": "large",
     },
     {
         "type": "shield enemy",
@@ -142,7 +165,8 @@ ENEMY_TEMPLATES: list[dict] = [
         "speed": 60,
         "has_shield": True,  # Has directional shield
         "shield_angle": 0.0,  # Direction shield is facing (radians)
-        "shield_length": 50,  # Length of shield line
+        "shield_length": 50,
+        "enemy_size_class": "large",
     },
     {
         "type": "reflector",
@@ -159,7 +183,8 @@ ENEMY_TEMPLATES: list[dict] = [
         "shield_angle": 0.0,  # Direction shield is facing (radians)
         "shield_length": 60,  # Length of shield
         "shield_hp": 0,  # Damage absorbed by shield (fires back)
-        "turn_speed": 0.5,  # Radians per second turn speed
+        "turn_speed": 0.5,
+        "enemy_size_class": "large",
     },
     {
         "type": "spawner",
@@ -176,7 +201,8 @@ ENEMY_TEMPLATES: list[dict] = [
         "spawn_cooldown": 5.0,  # Spawns enemies every 5 seconds
         "time_since_spawn": 0.0,
         "spawn_count": 0,  # Track how many enemies spawned
-        "max_spawns": 3,  # Maximum enemies to spawn per spawner
+        "max_spawns": 3,
+        "enemy_size_class": "large",
     },
     {
         "type": "queen",
@@ -222,9 +248,31 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (200, 150, 255),
         "projectile_shape": "circle",
         "speed": 100,
-        "is_patrol": True,  # Marks this as patrol enemy
-        "patrol_side": 0,  # 0=top, 1=right, 2=bottom, 3=left
-        "patrol_progress": 0.0,  # Progress along current side (0.0 to 1.0)
+        "is_patrol": True,
+        "patrol_side": 0,
+        "patrol_progress": 0.0,
+        "enemy_size_class": "large",
+    },
+    {
+        "type": "super_large",
+        "rect": pygame.Rect(0, 0, 128, 128),  # 4x large (32*4)
+        "color": (80, 60, 100),
+        "hp": 800,
+        "max_hp": 800,
+        "shoot_cooldown": 2.0,
+        "projectile_speed": 350,
+        "projectile_color": (180, 100, 150),
+        "projectile_shape": "circle",
+        "speed": 20,
+        "enemy_size_class": "super_large",
+        "fires_rockets": True,
+        "rocket_cooldown": 0.0,
+        "rocket_interval": 5.0,
+        "can_use_grenades_player_allies_only": True,
+        "grenade_cooldown": 8.0,
+        "time_since_grenade": 999.0,
+        "grenade_damage": 400,
+        "grenade_radius": 120,
     },
 ]
 

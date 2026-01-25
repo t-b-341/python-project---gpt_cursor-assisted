@@ -203,14 +203,23 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> En
     # Apply scaling multipliers from config
     # Exception: Queen (player clone) has fixed HP and special speed multiplier
     if t.get("type") == "queen":
-        hp = QUEEN_FIXED_HP  # Fixed health for queen
+        hp = QUEEN_FIXED_HP
         base_speed = t.get("speed", 80)
-        final_speed = base_speed * ENEMY_SPEED_SCALE_MULTIPLIER  # Still apply speed multiplier
+        final_speed = base_speed * ENEMY_SPEED_SCALE_MULTIPLIER
+    elif t.get("type") == "super_large":
+        hp = int(t["hp"] * hp_scale * 1.5)  # Scale but no normal cap
+        final_speed = t.get("speed", 20) * speed_scale * ENEMY_SPEED_SCALE_MULTIPLIER
+    elif t.get("is_ambient"):
+        hp = t["hp"]
+        final_speed = 0  # Stationary
     else:
-        hp = int(t["hp"] * hp_scale * ENEMY_HP_SCALE_MULTIPLIER * 10)  # Apply HP scale multiplier and x10
-        # Cap HP at maximum (except queen)
+        hp = int(t["hp"] * hp_scale * ENEMY_HP_SCALE_MULTIPLIER * 10)
         hp = min(hp, ENEMY_HP_CAP * 10)
-        final_speed = t.get("speed", 80) * speed_scale * ENEMY_SPEED_SCALE_MULTIPLIER  # Apply speed multiplier
+        final_speed = t.get("speed", 80) * speed_scale * ENEMY_SPEED_SCALE_MULTIPLIER
+
+    shoot_cd = t["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER
+    if t.get("is_ambient"):
+        shoot_cd = t["shoot_cooldown"]  # Ambient: rocket every 6s, no fire-rate modifier
     
     enemy = {
         "type": t["type"],
@@ -218,8 +227,8 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> En
         "color": ENEMY_COLOR,  # All enemies same color
         "hp": hp,
         "max_hp": hp,
-        "shoot_cooldown": t["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER,  # Faster fire rate (lower cooldown)
-        "time_since_shot": random.uniform(0.0, t["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER),
+        "shoot_cooldown": shoot_cd,
+        "time_since_shot": random.uniform(0.0, shoot_cd),
         "projectile_speed": t["projectile_speed"],
         "projectile_color": t.get("projectile_color", ENEMY_PROJECTILES_COLOR),
         "projectile_shape": t.get("projectile_shape", "circle"),
@@ -236,9 +245,23 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> En
         enemy["shield_length"] = t.get("shield_length", 60)
         enemy["shield_hp"] = 0
         enemy["turn_speed"] = t.get("turn_speed", 0.5)
-    # Add predictive enemy property (for enemies that predict player position)
     if t.get("is_predictive"):
         enemy["is_predictive"] = True
+    if t.get("is_ambient"):
+        enemy["is_ambient"] = True
+        enemy["rocket_cooldown"] = t.get("rocket_cooldown", 0.0)
+    if t.get("enemy_size_class"):
+        enemy["enemy_size_class"] = t["enemy_size_class"]
+    if t.get("fires_rockets"):
+        enemy["fires_rockets"] = True
+        enemy["rocket_cooldown"] = t.get("rocket_cooldown", 0.0)
+        enemy["rocket_interval"] = t.get("rocket_interval", 5.0)
+    if t.get("can_use_grenades_player_allies_only"):
+        enemy["can_use_grenades_player_allies_only"] = True
+        enemy["grenade_cooldown"] = t.get("grenade_cooldown", 8.0)
+        enemy["time_since_grenade"] = t.get("time_since_grenade", 999.0)
+        enemy["grenade_damage"] = t.get("grenade_damage", 400)
+        enemy["grenade_radius"] = t.get("grenade_radius", 120)
     
     # Add queen-specific properties
     if t.get("type") == "queen":

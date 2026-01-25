@@ -68,6 +68,51 @@ def _update_enemy_ai(state, dt: float, ctx: dict) -> None:
         if enemy.get("has_reflective_shield") and target_info:
             _update_reflector_shield_angle(enemy, target_info, dt)
 
+        # Ambient: stationary, fires one rocket at player every 6s (dodgeable)
+        if enemy.get("is_ambient") and spawn_projectile and player:
+            rocket_cd = enemy.get("rocket_cooldown", 0.0) + dt
+            enemy["rocket_cooldown"] = rocket_cd
+            if rocket_cd >= enemy.get("shoot_cooldown", 6.0):
+                spawn_projectile(enemy, state)
+                enemy["rocket_cooldown"] = 0.0
+            continue
+
+        # Super large: rockets + grenades (grenades damage only player and allies)
+        if enemy.get("fires_rockets") and target_info:
+            missile_damage = ctx.get("missile_damage", 800)
+            rcd = enemy.get("rocket_cooldown", 0.0) + dt
+            enemy["rocket_cooldown"] = rcd
+            if rcd >= enemy.get("rocket_interval", 5.0):
+                missile_rect = pygame.Rect(
+                    enemy["rect"].centerx - 8, enemy["rect"].centery - 8, 16, 16
+                )
+                state.missiles.append({
+                    "rect": missile_rect,
+                    "vel": pygame.Vector2(0, 0),
+                    "target_enemy": None,
+                    "target_player": True,
+                    "speed": 400,
+                    "damage": missile_damage // 2,
+                    "explosion_radius": 100,
+                })
+                enemy["rocket_cooldown"] = 0.0
+        if enemy.get("can_use_grenades_player_allies_only"):
+            tsg = enemy.get("time_since_grenade", 999.0) + dt
+            enemy["time_since_grenade"] = tsg
+            if tsg >= enemy.get("grenade_cooldown", 8.0):
+                state.grenade_explosions.append({
+                    "x": enemy["rect"].centerx,
+                    "y": enemy["rect"].centery,
+                    "radius": 0,
+                    "max_radius": enemy.get("grenade_radius", 120),
+                    "timer": 0.3,
+                    "damage": enemy.get("grenade_damage", 400),
+                    "source": "enemy_player_allies_only",
+                })
+                enemy["time_since_grenade"] = 0.0
+        if enemy.get("fires_rockets") or enemy.get("can_use_grenades_player_allies_only"):
+            continue  # Super large uses only rockets + grenades, no normal projectiles
+
         # Non-reflector shooting
         if not enemy.get("has_reflective_shield") and spawn_projectile and spawn_projectile_predictive:
             enemy["shoot_cooldown"] = enemy.get("shoot_cooldown", 999.0) + dt

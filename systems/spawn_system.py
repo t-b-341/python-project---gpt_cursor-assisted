@@ -102,12 +102,14 @@ def _start_wave(wave_num: int, state, ctx: dict) -> None:
     # Boss on wave 3 of each level
     if state.wave_in_level == 3:
         _spawn_boss_wave(wave_num, state, ctx, diff_mult, w, h, telemetry, telemetry_enabled, overshield_cooldown)
+        _spawn_ambient_enemies(state, ctx, wave_num, random_spawn, telemetry, telemetry_enabled)
         return
 
     # Normal waves (1 and 2)
     hp_scale, speed_scale, count, spawned = _spawn_regular_wave(
         wave_num, state, ctx, diff_mult, random_spawn, telemetry, telemetry_enabled
     )
+    _spawn_ambient_enemies(state, ctx, wave_num, random_spawn, telemetry, telemetry_enabled)
 
     state.wave_active = True
     state.overshield_recharge_timer = overshield_cooldown
@@ -125,6 +127,33 @@ def _start_wave(wave_num: int, state, ctx: dict) -> None:
                 hp_scale=hp_scale,
                 speed_scale=speed_scale,
             )
+        )
+
+
+def _spawn_ambient_enemies(state, ctx: dict, wave_num: int, random_spawn, telemetry, telemetry_enabled: bool) -> None:
+    """Spawn 3 stationary ambient enemies at start of each round, randomly placed, non-overlapping."""
+    ambient_tmpl = next((t for t in ENEMY_TEMPLATES if t.get("type") == "ambient"), None)
+    if not ambient_tmpl or not random_spawn:
+        return
+    spawned = []
+    for _ in range(3):
+        enemy = make_enemy_from_template(ambient_tmpl, 1.0, 1.0)
+        for _ in range(25):
+            r = random_spawn((enemy["rect"].w, enemy["rect"].h), state)
+            # avoid overlapping other ambients in this batch
+            if not any(r.colliderect(s["rect"]) for s in spawned):
+                enemy["rect"] = r
+                break
+        else:
+            enemy["rect"] = random_spawn((enemy["rect"].w, enemy["rect"].h), state)
+        state.enemies.append(enemy)
+        spawned.append(enemy)
+    if telemetry_enabled and telemetry:
+        ref = [state.enemies_spawned]
+        log_enemy_spawns(spawned, telemetry, state.run_time, ref)
+        state.enemies_spawned = ref[0]
+        telemetry.log_wave_enemy_types(
+            WaveEnemyTypeEvent(t=state.run_time, wave_number=wave_num, enemy_type="ambient", count=len(spawned))
         )
 
 
@@ -192,10 +221,15 @@ def _spawn_regular_wave(
     queen_count = 0
     max_queens_per_wave = 3
 
+    # Pool excludes ambient (ambient spawn separately)
+    spawn_templates = [t for t in ENEMY_TEMPLATES if not t.get("is_ambient")]
+    if not spawn_templates:
+        spawn_templates = [t for t in ENEMY_TEMPLATES if t.get("type") != "queen"]
+
     for _ in range(count):
-        tmpl = random.choice(ENEMY_TEMPLATES)
+        tmpl = random.choice(spawn_templates)
         if tmpl.get("type") == "queen" and queen_count >= max_queens_per_wave:
-            non_queen = [t for t in ENEMY_TEMPLATES if t.get("type") != "queen"]
+            non_queen = [t for t in spawn_templates if t.get("type") != "queen"]
             if non_queen:
                 tmpl = random.choice(non_queen)
             else:
@@ -244,9 +278,8 @@ def _handle_spawner_enemies(state, dt: float, ctx: dict) -> None:
         max_spawns = enemy.get("max_spawns", 3)
 
         if time_since_spawn >= spawn_cooldown and spawn_count < max_spawns:
-            tmpl = random.choice(ENEMY_TEMPLATES)
-            while tmpl.get("type") in ["spawner", "FINAL_BOSS"]:
-                tmpl = random.choice(ENEMY_TEMPLATES)
+            pool = [t for t in ENEMY_TEMPLATES if t.get("type") not in ("spawner", "FINAL_BOSS") and not t.get("is_ambient")]
+            tmpl = random.choice(pool) if pool else random.choice(ENEMY_TEMPLATES)
             spawned_enemy = make_enemy_from_template(tmpl, 1.0, 1.0)
             spawned_enemy["rect"] = random_spawn((spawned_enemy["rect"].w, spawned_enemy["rect"].h), state)
             spawned_enemy["spawned_by"] = enemy

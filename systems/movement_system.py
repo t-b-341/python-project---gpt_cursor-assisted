@@ -86,6 +86,8 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
     for enemy in state.enemies:
         if enemy.get("hp", 1) <= 0:
             continue
+        if enemy.get("is_ambient"):
+            continue  # Stationary
 
         current_pos = pygame.Vector2(enemy["rect"].center)
         last_pos = enemy.get("last_pos", current_pos)

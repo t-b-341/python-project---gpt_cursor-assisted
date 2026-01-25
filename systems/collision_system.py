@@ -434,37 +434,48 @@ def _handle_grenade_explosion_damage(state, dt: float, ctx: dict) -> None:
             continue
         pos = pygame.Vector2(explosion["x"], explosion["y"])
         r = explosion["radius"]
-        for enemy in state.enemies[:]:
-            d = (pygame.Vector2(enemy["rect"].center) - pos).length()
-            if d <= r:
-                damage = explosion.get("damage", 500)
-                enemy["hp"] -= damage
-                state.damage_numbers.append({
-                    "x": enemy["rect"].centerx,
-                    "y": enemy["rect"].y - 20,
-                    "damage": int(damage),
-                    "timer": 2.0,
-                    "color": (255, 200, 100),
-                })
-                if enemy["hp"] <= 0 and kill:
-                    kill(enemy, state)
+        damage_val = explosion.get("damage", 500)
+        source = explosion.get("source", "")
+        # "enemy_player_allies_only" does not damage enemies, only player and allies
+        if source != "enemy_player_allies_only":
+            for enemy in state.enemies[:]:
+                d = (pygame.Vector2(enemy["rect"].center) - pos).length()
+                if d <= r:
+                    enemy["hp"] -= damage_val
+                    state.damage_numbers.append({
+                        "x": enemy["rect"].centerx,
+                        "y": enemy["rect"].y - 20,
+                        "damage": int(damage_val),
+                        "timer": 2.0,
+                        "color": (255, 200, 100),
+                    })
+                    if enemy["hp"] <= 0 and kill:
+                        kill(enemy, state)
+        if source == "enemy_player_allies_only":
+            for friendly in state.friendly_ai[:]:
+                d = (pygame.Vector2(friendly["rect"].center) - pos).length()
+                if d <= r:
+                    friendly["hp"] = friendly.get("hp", friendly.get("max_hp", 100)) - damage_val
+                    if friendly["hp"] <= 0 and friendly in state.friendly_ai:
+                        state.friendly_ai.remove(friendly)
         if player:
             pd = (pygame.Vector2(player.center) - pos).length()
             # No player damage from own grenades ("player") or from missiles exploding on walls ("wall_impact")
-            if pd <= r and explosion.get("source") not in ("player", "wall_impact"):
+            if pd <= r and source not in ("player", "wall_impact"):
                 if not state.shield_active:
-                    _apply_player_damage(state, explosion.get("damage", 500), ctx)
-        for block in list(d_blocks) + list(m_blocks):
-            if not block.get("is_destructible"):
-                continue
-            bp = pygame.Vector2(block["rect"].center)
-            if (bp - pos).length() <= r:
-                block["hp"] -= explosion.get("damage", 500)
-                if block["hp"] <= 0:
-                    if block in d_blocks:
-                        d_blocks.remove(block)
-                    else:
-                        m_blocks.remove(block)
+                    _apply_player_damage(state, damage_val, ctx)
+        if source != "enemy_player_allies_only":
+            for block in list(d_blocks) + list(m_blocks):
+                if not block.get("is_destructible"):
+                    continue
+                bp = pygame.Vector2(block["rect"].center)
+                if (bp - pos).length() <= r:
+                    block["hp"] -= damage_val
+                    if block["hp"] <= 0:
+                        if block in d_blocks:
+                            d_blocks.remove(block)
+                        else:
+                            m_blocks.remove(block)
 
 
 def _handle_missile_collisions(state, ctx: dict) -> None:
@@ -475,7 +486,8 @@ def _handle_missile_collisions(state, ctx: dict) -> None:
 
     for missile in state.missiles[:]:
         if offscreen and offscreen(missile["rect"]):
-            state.missiles.remove(missile)
+            if missile in state.missiles:
+                state.missiles.remove(missile)
             continue
         hit = False
         if missile.get("target_player") and player and missile["rect"].colliderect(player):
@@ -504,4 +516,5 @@ def _handle_missile_collisions(state, ctx: dict) -> None:
             if missile.get("target_player") and player:
                 if (pygame.Vector2(player.center) - pos).length() <= rad and not state.shield_active:
                     _apply_player_damage(state, missile.get("damage", md), ctx)
-            state.missiles.remove(missile)
+            if missile in state.missiles:
+                state.missiles.remove(missile)

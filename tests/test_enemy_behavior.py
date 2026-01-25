@@ -65,7 +65,7 @@ class TestFindNearestThreat(unittest.TestCase):
 
 class TestMakeEnemyFromTemplate(unittest.TestCase):
     def test_pawn_template_returns_enemy_with_expected_fields(self):
-        t = ENEMY_TEMPLATES[0]
+        t = next(tmpl for tmpl in ENEMY_TEMPLATES if tmpl.get("type") == "pawn")
         assert t["type"] == "pawn"
         e = make_enemy_from_template(t, 1.0, 1.0)
         assert e["type"] == "pawn"
@@ -74,7 +74,7 @@ class TestMakeEnemyFromTemplate(unittest.TestCase):
         assert e.get("speed") is not None
 
     def test_enemy_supports_dict_like_access(self):
-        t = ENEMY_TEMPLATES[0]
+        t = next(tmpl for tmpl in ENEMY_TEMPLATES if tmpl.get("type") == "pawn")
         e = make_enemy_from_template(t, 1.0, 1.0)
         assert e["type"] == "pawn"
         assert e.get("color") is not None
