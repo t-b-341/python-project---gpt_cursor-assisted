@@ -162,7 +162,7 @@ def update_friendly_ai(
         # Follow player around map: move toward player (or command target); only use enemy for shooting
         if ally_cmd is not None and ally_cmd_time > 0:
             move_toward_x, move_toward_y = ally_cmd[0], ally_cmd[1]
-        elif player_rect:
+        elif player_rect is not None:
             move_toward_x = player_rect.centerx
             move_toward_y = player_rect.centery
 

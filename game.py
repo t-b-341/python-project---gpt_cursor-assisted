@@ -685,6 +685,7 @@ def main():
                                 spawn_pos = player_center + spawn_dir * 60  # Spawn 60 pixels behind player
                                 friendly = make_friendly_from_template(tank_template, 1.0, 1.0)
                                 friendly["rect"].center = (int(spawn_pos.x), int(spawn_pos.y))
+                                friendly["is_dropped_ally"] = True  # Mark so enemies can prioritise it; still updated by same update_friendly_ai
                                 game_state.friendly_ai.append(friendly)
                                 game_state.dropped_ally = friendly
                             
