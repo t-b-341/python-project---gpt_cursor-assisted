@@ -1,5 +1,229 @@
-"""Movement updates: player, enemies, projectiles, etc."""
-# GameState type would be from state import GameState; kept minimal to avoid circular imports
+"""Movement updates: player, enemies, projectiles, missiles, allies.
+All per-frame position updates are centralized here.
+"""
+import math
+import random
+
+import pygame
+
+from enemies import find_nearest_threat, find_threats_in_dodge_range
+
+
 def update(state, dt: float) -> None:
-    """Update movement for all moving entities. Called from gameplay screen."""
-    pass  # Logic remains in game.py for now; plug in here when extracted
+    """Update movement for all moving entities. Called from gameplay."""
+    ctx = getattr(state, "level_context", None)
+    if ctx is None:
+        return
+
+    player = state.player_rect
+    if player is None:
+        return
+
+    _update_player(state, dt, ctx)
+    _update_enemies(state, dt, ctx)
+    _update_player_bullets(state, dt, ctx)
+    _update_enemy_projectiles(state, dt, ctx)
+    _update_friendly_projectiles(state, dt, ctx)
+    _update_missiles(state, dt, ctx)
+    _update_friendly_ai(state, dt, ctx)
+
+
+def _update_player(state, dt: float, ctx: dict) -> None:
+    """Player position from input and jump velocity."""
+    player = state.player_rect
+    if player is None:
+        return
+
+    move_x = getattr(state, "move_input_x", 0)
+    move_y = getattr(state, "move_input_y", 0)
+    speed_mult = getattr(state, "speed_mult", 1.0)
+    move_player = ctx.get("move_player")
+    clamp = ctx.get("clamp")
+
+    if move_x != 0 or move_y != 0:
+        move_dir = pygame.Vector2(move_x, move_y).normalize()
+        move_speed = state.player_speed * speed_mult * state.player_stat_multipliers["speed"]
+        if state.is_jumping:
+            move_speed += state.jump_velocity.length()
+        move_amount = move_speed * dt
+        move_vec = move_dir * move_amount
+        state.last_move_velocity = move_dir * move_speed
+        if move_player:
+            move_player(player, int(move_vec.x), int(move_vec.y))
+        if clamp:
+            clamp(player)
+    else:
+        state.last_move_velocity = pygame.Vector2(0, 0)
+
+    if state.is_jumping:
+        player.x += int(state.jump_velocity.x * dt)
+        player.y += int(state.jump_velocity.y * dt)
+        if clamp:
+            clamp(player)
+
+
+def _update_enemies(state, dt: float, ctx: dict) -> None:
+    """Enemy position: chase target, patrol, stuck/wander/dodge."""
+    player = state.player_rect
+    if player is None:
+        return
+
+    move_enemy = ctx.get("move_enemy")
+    vec_toward = ctx.get("vec_toward")
+    width = ctx.get("width", 1920)
+    height = ctx.get("height", 1080)
+    blocks = ctx.get("blocks", [])
+
+    if not move_enemy or not vec_toward:
+        return
+
+    for enemy in state.enemies:
+        if enemy.get("hp", 1) <= 0:
+            continue
+
+        current_pos = pygame.Vector2(enemy["rect"].center)
+        last_pos = enemy.get("last_pos", current_pos)
+        stuck_timer = enemy.get("stuck_timer", 0.0)
+        distance_moved = current_pos.distance_to(last_pos)
+        if distance_moved < 5.0:
+            stuck_timer += dt
+        else:
+            stuck_timer = 0.0
+        enemy["last_pos"] = current_pos
+        enemy["stuck_timer"] = stuck_timer
+
+        enemy_pos = pygame.Vector2(enemy["rect"].center)
+        target_info = find_nearest_threat(enemy_pos, player, state.friendly_ai)
+
+        if target_info:
+            target_pos, _ = target_info
+            direction = vec_toward(enemy_pos.x, enemy_pos.y, target_pos.x, target_pos.y)
+            enemy_speed = enemy.get("speed", 80) * dt
+
+            if len(state.enemies) <= 5:
+                direction = vec_toward(enemy_pos.x, enemy_pos.y, player.centerx, player.centery)
+            else:
+                if stuck_timer >= 5.0:
+                    direction = -direction
+                    random_angle = random.uniform(0, 2 * math.pi)
+                    escape_dir = pygame.Vector2(math.cos(random_angle), math.sin(random_angle))
+                    direction = (direction + escape_dir * 0.5).normalize()
+                    enemy["stuck_timer"] = 0.0
+
+                if random.random() < 0.25:
+                    wander_angle = random.uniform(-0.8, 0.8)
+                    cos_a = math.cos(wander_angle)
+                    sin_a = math.sin(wander_angle)
+                    direction = pygame.Vector2(
+                        direction.x * cos_a - direction.y * sin_a,
+                        direction.x * sin_a + direction.y * cos_a,
+                    ).normalize()
+
+                if random.random() < 0.05:
+                    random_angle = random.uniform(0, 2 * math.pi)
+                    direction = pygame.Vector2(math.cos(random_angle), math.sin(random_angle))
+
+                if len(state.enemies) > 5:
+                    dodge_threats = find_threats_in_dodge_range(
+                        enemy_pos, state.player_bullets, state.friendly_projectiles, 200.0
+                    )
+                    if dodge_threats:
+                        dodge_dir = pygame.Vector2(-direction.y, direction.x)
+                        if random.random() < 0.5:
+                            dodge_dir = -dodge_dir
+                        direction = (direction + dodge_dir * 0.5).normalize()
+
+            move_x = int(direction.x * enemy_speed)
+            move_y = int(direction.y * enemy_speed)
+            move_enemy(state, enemy["rect"], move_x, move_y)
+
+        if enemy.get("is_patrol"):
+            patrol_side = enemy.get("patrol_side", 0)
+            patrol_progress = enemy.get("patrol_progress", 0.0)
+            patrol_speed = 0.3 * dt
+            patrol_progress += patrol_speed
+            if patrol_progress >= 1.0:
+                patrol_progress = 0.0
+                patrol_side = (patrol_side + 1) % 4
+                enemy["patrol_side"] = patrol_side
+            enemy["patrol_progress"] = patrol_progress
+            border_margin = 50
+            if patrol_side == 0:
+                x = border_margin + (width - 2 * border_margin) * patrol_progress
+                y = border_margin
+            elif patrol_side == 1:
+                x = width - border_margin
+                y = border_margin + (height - 2 * border_margin) * patrol_progress
+            elif patrol_side == 2:
+                x = width - border_margin - (width - 2 * border_margin) * patrol_progress
+                y = height - border_margin
+            else:
+                x = border_margin
+                y = height - border_margin - (height - 2 * border_margin) * patrol_progress
+            enemy["rect"].center = (int(x), int(y))
+
+
+def _update_player_bullets(state, dt: float, ctx: dict) -> None:
+    """Advance player bullet positions (no collision/removal)."""
+    for bullet in state.player_bullets:
+        bullet["rect"].x += int(bullet["vel"].x * dt)
+        bullet["rect"].y += int(bullet["vel"].y * dt)
+
+
+def _update_enemy_projectiles(state, dt: float, ctx: dict) -> None:
+    """Advance enemy projectile positions and lifetime."""
+    for proj in state.enemy_projectiles:
+        proj["rect"].x += int(proj["vel"].x * dt)
+        proj["rect"].y += int(proj["vel"].y * dt)
+        if "lifetime" in proj:
+            proj["lifetime"] -= dt
+
+
+def _update_friendly_projectiles(state, dt: float, ctx: dict) -> None:
+    """Advance friendly projectile positions."""
+    for proj in state.friendly_projectiles:
+        proj["rect"].x += int(proj["vel"].x * dt)
+        proj["rect"].y += int(proj["vel"].y * dt)
+
+
+def _update_missiles(state, dt: float, ctx: dict) -> None:
+    """Update missile velocities (seek) and positions."""
+    player = state.player_rect
+    if player is None:
+        return
+
+    for missile in state.missiles:
+        if missile.get("target_player"):
+            target_pos = pygame.Vector2(player.center)
+            missile_pos = pygame.Vector2(missile["rect"].center)
+            d = (target_pos - missile_pos)
+            if d.length_squared() > 0:
+                direction = d.normalize()
+                missile["vel"] = direction * missile["speed"]
+        elif missile.get("target_enemy"):
+            if missile["target_enemy"] not in state.enemies:
+                target_enemy = None
+                min_dist = float("inf")
+                for e in state.enemies:
+                    d = (pygame.Vector2(e["rect"].center) - pygame.Vector2(missile["rect"].center)).length_squared()
+                    if d < min_dist:
+                        min_dist = d
+                        target_enemy = e
+                missile["target_enemy"] = target_enemy
+            if missile["target_enemy"]:
+                target_pos = pygame.Vector2(missile["target_enemy"]["rect"].center)
+                missile_pos = pygame.Vector2(missile["rect"].center)
+                d = (target_pos - missile_pos)
+                if d.length_squared() > 0:
+                    direction = d.normalize()
+                    missile["vel"] = direction * missile["speed"]
+
+        missile["rect"].x += int(missile["vel"].x * dt)
+        missile["rect"].y += int(missile["vel"].y * dt)
+
+
+def _update_friendly_ai(state, dt: float, ctx: dict) -> None:
+    """Ally movement via level_context callback."""
+    update_friendly = ctx.get("update_friendly_ai")
+    if update_friendly:
+        update_friendly(state, dt)

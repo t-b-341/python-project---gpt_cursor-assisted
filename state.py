@@ -52,6 +52,10 @@ class GameState:
     last_horizontal_key: Optional[int] = None
     last_vertical_key: Optional[int] = None
     last_move_velocity: pygame.Vector2 = field(default_factory=lambda: pygame.Vector2(0, 0))
+    # Per-frame movement input (set by game loop before movement_system.update)
+    move_input_x: int = 0
+    move_input_y: int = 0
+    speed_mult: float = 1.0
     jump_cooldown_timer: float = 0.0
     jump_velocity: pygame.Vector2 = field(default_factory=lambda: pygame.Vector2(0, 0))
     jump_timer: float = 0.0
@@ -143,3 +147,6 @@ class GameState:
     # Telemetry run tracking
     run_id: Any = None
     run_started_at: str = ""
+
+    # Level context for systems (set by main/game loop): move_player, move_enemy, clamp, blocks, width, height, rect_offscreen, vec_toward, update_friendly_ai
+    level_context: Any = None

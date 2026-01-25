@@ -104,6 +104,7 @@ from allies import (
 from state import GameState
 from screens import SCREEN_HANDLERS
 from entities import Enemy
+from systems.movement_system import update as movement_update
 
 # Placeholder WIDTH/HEIGHT for module-level initialization
 # Will be updated in main() after pygame.display.init()
@@ -183,6 +184,27 @@ def main():
     moveable_destructible_blocks = filter_blocks_no_overlap(moveable_destructible_blocks, [destructible_blocks, giant_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
     giant_blocks = filter_blocks_no_overlap(giant_blocks, [destructible_blocks, moveable_destructible_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
     super_giant_blocks = filter_blocks_no_overlap(super_giant_blocks, [destructible_blocks, moveable_destructible_blocks, giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
+
+    # Level context for movement_system (callables and data; avoids circular imports)
+    def _make_level_context():
+        w, h = WIDTH, HEIGHT
+        return {
+            "move_player": lambda p, dx, dy: move_player_with_push(p, dx, dy, blocks),
+            "move_enemy": lambda s, rect, mx, my: move_enemy_with_push(rect, mx, my, blocks, s),
+            "clamp": lambda r: clamp_rect_to_screen(r),
+            "blocks": blocks,
+            "width": w,
+            "height": h,
+            "rect_offscreen": lambda r: r.right < 0 or r.left > w or r.bottom < 0 or r.top > h,
+            "vec_toward": vec_toward,
+            "update_friendly_ai": lambda s, dt: update_friendly_ai(
+                s.friendly_ai, s.enemies, blocks, dt,
+                find_nearest_enemy, vec_toward,
+                lambda rect, mx, my, bl: move_enemy_with_push(rect, mx, my, bl, s),
+                lambda f, t: spawn_friendly_projectile(f, t, s.friendly_projectiles, vec_toward, telemetry, s.run_time),
+            ),
+        }
+    game_state.level_context = _make_level_context()
 
     # ----------------------------
     # Start run + log initial spawns
@@ -766,77 +788,45 @@ def main():
                 # Update pickup effects
                 update_pickup_effects(dt, game_state)
                 
-                # Player movement and input handling
+                # Player movement input (movement_system applies it)
                 keys = pygame.key.get_pressed()
-                
-                # Get movement input
                 move_x = 0
                 move_y = 0
-                
-                # Handle movement keys
                 if keys[controls.get("move_left", pygame.K_a)]:
                     move_x = -1
                     game_state.last_horizontal_key = controls.get("move_left", pygame.K_a)
                 elif keys[controls.get("move_right", pygame.K_d)]:
                     move_x = 1
                     game_state.last_horizontal_key = controls.get("move_right", pygame.K_d)
-                
                 if keys[controls.get("move_up", pygame.K_w)]:
                     move_y = -1
                     game_state.last_vertical_key = controls.get("move_up", pygame.K_w)
                 elif keys[controls.get("move_down", pygame.K_s)]:
                     move_y = 1
                     game_state.last_vertical_key = controls.get("move_down", pygame.K_s)
-                
-                # Boost/slow mechanics
                 is_boosting = keys[controls.get("boost", pygame.K_LSHIFT)] and game_state.boost_meter > 0
                 is_slowing = keys[controls.get("slow", pygame.K_LCTRL)]
-                
                 if is_boosting:
                     game_state.boost_meter = max(0, game_state.boost_meter - boost_drain_per_s * dt)
-                    speed_mult = boost_speed_mult
+                    game_state.speed_mult = boost_speed_mult
                     game_state.previous_boost_state = True
                 else:
                     game_state.boost_meter = min(boost_meter_max, game_state.boost_meter + boost_regen_per_s * dt)
-                    speed_mult = 1.0
+                    game_state.speed_mult = 1.0
                     game_state.previous_boost_state = False
-                
                 if is_slowing:
-                    speed_mult *= slow_speed_mult
+                    game_state.speed_mult *= slow_speed_mult
                     game_state.previous_slow_state = True
                 else:
                     game_state.previous_slow_state = False
-                
+                game_state.move_input_x = move_x
+                game_state.move_input_y = move_y
+                movement_update(game_state, dt)
+
                 # Apply fire rate buff
                 effective_fire_rate = game_state.player_shoot_cooldown
                 if game_state.fire_rate_buff_t < fire_rate_buff_duration:
                     effective_fire_rate *= fire_rate_mult
-                
-                # Calculate movement
-                if move_x != 0 or move_y != 0:
-                    move_dir = pygame.Vector2(move_x, move_y).normalize()
-                    move_speed = game_state.player_speed * speed_mult * game_state.player_stat_multipliers["speed"]
-                    
-                    # Apply jump/dash velocity
-                    if game_state.is_jumping:
-                        move_speed += game_state.jump_velocity.length()
-                    
-                    move_amount = move_speed * dt
-                    move_vec = move_dir * move_amount
-                    
-                    game_state.last_move_velocity = move_dir * move_speed
-                    
-                    # Move player with collision
-                    move_player_with_push(player, int(move_vec.x), int(move_vec.y), blocks)
-                    clamp_rect_to_screen(player)
-                else:
-                    game_state.last_move_velocity = pygame.Vector2(0, 0)
-                
-                # Update jump/dash
-                if game_state.is_jumping:
-                    player.x += int(game_state.jump_velocity.x * dt)
-                    player.y += int(game_state.jump_velocity.y * dt)
-                    clamp_rect_to_screen(player)
                 
                 # Player shooting
                 mouse_buttons = pygame.mouse.get_pressed()
@@ -943,75 +933,14 @@ def main():
                         kill_enemy(enemy, game_state)
                         continue
                     
-                    # Track enemy position for stuck detection
-                    current_pos = pygame.Vector2(enemy["rect"].center)
-                    last_pos = enemy.get("last_pos", current_pos)
-                    stuck_timer = enemy.get("stuck_timer", 0.0)
-                    
-                    # Check if enemy has moved (distance threshold: 5 pixels)
-                    distance_moved = current_pos.distance_to(last_pos)
-                    if distance_moved < 5.0:
-                        stuck_timer += dt
-                    else:
-                        stuck_timer = 0.0  # Reset if moved
-                    
-                    enemy["last_pos"] = current_pos
-                    enemy["stuck_timer"] = stuck_timer
-                    
-                    # Enemy AI: find target and move towards it
+                    # Target/direction for Queen, reflector, shooting (movement done in movement_system)
                     enemy_pos = pygame.Vector2(enemy["rect"].center)
                     target_info = find_nearest_threat(enemy_pos, player, game_state.friendly_ai)
-                    
                     if target_info:
                         target_pos, target_type = target_info
                         direction = vec_toward(enemy_pos.x, enemy_pos.y, target_pos.x, target_pos.y)
-                        enemy_speed = enemy.get("speed", 80) * dt
-                        
-                        # When 5 or fewer enemies remain, all enemies move directly towards player
-                        if len(game_state.enemies) <= 5:
-                            # Direct movement towards player (no wandering when few enemies remain)
-                            direction = vec_toward(enemy_pos.x, enemy_pos.y, player.centerx, player.centery)
-                        else:
-                            # If enemy is stuck (hasn't moved for 5 seconds), change direction away from obstacle
-                            if stuck_timer >= 5.0:
-                                # Move in opposite direction from target (away from obstacle)
-                                direction = -direction
-                                # Add random component to help escape
-                                random_angle = random.uniform(0, 2 * math.pi)
-                                escape_dir = pygame.Vector2(math.cos(random_angle), math.sin(random_angle))
-                                direction = (direction + escape_dir * 0.5).normalize()
-                                stuck_timer = 0.0  # Reset stuck timer after escape attempt
-                                enemy["stuck_timer"] = stuck_timer
-                            
-                            # Add some random wandering to make enemies move around more
-                            # Occasionally add a random offset to movement direction
-                            if random.random() < 0.25:  # 25% chance per frame (increased from 10%)
-                                wander_angle = random.uniform(-0.8, 0.8)  # Larger random angle (increased from 0.3)
-                                cos_a = math.cos(wander_angle)
-                                sin_a = math.sin(wander_angle)
-                                direction = pygame.Vector2(
-                                    direction.x * cos_a - direction.y * sin_a,
-                                    direction.x * sin_a + direction.y * cos_a
-                                ).normalize()
-                            
-                            # Additional random movement: sometimes move in a completely random direction
-                            if random.random() < 0.05:  # 5% chance to move randomly instead of toward target
-                                random_angle = random.uniform(0, 2 * math.pi)
-                                direction = pygame.Vector2(math.cos(random_angle), math.sin(random_angle))
-                        
-                        # Dodge bullets if in range (only if more than 5 enemies remain)
-                        if len(game_state.enemies) > 5:
-                            dodge_threats = find_threats_in_dodge_range(enemy_pos, game_state.player_bullets, game_state.friendly_projectiles, 200.0)
-                            if dodge_threats:
-                                # Try to dodge by moving perpendicular
-                                dodge_dir = pygame.Vector2(-direction.y, direction.x)  # Perpendicular
-                                if random.random() < 0.5:
-                                    dodge_dir = -dodge_dir
-                                direction = (direction + dodge_dir * 0.5).normalize()
-                        
-                        move_x = int(direction.x * enemy_speed)
-                        move_y = int(direction.y * enemy_speed)
-                        move_enemy_with_push(enemy["rect"], move_x, move_y, blocks, game_state)
+                    else:
+                        direction = pygame.Vector2(1, 0)  # fallback for shooting checks
                     
                     # Queen-specific: Shield activation/deactivation system
                     if enemy.get("type") == "queen" and enemy.get("has_shield"):
@@ -1054,7 +983,7 @@ def main():
                                     enemy["rect"].centery - 8,
                                     16, 16
                                 )
-                                game_state.                                game_state.missiles.append({
+                                game_state.missiles.append({
                                     "rect": missile_rect,
                                     "vel": pygame.Vector2(0, 0),
                                     "target_enemy": None,  # Queen missiles target player, not enemy
@@ -1148,37 +1077,6 @@ def main():
                         else:
                             enemy["time_since_spawn"] = time_since_spawn
                     
-                    # Patrol enemy: patrol outside border of map
-                    if enemy.get("is_patrol"):
-                        patrol_side = enemy.get("patrol_side", 0)
-                        patrol_progress = enemy.get("patrol_progress", 0.0)
-                        patrol_speed = 0.3 * dt  # Progress speed
-                        
-                        patrol_progress += patrol_speed
-                        if patrol_progress >= 1.0:
-                            patrol_progress = 0.0
-                            patrol_side = (patrol_side + 1) % 4  # Cycle through sides
-                            enemy["patrol_side"] = patrol_side
-                        
-                        enemy["patrol_progress"] = patrol_progress
-                        
-                        # Calculate position along border
-                        border_margin = 50  # Distance from edge
-                        if patrol_side == 0:  # Top
-                            x = border_margin + (WIDTH - 2 * border_margin) * patrol_progress
-                            y = border_margin
-                        elif patrol_side == 1:  # Right
-                            x = WIDTH - border_margin
-                            y = border_margin + (HEIGHT - 2 * border_margin) * patrol_progress
-                        elif patrol_side == 2:  # Bottom
-                            x = WIDTH - border_margin - (WIDTH - 2 * border_margin) * patrol_progress
-                            y = HEIGHT - border_margin
-                        else:  # Left
-                            x = border_margin
-                            y = HEIGHT - border_margin - (HEIGHT - 2 * border_margin) * patrol_progress
-                        
-                        enemy["rect"].center = (int(x), int(y))
-                    
                     # Reflector enemy: turn shield towards player (slow turn speed)
                     if enemy.get("has_reflective_shield"):
                         if target_info:
@@ -1219,11 +1117,8 @@ def main():
                                     spawn_enemy_projectile(enemy, game_state)
                             enemy["shoot_cooldown"] = 0.0
                 
-                # Bullet/projectile updates
+                # Bullet/projectile updates (position updated in movement_system; here: offscreen + collision)
                 for bullet in game_state.player_bullets[:]:
-                    bullet["rect"].x += int(bullet["vel"].x * dt)
-                    bullet["rect"].y += int(bullet["vel"].y * dt)
-                    
                     # Remove if off screen
                     if rect_offscreen(bullet["rect"]):
                         if bullet in game_state.player_bullets:
@@ -1409,16 +1304,11 @@ def main():
                                         break
                 
                 for proj in game_state.enemy_projectiles[:]:
-                    proj["rect"].x += int(proj["vel"].x * dt)
-                    proj["rect"].y += int(proj["vel"].y * dt)
-                    
                     # Track if projectile was removed to avoid double removal
                     proj_removed = False
                     
-                    # Remove projectiles that have exceeded their lifetime
-                    if "lifetime" in proj:
-                        proj["lifetime"] -= dt
-                        if proj["lifetime"] <= 0:
+                    # Remove projectiles that have exceeded their lifetime (movement_system updates pos and lifetime)
+                    if "lifetime" in proj and proj["lifetime"] <= 0:
                             if proj in game_state.enemy_projectiles:
                                 game_state.enemy_projectiles.remove(proj)
                             proj_removed = True
@@ -1497,23 +1387,10 @@ def main():
                     if game_state.player_hp < game_state.player_max_hp:
                         game_state.player_hp = min(game_state.player_max_hp, game_state.player_hp + 50 * dt)  # Heal over time
                 
-                # Friendly AI updates
-                update_friendly_ai(
-                    game_state.friendly_ai,
-                    game_state.enemies,
-                    blocks,
-                    dt,
-                    find_nearest_enemy,
-                    vec_toward,
-                    lambda rect, mx, my, bl: move_enemy_with_push(rect, mx, my, bl, game_state),
-                    lambda f, t: spawn_friendly_projectile(f, t, game_state.friendly_projectiles, vec_toward, telemetry, game_state.run_time),
-                )
+                # Friendly AI movement is in movement_system
                 
-                # Friendly projectile updates
+                # Friendly projectile updates (position in movement_system; here: offscreen + collision)
                 for proj in game_state.friendly_projectiles[:]:
-                    proj["rect"].x += int(proj["vel"].x * dt)
-                    proj["rect"].y += int(proj["vel"].y * dt)
-                    
                     if rect_offscreen(proj["rect"]):
                         game_state.friendly_projectiles.remove(proj)
                         continue
@@ -1624,38 +1501,8 @@ def main():
                                     else:
                                         moveable_destructible_blocks.remove(block)
                 
-                # Missile updates
+                # Missile updates (vel and position in movement_system; here: offscreen + collision)
                 for missile in game_state.missiles[:]:
-                    # Handle player-targeting missiles (from queen)
-                    if missile.get("target_player"):
-                        # Seek player
-                        target_pos = pygame.Vector2(player.center)
-                        missile_pos = pygame.Vector2(missile["rect"].center)
-                        direction = (target_pos - missile_pos).normalize()
-                        missile["vel"] = direction * missile["speed"]
-                    elif missile.get("target_enemy"):
-                        # Handle enemy-targeting missiles (from player)
-                        if missile["target_enemy"] not in game_state.enemies:
-                            # Target died, find new target
-                            target_enemy = None
-                            min_dist = float("inf")
-                            for enemy in game_state.enemies:
-                                dist = (pygame.Vector2(enemy["rect"].center) - pygame.Vector2(missile["rect"].center)).length_squared()
-                                if dist < min_dist:
-                                    min_dist = dist
-                                    target_enemy = enemy
-                            missile["target_enemy"] = target_enemy
-                        
-                        if missile["target_enemy"]:
-                            # Seek target
-                            target_pos = pygame.Vector2(missile["target_enemy"]["rect"].center)
-                            missile_pos = pygame.Vector2(missile["rect"].center)
-                            direction = (target_pos - missile_pos).normalize()
-                            missile["vel"] = direction * missile["speed"]
-                    
-                    missile["rect"].x += int(missile["vel"].x * dt)
-                    missile["rect"].y += int(missile["vel"].y * dt)
-                    
                     if rect_offscreen(missile["rect"]):
                         game_state.missiles.remove(missile)
                         continue
