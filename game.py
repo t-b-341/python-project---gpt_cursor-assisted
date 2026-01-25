@@ -179,13 +179,97 @@ def main():
     # Initialize player and other game state variables that depend on WIDTH/HEIGHT
     player = pygame.Rect((WIDTH - 28) // 2, (HEIGHT - 28) // 2, 28, 28)
     
-    # Create GameState instance to hold core game lists
-    # Initialize with existing global lists (they will be replaced gradually)
+    # Create GameState instance to hold all mutable game state
+    # Initialize with all current global state values
     game_state = GameState()
+    # Initialize lists from globals
     game_state.enemies = enemies
     game_state.player_bullets = player_bullets
     game_state.enemy_projectiles = enemy_projectiles
     game_state.friendly_projectiles = friendly_projectiles
+    game_state.friendly_ai = friendly_ai
+    game_state.pickups = pickups
+    game_state.grenade_explosions = grenade_explosions
+    game_state.missiles = missiles
+    game_state.laser_beams = laser_beams
+    game_state.wave_beams = wave_beams
+    game_state.damage_numbers = damage_numbers
+    game_state.weapon_pickup_messages = weapon_pickup_messages
+    game_state.pickup_particles = pickup_particles
+    game_state.collection_effects = collection_effects
+    # Initialize player state
+    game_state.player_hp = player_hp
+    game_state.player_max_hp = player_max_hp
+    game_state.player_speed = player_speed
+    game_state.player_bullet_damage = player_bullet_damage
+    game_state.player_shoot_cooldown = player_shoot_cooldown
+    game_state.player_time_since_shot = player_time_since_shot
+    game_state.player_bullet_shape_index = player_bullet_shape_index
+    game_state.overshield = overshield
+    game_state.overshield_recharge_timer = overshield_recharge_timer
+    game_state.shield_active = shield_active
+    game_state.shield_duration_remaining = shield_duration_remaining
+    game_state.shield_cooldown = shield_cooldown
+    game_state.shield_cooldown_remaining = shield_cooldown_remaining
+    game_state.shield_recharge_timer = shield_recharge_timer
+    game_state.shield_recharge_cooldown = shield_recharge_cooldown
+    game_state.lives = lives
+    game_state.player_health_regen_rate = player_health_regen_rate
+    game_state.player_current_zones = player_current_zones.copy()
+    # Initialize movement/abilities
+    game_state.last_horizontal_key = last_horizontal_key
+    game_state.last_vertical_key = last_vertical_key
+    game_state.last_move_velocity = last_move_velocity.copy()
+    game_state.jump_cooldown_timer = jump_cooldown_timer
+    game_state.jump_velocity = jump_velocity.copy()
+    game_state.jump_timer = jump_timer
+    game_state.is_jumping = is_jumping
+    game_state.previous_boost_state = previous_boost_state
+    game_state.previous_slow_state = previous_slow_state
+    game_state.boost_meter = boost_meter
+    # Initialize weapon state
+    game_state.current_weapon_mode = current_weapon_mode
+    game_state.previous_weapon_mode = previous_weapon_mode
+    game_state.unlocked_weapons = unlocked_weapons.copy()
+    game_state.laser_time_since_shot = laser_time_since_shot
+    game_state.wave_beam_time_since_shot = wave_beam_time_since_shot
+    game_state.wave_beam_pattern_index = wave_beam_pattern_index
+    game_state.grenade_time_since_used = grenade_time_since_used
+    game_state.missile_time_since_used = missile_time_since_used
+    game_state.ally_drop_timer = ally_drop_timer
+    game_state.dropped_ally = dropped_ally
+    # Initialize stat multipliers
+    game_state.player_stat_multipliers = player_stat_multipliers.copy()
+    game_state.random_damage_multiplier = random_damage_multiplier
+    game_state.fire_rate_buff_t = fire_rate_buff_t
+    # Initialize progression/scoring
+    game_state.score = score
+    game_state.wave_number = wave_number
+    game_state.wave_in_level = wave_in_level
+    game_state.current_level = current_level
+    game_state.max_level = max_level
+    game_state.wave_active = wave_active
+    game_state.time_to_next_wave = time_to_next_wave
+    game_state.boss_active = boss_active
+    game_state.pickup_spawn_timer = pickup_spawn_timer
+    # Initialize run statistics
+    game_state.run_time = run_time
+    game_state.survival_time = survival_time
+    game_state.shots_fired = shots_fired
+    game_state.hits = hits
+    game_state.damage_taken = damage_taken
+    game_state.damage_dealt = damage_dealt
+    game_state.enemies_spawned = enemies_spawned
+    game_state.enemies_killed = enemies_killed
+    game_state.deaths = deaths
+    game_state.pos_timer = pos_timer
+    # Initialize side quests
+    game_state.side_quests = side_quests.copy()
+    game_state.wave_damage_taken = wave_damage_taken
+    # Initialize high score system
+    game_state.player_name_input = player_name_input
+    game_state.name_input_active = name_input_active
+    game_state.final_score_for_high_score = final_score_for_high_score
     
     # Initialize pygame mouse visibility
     pygame.mouse.set_visible(True)
@@ -224,8 +308,8 @@ def main():
     try:
         while running:
             dt = clock.tick(FPS) / 1000.0  # Delta time in seconds
-            run_time += dt
-            survival_time += dt
+            game_state.run_time += dt
+            game_state.survival_time += dt
             
             # Event handling
             for event in pygame.event.get():
@@ -234,27 +318,27 @@ def main():
                 
                 # Handle text input for name input screen
                 if state == STATE_NAME_INPUT and event.type == pygame.TEXTINPUT:
-                    if len(player_name_input) < 20:  # Limit name length
-                        player_name_input += event.text
+                    if len(game_state.player_name_input) < 20:  # Limit name length
+                        game_state.player_name_input += event.text
                 
                 # Handle keyboard events
                 if event.type == pygame.KEYDOWN:
                     # Handle name input
                     if state == STATE_NAME_INPUT:
                         if event.key == pygame.K_BACKSPACE:
-                            player_name_input = player_name_input[:-1]
+                            game_state.player_name_input = game_state.player_name_input[:-1]
                         elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
-                            if player_name_input.strip():
+                            if game_state.player_name_input.strip():
                                 save_high_score(
-                                    player_name_input.strip(),
-                                    final_score_for_high_score,
-                                    wave_number - 1,
-                                    survival_time,
-                                    enemies_killed,
+                                    game_state.player_name_input.strip(),
+                                    game_state.final_score_for_high_score,
+                                    game_state.wave_number - 1,
+                                    game_state.survival_time,
+                                    game_state.enemies_killed,
                                     difficulty
                                 )
                             state = STATE_HIGH_SCORES
-                            name_input_active = False
+                            game_state.name_input_active = False
                     
                     # ESC key handling
                     if event.key == pygame.K_ESCAPE:
@@ -273,17 +357,17 @@ def main():
                         elif state == STATE_VICTORY or state == STATE_GAME_OVER or state == STATE_HIGH_SCORES:
                             running = False
                         elif state == STATE_NAME_INPUT:
-                            if player_name_input.strip():
+                            if game_state.player_name_input.strip():
                                 save_high_score(
-                                    player_name_input.strip(),
-                                    final_score_for_high_score,
-                                    wave_number - 1,
-                                    survival_time,
-                                    enemies_killed,
+                                    game_state.player_name_input.strip(),
+                                    game_state.final_score_for_high_score,
+                                    game_state.wave_number - 1,
+                                    game_state.survival_time,
+                                    game_state.enemies_killed,
                                     difficulty
                                 )
                             state = STATE_HIGH_SCORES
-                            name_input_active = False
+                            game_state.name_input_active = False
                     
                     # P key for pause
                     if event.key == pygame.K_p:
@@ -313,21 +397,21 @@ def main():
                                 game_state.player_bullets.clear()
                                 game_state.enemy_projectiles.clear()
                                 game_state.friendly_projectiles.clear()
-                                friendly_ai.clear()
-                                grenade_explosions.clear()
-                                missiles.clear()
-                                wave_number = 1
-                                wave_in_level = 1
-                                current_level = 1
-                                player_hp = player_max_hp
-                                lives = 3
-                                score = 0
-                                run_time = 0.0
-                                survival_time = 0.0
-                                wave_active = False
-                                time_to_next_wave = 0.0
-                                unlocked_weapons = {"basic"}
-                                current_weapon_mode = "basic"
+                                game_state.friendly_ai.clear()
+                                game_state.grenade_explosions.clear()
+                                game_state.missiles.clear()
+                                game_state.wave_number = 1
+                                game_state.wave_in_level = 1
+                                game_state.current_level = 1
+                                game_state.player_hp = game_state.player_max_hp
+                                game_state.lives = 3
+                                game_state.score = 0
+                                game_state.run_time = 0.0
+                                game_state.survival_time = 0.0
+                                game_state.wave_active = False
+                                game_state.time_to_next_wave = 0.0
+                                game_state.unlocked_weapons = {"basic"}
+                                game_state.current_weapon_mode = "basic"
                             elif choice == "Quit":
                                 running = False
                     
@@ -443,14 +527,14 @@ def main():
                                 menu_section = 3  # Go back
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                                 selected_weapon = weapon_selection_options[beam_selection_selected]
-                                unlocked_weapons.add(selected_weapon)
-                                if current_weapon_mode == "wave_beam" and selected_weapon != "wave_beam":
-                                    wave_beams.clear()
-                                if current_weapon_mode == "laser" and selected_weapon != "laser":
-                                    laser_beams.clear()
-                                current_weapon_mode = selected_weapon
+                                game_state.unlocked_weapons.add(selected_weapon)
+                                if game_state.current_weapon_mode == "wave_beam" and selected_weapon != "wave_beam":
+                                    game_state.wave_beams.clear()
+                                if game_state.current_weapon_mode == "laser" and selected_weapon != "laser":
+                                    game_state.laser_beams.clear()
+                                game_state.current_weapon_mode = selected_weapon
                                 if selected_weapon == "wave_beam":
-                                    wave_beam_pattern_index = 0
+                                    game_state.wave_beam_pattern_index = 0
                                     beam_selection_pattern = "sine"
                                 else:
                                     beam_selection_pattern = selected_weapon
@@ -485,23 +569,23 @@ def main():
                                 
                                 # Apply class stats
                                 stats = player_class_stats[player_class]
-                                player_max_hp = int(1000 * stats["hp_mult"] * 0.75)  # Reduced by 0.75x
-                                player_hp = player_max_hp
-                                player_speed = int(300 * stats["speed_mult"])
-                                player_bullet_damage = int(20 * stats["damage_mult"])
-                                player_shoot_cooldown = 0.12 / stats["firerate_mult"]
+                                game_state.player_max_hp = int(1000 * stats["hp_mult"] * 0.75)  # Reduced by 0.75x
+                                game_state.player_hp = game_state.player_max_hp
+                                game_state.player_speed = int(300 * stats["speed_mult"])
+                                game_state.player_bullet_damage = int(20 * stats["damage_mult"])
+                                game_state.player_shoot_cooldown = 0.12 / stats["firerate_mult"]
                                 
                                 # Set state
                                 if endurance_mode_selected == 1:
                                     state = STATE_ENDURANCE
-                                    lives = 999
+                                    game_state.lives = 999
                                     previous_game_state = STATE_ENDURANCE
                                 else:
                                     state = STATE_PLAYING
                                     previous_game_state = STATE_PLAYING
                                 
-                                run_id = telemetry.start_run(run_started_at, player_max_hp) if telemetry_enabled else None
-                                start_wave(wave_number, game_state)
+                                run_id = telemetry.start_run(run_started_at, game_state.player_max_hp) if telemetry_enabled else None
+                                start_wave(game_state.wave_number, game_state)
                     
                     # Controls rebinding
                     if state == STATE_CONTROLS and controls_rebinding:
@@ -516,26 +600,26 @@ def main():
                     # Shield activation (Left Alt) - only activates when recharge bar is full
                     if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == pygame.K_LALT:
                         # Shield can only be activated when recharge bar is full (shield_recharge_timer >= shield_recharge_cooldown)
-                        if shield_recharge_timer >= shield_recharge_cooldown and not shield_active:
-                            shield_active = True
-                            shield_duration_remaining = shield_duration
-                            shield_cooldown = 10.0  # Fixed 10 second cooldown
-                            shield_recharge_cooldown = shield_cooldown
-                            shield_recharge_timer = 0.0  # Reset recharge timer when shield activates
-                            shield_cooldown_remaining = 0.0
+                        if game_state.shield_recharge_timer >= game_state.shield_recharge_cooldown and not game_state.shield_active:
+                            game_state.shield_active = True
+                            game_state.shield_duration_remaining = shield_duration
+                            game_state.shield_cooldown = 10.0  # Fixed 10 second cooldown
+                            game_state.shield_recharge_cooldown = game_state.shield_cooldown
+                            game_state.shield_recharge_timer = 0.0  # Reset recharge timer when shield activates
+                            game_state.shield_cooldown_remaining = 0.0
                     
                     # Overshield activation (Tab)
                     if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == pygame.K_TAB:
-                        if overshield_recharge_timer >= overshield_recharge_cooldown:
-                            overshield = player_max_hp
-                            overshield_max = max(overshield_max, player_max_hp)
-                            overshield_recharge_timer = 0.0
+                        if game_state.overshield_recharge_timer >= overshield_recharge_cooldown:
+                            game_state.overshield = game_state.player_max_hp
+                            overshield_max = max(overshield_max, game_state.player_max_hp)
+                            game_state.overshield_recharge_timer = 0.0
                     
                     # Grenade (E key)
                     if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == pygame.K_e:
-                        if grenade_time_since_used >= grenade_cooldown:
+                        if game_state.grenade_time_since_used >= grenade_cooldown:
                             grenade_radius = player.w * 10  # 10x player size
-                            grenade_explosions.append({
+                            game_state.grenade_explosions.append({
                                 "x": player.centerx,
                                 "y": player.centery,
                                 "radius": 0,
@@ -544,7 +628,7 @@ def main():
                                 "damage": grenade_damage,
                                 "source": "player"  # Mark as player grenade for immunity
                             })
-                            grenade_time_since_used = 0.0
+                            game_state.grenade_time_since_used = 0.0
                     
                     # Missile (R key)
                     if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == pygame.K_r:
@@ -571,7 +655,7 @@ def main():
                                         player.centery - 8 + offset_y,
                                         16, 16
                                     )
-                                    missiles.append({
+                                    game_state.missiles.append({
                                         "rect": missile_rect,
                                         "vel": pygame.Vector2(0, 0),
                                         "target_enemy": target_enemy,
@@ -579,13 +663,13 @@ def main():
                                         "damage": missile_damage,
                                         "explosion_radius": 150
                                     })
-                                missile_time_since_used = 0.0
+                                game_state.missile_time_since_used = 0.0
                     
                     # Ally drop (Q key)
                     if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == controls.get("ally_drop", pygame.K_q):
-                        if ally_drop_timer >= ally_drop_cooldown:
-                            if dropped_ally and dropped_ally in friendly_ai:
-                                friendly_ai.remove(dropped_ally)
+                        if game_state.ally_drop_timer >= ally_drop_cooldown:
+                            if game_state.dropped_ally and game_state.dropped_ally in game_state.friendly_ai:
+                                game_state.friendly_ai.remove(game_state.dropped_ally)
                             
                             # Find tank template
                             tank_template = None
@@ -596,111 +680,111 @@ def main():
                             
                             if tank_template:
                                 player_center = pygame.Vector2(player.center)
-                                if last_move_velocity.length_squared() > 0:
-                                    spawn_dir = -last_move_velocity.normalize()
+                                if game_state.last_move_velocity.length_squared() > 0:
+                                    spawn_dir = -game_state.last_move_velocity.normalize()
                                 else:
                                     spawn_dir = pygame.Vector2(0, 1)
                                 
                                 spawn_pos = player_center + spawn_dir * 60  # Spawn 60 pixels behind player
                                 friendly = make_friendly_from_template(tank_template, 1.0, 1.0)
                                 friendly["rect"].center = (int(spawn_pos.x), int(spawn_pos.y))
-                                friendly_ai.append(friendly)
-                                dropped_ally = friendly
+                                game_state.friendly_ai.append(friendly)
+                                game_state.dropped_ally = friendly
                             
-                            ally_drop_timer = 0.0
+                            game_state.ally_drop_timer = 0.0
                     
                     # Weapon switching (keys 1-6)
                     if state == STATE_PLAYING or state == STATE_ENDURANCE:
-                        if event.key == pygame.K_1 and "basic" in unlocked_weapons:
-                            previous_weapon_mode = current_weapon_mode
-                            current_weapon_mode = "basic"
-                        elif event.key == pygame.K_2 and "rocket" in unlocked_weapons:
-                            previous_weapon_mode = current_weapon_mode
-                            if previous_weapon_mode == "wave_beam":
-                                wave_beams.clear()
-                            if previous_weapon_mode == "laser":
-                                laser_beams.clear()
-                            current_weapon_mode = "rocket"
-                        elif event.key == pygame.K_3 and "triple" in unlocked_weapons:
-                            previous_weapon_mode = current_weapon_mode
-                            if previous_weapon_mode == "wave_beam":
-                                wave_beams.clear()
-                            if previous_weapon_mode == "laser":
-                                laser_beams.clear()
-                            current_weapon_mode = "triple"
-                        elif event.key == pygame.K_4 and "bouncing" in unlocked_weapons:
-                            previous_weapon_mode = current_weapon_mode
-                            if previous_weapon_mode == "wave_beam":
-                                wave_beams.clear()
-                            if previous_weapon_mode == "laser":
-                                laser_beams.clear()
-                            current_weapon_mode = "bouncing"
-                        elif event.key == pygame.K_5 and "giant" in unlocked_weapons:
-                            previous_weapon_mode = current_weapon_mode
-                            if previous_weapon_mode == "wave_beam":
-                                wave_beams.clear()
-                            if previous_weapon_mode == "laser":
-                                laser_beams.clear()
-                            current_weapon_mode = "giant"
-                        elif event.key == pygame.K_6 and "laser" in unlocked_weapons:
-                            previous_weapon_mode = current_weapon_mode
-                            if previous_weapon_mode == "wave_beam":
-                                wave_beams.clear()
-                            current_weapon_mode = "laser"
-                        elif event.key == pygame.K_7 and "wave_beam" in unlocked_weapons:
-                            previous_weapon_mode = current_weapon_mode
-                            if previous_weapon_mode == "laser":
-                                laser_beams.clear()
-                            current_weapon_mode = "wave_beam"
-                            wave_beam_pattern_index = 0
-                            beam_selection_pattern = "sine"
+                        if event.key == pygame.K_1 and "basic" in game_state.unlocked_weapons:
+                            game_state.previous_weapon_mode = game_state.current_weapon_mode
+                            game_state.current_weapon_mode = "basic"
+                        elif event.key == pygame.K_2 and "rocket" in game_state.unlocked_weapons:
+                            game_state.previous_weapon_mode = game_state.current_weapon_mode
+                            if game_state.previous_weapon_mode == "wave_beam":
+                                game_state.wave_beams.clear()
+                            if game_state.previous_weapon_mode == "laser":
+                                game_state.laser_beams.clear()
+                            game_state.current_weapon_mode = "rocket"
+                        elif event.key == pygame.K_3 and "triple" in game_state.unlocked_weapons:
+                            game_state.previous_weapon_mode = game_state.current_weapon_mode
+                            if game_state.previous_weapon_mode == "wave_beam":
+                                game_state.wave_beams.clear()
+                            if game_state.previous_weapon_mode == "laser":
+                                game_state.laser_beams.clear()
+                            game_state.current_weapon_mode = "triple"
+                        elif event.key == pygame.K_4 and "bouncing" in game_state.unlocked_weapons:
+                            game_state.previous_weapon_mode = game_state.current_weapon_mode
+                            if game_state.previous_weapon_mode == "wave_beam":
+                                game_state.wave_beams.clear()
+                            if game_state.previous_weapon_mode == "laser":
+                                game_state.laser_beams.clear()
+                            game_state.current_weapon_mode = "bouncing"
+                        elif event.key == pygame.K_5 and "giant" in game_state.unlocked_weapons:
+                            game_state.previous_weapon_mode = game_state.current_weapon_mode
+                            if game_state.previous_weapon_mode == "wave_beam":
+                                game_state.wave_beams.clear()
+                            if game_state.previous_weapon_mode == "laser":
+                                game_state.laser_beams.clear()
+                            game_state.current_weapon_mode = "giant"
+                        elif event.key == pygame.K_6 and "laser" in game_state.unlocked_weapons:
+                            game_state.previous_weapon_mode = game_state.current_weapon_mode
+                            if game_state.previous_weapon_mode == "wave_beam":
+                                game_state.wave_beams.clear()
+                            game_state.current_weapon_mode = "laser"
+                        elif event.key == pygame.K_7 and "wave_beam" in game_state.unlocked_weapons:
+                            game_state.previous_weapon_mode = game_state.current_weapon_mode
+                            if game_state.previous_weapon_mode == "laser":
+                                game_state.laser_beams.clear()
+                            game_state.current_weapon_mode = "wave_beam"
+                            game_state.wave_beam_pattern_index = 0
+                            beam_selection_pattern = "sine"  # beam_selection_pattern is a menu state variable, not game state
             
             # Game state updates (only when playing)
             if state == STATE_PLAYING or state == STATE_ENDURANCE:
                 # Update timers
-                player_time_since_shot += dt
-                laser_time_since_shot += dt
-                wave_beam_time_since_shot += dt
-                grenade_time_since_used += dt
-                missile_time_since_used += dt
-                jump_cooldown_timer += dt
-                jump_timer += dt
-                overshield_recharge_timer += dt
+                game_state.player_time_since_shot += dt
+                game_state.laser_time_since_shot += dt
+                game_state.wave_beam_time_since_shot += dt
+                game_state.grenade_time_since_used += dt
+                game_state.missile_time_since_used += dt
+                game_state.jump_cooldown_timer += dt
+                game_state.jump_timer += dt
+                game_state.overshield_recharge_timer += dt
                 # Only decrement shield duration when shield is active
-                if shield_active:
-                    shield_duration_remaining -= dt
-                shield_cooldown_remaining -= dt
-                shield_recharge_timer += dt
-                ally_drop_timer += dt
-                fire_rate_buff_t += dt
-                pos_timer += dt
+                if game_state.shield_active:
+                    game_state.shield_duration_remaining -= dt
+                game_state.shield_cooldown_remaining -= dt
+                game_state.shield_recharge_timer += dt
+                game_state.ally_drop_timer += dt
+                game_state.fire_rate_buff_t += dt
+                game_state.pos_timer += dt
                 continue_blink_t += dt
                 
                 # Update damage number timers
-                for dmg_num in damage_numbers[:]:
+                for dmg_num in game_state.damage_numbers[:]:
                     dmg_num["timer"] -= dt
                     if dmg_num["timer"] <= 0:
-                        damage_numbers.remove(dmg_num)
+                        game_state.damage_numbers.remove(dmg_num)
                 
                 # Update weapon pickup message timers
-                for msg in weapon_pickup_messages[:]:
+                for msg in game_state.weapon_pickup_messages[:]:
                     msg["timer"] -= dt
                     if msg["timer"] <= 0:
-                        weapon_pickup_messages.remove(msg)
+                        game_state.weapon_pickup_messages.remove(msg)
                 
                 # Update shield
-                if shield_active:
-                    if shield_duration_remaining <= 0.0:
-                        shield_active = False
-                        shield_cooldown_remaining = shield_cooldown
-                        shield_recharge_timer = 0.0
+                if game_state.shield_active:
+                    if game_state.shield_duration_remaining <= 0.0:
+                        game_state.shield_active = False
+                        game_state.shield_cooldown_remaining = game_state.shield_cooldown
+                        game_state.shield_recharge_timer = 0.0
                 
                 # Update jump/dash
-                if is_jumping:
-                    jump_timer += dt
-                    if jump_timer >= jump_duration:
-                        is_jumping = False
-                        jump_velocity = pygame.Vector2(0, 0)
+                if game_state.is_jumping:
+                    game_state.jump_timer += dt
+                    if game_state.jump_timer >= jump_duration:
+                        game_state.is_jumping = False
+                        game_state.jump_velocity = pygame.Vector2(0, 0)
                 
                 # Update hazard obstacles
                 update_hazard_obstacles(dt)
@@ -718,13 +802,13 @@ def main():
                                     kill_enemy(enemy, game_state)
                 
                 # Update enemy defeat message timers
-                for msg in enemy_defeat_messages[:]:
+                for msg in game_state.enemy_defeat_messages[:]:
                     msg["timer"] -= dt
                     if msg["timer"] <= 0:
-                        enemy_defeat_messages.remove(msg)
+                        game_state.enemy_defeat_messages.remove(msg)
                 
                 # Update pickup effects
-                update_pickup_effects(dt)
+                update_pickup_effects(dt, game_state)
                 
                 # Player movement and input handling
                 keys = pygame.key.get_pressed()
@@ -736,85 +820,85 @@ def main():
                 # Handle movement keys
                 if keys[controls.get("move_left", pygame.K_a)]:
                     move_x = -1
-                    last_horizontal_key = controls.get("move_left", pygame.K_a)
+                    game_state.last_horizontal_key = controls.get("move_left", pygame.K_a)
                 elif keys[controls.get("move_right", pygame.K_d)]:
                     move_x = 1
-                    last_horizontal_key = controls.get("move_right", pygame.K_d)
+                    game_state.last_horizontal_key = controls.get("move_right", pygame.K_d)
                 
                 if keys[controls.get("move_up", pygame.K_w)]:
                     move_y = -1
-                    last_vertical_key = controls.get("move_up", pygame.K_w)
+                    game_state.last_vertical_key = controls.get("move_up", pygame.K_w)
                 elif keys[controls.get("move_down", pygame.K_s)]:
                     move_y = 1
-                    last_vertical_key = controls.get("move_down", pygame.K_s)
+                    game_state.last_vertical_key = controls.get("move_down", pygame.K_s)
                 
                 # Boost/slow mechanics
-                is_boosting = keys[controls.get("boost", pygame.K_LSHIFT)] and boost_meter > 0
+                is_boosting = keys[controls.get("boost", pygame.K_LSHIFT)] and game_state.boost_meter > 0
                 is_slowing = keys[controls.get("slow", pygame.K_LCTRL)]
                 
                 if is_boosting:
-                    boost_meter = max(0, boost_meter - boost_drain_per_s * dt)
+                    game_state.boost_meter = max(0, game_state.boost_meter - boost_drain_per_s * dt)
                     speed_mult = boost_speed_mult
-                    previous_boost_state = True
+                    game_state.previous_boost_state = True
                 else:
-                    boost_meter = min(boost_meter_max, boost_meter + boost_regen_per_s * dt)
+                    game_state.boost_meter = min(boost_meter_max, game_state.boost_meter + boost_regen_per_s * dt)
                     speed_mult = 1.0
-                    previous_boost_state = False
+                    game_state.previous_boost_state = False
                 
                 if is_slowing:
                     speed_mult *= slow_speed_mult
-                    previous_slow_state = True
+                    game_state.previous_slow_state = True
                 else:
-                    previous_slow_state = False
+                    game_state.previous_slow_state = False
                 
                 # Apply fire rate buff
-                effective_fire_rate = player_shoot_cooldown
-                if fire_rate_buff_t < fire_rate_buff_duration:
+                effective_fire_rate = game_state.player_shoot_cooldown
+                if game_state.fire_rate_buff_t < fire_rate_buff_duration:
                     effective_fire_rate *= fire_rate_mult
                 
                 # Calculate movement
                 if move_x != 0 or move_y != 0:
                     move_dir = pygame.Vector2(move_x, move_y).normalize()
-                    move_speed = player_speed * speed_mult * player_stat_multipliers["speed"]
+                    move_speed = game_state.player_speed * speed_mult * game_state.player_stat_multipliers["speed"]
                     
                     # Apply jump/dash velocity
-                    if is_jumping:
-                        move_speed += jump_velocity.length()
+                    if game_state.is_jumping:
+                        move_speed += game_state.jump_velocity.length()
                     
                     move_amount = move_speed * dt
                     move_vec = move_dir * move_amount
                     
-                    last_move_velocity = move_dir * move_speed
+                    game_state.last_move_velocity = move_dir * move_speed
                     
                     # Move player with collision
                     move_player_with_push(player, int(move_vec.x), int(move_vec.y), blocks)
                     clamp_rect_to_screen(player)
                 else:
-                    last_move_velocity = pygame.Vector2(0, 0)
+                    game_state.last_move_velocity = pygame.Vector2(0, 0)
                 
                 # Update jump/dash
-                if is_jumping:
-                    player.x += int(jump_velocity.x * dt)
-                    player.y += int(jump_velocity.y * dt)
+                if game_state.is_jumping:
+                    player.x += int(game_state.jump_velocity.x * dt)
+                    player.y += int(game_state.jump_velocity.y * dt)
                     clamp_rect_to_screen(player)
                 
                 # Player shooting
                 mouse_buttons = pygame.mouse.get_pressed()
                 shoot_input = mouse_buttons[0] or (aiming_mode == AIM_ARROWS and (keys[pygame.K_LEFT] or keys[pygame.K_RIGHT] or keys[pygame.K_UP] or keys[pygame.K_DOWN]))
                 
-                if shoot_input and player_time_since_shot >= effective_fire_rate:
+                if shoot_input and game_state.player_time_since_shot >= effective_fire_rate:
                     spawn_player_bullet_and_log(game_state)
-                    player_time_since_shot = 0.0
+                    game_state.player_time_since_shot = 0.0
                 
                 # Laser beam weapon
-                if current_weapon_mode == "laser" and laser_time_since_shot >= laser_cooldown:
+                if game_state.current_weapon_mode == "laser" and game_state.laser_time_since_shot >= laser_cooldown:
                     if aiming_mode == AIM_ARROWS:
                         keys = pygame.key.get_pressed()
                         dx = (1 if keys[pygame.K_RIGHT] else 0) - (1 if keys[pygame.K_LEFT] else 0)
                         dy = (1 if keys[pygame.K_DOWN] else 0) - (1 if keys[pygame.K_UP] else 0)
                         if dx == 0 and dy == 0:
-                            if last_move_velocity.length_squared() > 0:
-                                direction = last_move_velocity.normalize()
+                            if game_state.last_move_velocity.length_squared() > 0:
+                                direction = game_state.last_move_velocity.normalize()
                             else:
                                 direction = pygame.Vector2(1, 0)
                         else:
@@ -824,7 +908,7 @@ def main():
                         direction = vec_toward(player.centerx, player.centery, mx, my)
                     
                     end_pos = pygame.Vector2(player.center) + direction * laser_length
-                    laser_beams.append({
+                    game_state.laser_beams.append({
                         "start": pygame.Vector2(player.center),
                         "end": end_pos,
                         "color": (255, 50, 50),
@@ -832,17 +916,17 @@ def main():
                         "damage": laser_damage,
                         "timer": 0.1
                     })
-                    laser_time_since_shot = 0.0
+                    game_state.laser_time_since_shot = 0.0
                 
                 # Wave beam weapon
-                if current_weapon_mode == "wave_beam" and wave_beam_time_since_shot >= wave_beam_cooldown:
+                if game_state.current_weapon_mode == "wave_beam" and game_state.wave_beam_time_since_shot >= wave_beam_cooldown:
                     if aiming_mode == AIM_ARROWS:
                         keys = pygame.key.get_pressed()
                         dx = (1 if keys[pygame.K_RIGHT] else 0) - (1 if keys[pygame.K_LEFT] else 0)
                         dy = (1 if keys[pygame.K_DOWN] else 0) - (1 if keys[pygame.K_UP] else 0)
                         if dx == 0 and dy == 0:
-                            if last_move_velocity.length_squared() > 0:
-                                direction = last_move_velocity.normalize()
+                            if game_state.last_move_velocity.length_squared() > 0:
+                                direction = game_state.last_move_velocity.normalize()
                             else:
                                 direction = pygame.Vector2(1, 0)
                         else:
@@ -851,7 +935,7 @@ def main():
                         mx, my = pygame.mouse.get_pos()
                         direction = vec_toward(player.centerx, player.centery, mx, my)
                     
-                    pattern = wave_beam_patterns[wave_beam_pattern_index % len(wave_beam_patterns)]
+                    pattern = wave_beam_patterns[game_state.wave_beam_pattern_index % len(wave_beam_patterns)]
                     points = generate_wave_beam_points(
                         pygame.Vector2(player.center),
                         direction,
@@ -859,22 +943,22 @@ def main():
                         wave_beam_length,
                         amplitude=7.0,  # 7 pixels amplitude as specified
                         frequency=0.02,
-                        time_offset=run_time
+                        time_offset=game_state.run_time
                     )
-                    wave_beams.append({
+                    game_state.wave_beams.append({
                         "points": points,
                         "color": (50, 255, 50),  # Lime green
                         "width": wave_beam_width,
                         "damage": wave_beam_damage,
                         "timer": 999.0  # Constant beam (no flashing) - very long timer
                     })
-                    wave_beam_time_since_shot = 0.0
+                    game_state.wave_beam_time_since_shot = 0.0
                 
                 # Update laser beams
-                for beam in laser_beams[:]:
+                for beam in game_state.laser_beams[:]:
                     beam["timer"] -= dt
                     if beam["timer"] <= 0:
-                        laser_beams.remove(beam)
+                        game_state.laser_beams.remove(beam)
                     else:
                         # Check collision with enemies
                         for enemy in game_state.enemies[:]:
@@ -884,10 +968,10 @@ def main():
                                     kill_enemy(enemy, game_state)
                 
                 # Update wave beams
-                for beam in wave_beams[:]:
+                for beam in game_state.wave_beams[:]:
                     beam["timer"] -= dt
                     if beam["timer"] <= 0:
-                        wave_beams.remove(beam)
+                        game_state.wave_beams.remove(beam)
                     else:
                         # Check collision with enemies
                         for enemy in game_state.enemies[:]:
@@ -920,7 +1004,7 @@ def main():
                     
                     # Enemy AI: find target and move towards it
                     enemy_pos = pygame.Vector2(enemy["rect"].center)
-                    target_info = find_nearest_threat(enemy_pos, player, friendly_ai)
+                    target_info = find_nearest_threat(enemy_pos, player, game_state.friendly_ai)
                     
                     if target_info:
                         target_pos, target_type = target_info
@@ -961,7 +1045,7 @@ def main():
                         
                         # Dodge bullets if in range (only if more than 5 enemies remain)
                         if len(game_state.enemies) > 5:
-                            dodge_threats = find_threats_in_dodge_range(enemy_pos, player_bullets, friendly_projectiles, 200.0)
+                            dodge_threats = find_threats_in_dodge_range(enemy_pos, game_state.player_bullets, game_state.friendly_projectiles, 200.0)
                             if dodge_threats:
                                 # Try to dodge by moving perpendicular
                                 dodge_dir = pygame.Vector2(-direction.y, direction.x)  # Perpendicular
@@ -971,7 +1055,7 @@ def main():
                         
                         move_x = int(direction.x * enemy_speed)
                         move_y = int(direction.y * enemy_speed)
-                        move_enemy_with_push(enemy["rect"], move_x, move_y, blocks)
+                        move_enemy_with_push(enemy["rect"], move_x, move_y, blocks, game_state)
                     
                     # Queen-specific: Shield activation/deactivation system
                     if enemy.get("type") == "queen" and enemy.get("has_shield"):
@@ -1014,7 +1098,7 @@ def main():
                                     enemy["rect"].centery - 8,
                                     16, 16
                                 )
-                                missiles.append({
+                                game_state.                                game_state.missiles.append({
                                     "rect": missile_rect,
                                     "vel": pygame.Vector2(0, 0),
                                     "target_enemy": None,  # Queen missiles target player, not enemy
@@ -1038,7 +1122,7 @@ def main():
                         if dist_to_player <= detonation_distance:
                             # Detonate - create explosion
                             explosion_range = enemy.get("explosion_range", 150)
-                            grenade_explosions.append({
+                            game_state.grenade_explosions.append({
                                 "x": enemy["rect"].centerx,
                                 "y": enemy["rect"].centery,
                                 "radius": 0,
@@ -1049,31 +1133,31 @@ def main():
                             # Damage player if in range
                             if dist_to_player <= explosion_range:
                                 # Shield blocks all damage - check shield first
-                                if shield_active:
+                                if game_state.shield_active:
                                     # Shield is active - block damage
                                     pass
                                 elif not (testing_mode and invulnerability_mode):
                                     # No shield - apply damage (overshield takes damage first, then player health)
                                     damage = 500
-                                    if overshield > 0:
-                                        damage_to_overshield = min(damage, overshield)
-                                        overshield = max(0, overshield - damage)
+                                    if game_state.overshield > 0:
+                                        damage_to_overshield = min(damage, game_state.overshield)
+                                        game_state.overshield = max(0, game_state.overshield - damage)
                                         remaining_damage = damage - damage_to_overshield
                                     else:
                                         remaining_damage = damage
                                     if remaining_damage > 0:
-                                        player_hp -= remaining_damage
-                                    damage_taken += damage
-                                    wave_damage_taken += damage  # Track damage for side quest
-                                    if player_hp <= 0:
-                                        if lives > 0:
-                                            lives -= 1
+                                        game_state.player_hp -= remaining_damage
+                                    game_state.damage_taken += damage
+                                    game_state.wave_damage_taken += damage  # Track damage for side quest
+                                    if game_state.player_hp <= 0:
+                                        if game_state.lives > 0:
+                                            game_state.lives -= 1
                                             reset_after_death(game_state)
                                         else:
                                             # Game over - transition to name input
-                                            final_score_for_high_score = score
-                                            player_name_input = ""
-                                            name_input_active = True
+                                            game_state.final_score_for_high_score = game_state.score
+                                            game_state.player_name_input = ""
+                                            game_state.name_input_active = True
                                             state = STATE_NAME_INPUT
                             # Remove suicide enemy (despawns after detonation)
                             kill_enemy(enemy, game_state)
@@ -1094,7 +1178,7 @@ def main():
                                 tmpl = random.choice(enemy_templates)
                             
                             spawned_enemy = make_enemy_from_template(tmpl, 1.0, 1.0)
-                            spawned_enemy["rect"] = random_spawn_position((spawned_enemy["rect"].w, spawned_enemy["rect"].h))
+                            spawned_enemy["rect"] = random_spawn_position((spawned_enemy["rect"].w, spawned_enemy["rect"].h), game_state)
                             spawned_enemy["spawned_by"] = enemy  # Track parent spawner
                             game_state.enemies.append(spawned_enemy)
                             enemy["spawn_count"] = spawn_count + 1
@@ -1102,9 +1186,9 @@ def main():
                             
                             # Log spawn
                             if telemetry_enabled and telemetry:
-                                enemies_spawned_ref = [enemies_spawned]
-                                log_enemy_spawns([spawned_enemy], telemetry, run_time, enemies_spawned_ref)
-                                enemies_spawned = enemies_spawned_ref[0]
+                                enemies_spawned_ref = [game_state.enemies_spawned]
+                                log_enemy_spawns([spawned_enemy], telemetry, game_state.run_time, enemies_spawned_ref)
+                                game_state.enemies_spawned = enemies_spawned_ref[0]
                         else:
                             enemy["time_since_spawn"] = time_since_spawn
                     
@@ -1186,7 +1270,8 @@ def main():
                     
                     # Remove if off screen
                     if rect_offscreen(bullet["rect"]):
-                        game_state.player_bullets.remove(bullet)
+                        if bullet in game_state.player_bullets:
+                            game_state.player_bullets.remove(bullet)
                         continue
                     
                     # Check collision with enemies
@@ -1207,7 +1292,7 @@ def main():
                                 dot_product = bullet_dir.dot(-shield_dir)  # Negative because shield faces away from enemy
                                 if dot_product > 0.0:  # Bullet hits shield
                                     # Absorb damage into shield
-                                    damage = bullet.get("damage", player_bullet_damage)
+                                    damage = bullet.get("damage", game_state.player_bullet_damage)
                                     enemy["shield_hp"] = enemy.get("shield_hp", 0) + damage
                                     
                                     # Fire back reflected projectile
@@ -1230,15 +1315,16 @@ def main():
                                         enemy["shield_hp"] = 0  # Reset shield HP after firing
                                     
                                     # Remove bullet (shield blocks it)
-                                    game_state.player_bullets.remove(bullet)
+                                    if bullet in game_state.player_bullets:
+                                        game_state.player_bullets.remove(bullet)
                                     break
                                 else:
                                     # Bullet hits enemy from behind (no shield protection)
-                                    damage = bullet.get("damage", player_bullet_damage)
+                                    damage = bullet.get("damage", game_state.player_bullet_damage)
                                     enemy["hp"] -= damage
                                     
                                     # Damage number (displayed for 2 seconds)
-                                    damage_numbers.append({
+                                    game_state.damage_numbers.append({
                                         "x": enemy["rect"].centerx,
                                         "y": enemy["rect"].y - 20,
                                         "damage": int(damage),  # Display as integer
@@ -1251,17 +1337,18 @@ def main():
                                     
                                     # Remove bullet (unless it has penetration)
                                     if bullet.get("penetration", 0) <= 0:
-                                        game_state.player_bullets.remove(bullet)
+                                        if bullet in game_state.player_bullets:
+                                            game_state.player_bullets.remove(bullet)
                                         break
                                     else:
                                         bullet["penetration"] -= 1
                             else:
                                 # Normal enemy collision
-                                damage = bullet.get("damage", player_bullet_damage)
+                                damage = bullet.get("damage", game_state.player_bullet_damage)
                                 enemy["hp"] -= damage
                                 
                                 # Damage number (displayed for 2 seconds)
-                                damage_numbers.append({
+                                game_state.damage_numbers.append({
                                     "x": enemy["rect"].centerx,
                                     "y": enemy["rect"].y - 20,
                                     "damage": int(damage),  # Display as integer
@@ -1274,7 +1361,8 @@ def main():
                                 
                                 # Remove bullet (unless it has penetration)
                                 if bullet.get("penetration", 0) <= 0:
-                                    game_state.player_bullets.remove(bullet)
+                                    if bullet in game_state.player_bullets:
+                                        game_state.player_bullets.remove(bullet)
                                     break
                                 else:
                                     bullet["penetration"] -= 1
@@ -1289,17 +1377,18 @@ def main():
                                 # If bullet has penetration, it passes through blocks (doesn't stop)
                                 if bullet.get("penetration", 0) > 0:
                                     # Bullet passes through, but still damages the block
-                                    block["hp"] -= bullet.get("damage", player_bullet_damage)
+                                    block["hp"] -= bullet.get("damage", game_state.player_bullet_damage)
                                     if block["hp"] <= 0:
                                         destructible_blocks.remove(block) if block in destructible_blocks else moveable_destructible_blocks.remove(block)
                                     # Continue moving through block
                                 else:
                                     # No penetration - bullet stops at block
-                                    block["hp"] -= bullet.get("damage", player_bullet_damage)
+                                    block["hp"] -= bullet.get("damage", game_state.player_bullet_damage)
                                     if block["hp"] <= 0:
                                         destructible_blocks.remove(block) if block in destructible_blocks else moveable_destructible_blocks.remove(block)
                                     if not bullet.get("bouncing", False):
-                                        game_state.player_bullets.remove(bullet)
+                                        if bullet in game_state.player_bullets:
+                                            game_state.player_bullets.remove(bullet)
                                         bullet["removed"] = True
                                         break
                                     else:
@@ -1311,7 +1400,8 @@ def main():
                             for block in giant_blocks + super_giant_blocks:
                                 if bullet["rect"].colliderect(block["rect"]):
                                     if not bullet.get("bouncing", False):
-                                        game_state.player_bullets.remove(bullet)
+                                        if bullet in game_state.player_bullets:
+                                            game_state.player_bullets.remove(bullet)
                                         bullet["removed"] = True
                                         break
                                     else:
@@ -1323,7 +1413,8 @@ def main():
                             for tb in trapezoid_blocks:
                                 if bullet["rect"].colliderect(tb.get("bounding_rect", tb.get("rect"))):
                                     if not bullet.get("bouncing", False):
-                                        game_state.player_bullets.remove(bullet)
+                                        if bullet in game_state.player_bullets:
+                                            game_state.player_bullets.remove(bullet)
                                         bullet["removed"] = True
                                         break
                                     else:
@@ -1335,7 +1426,8 @@ def main():
                             for tr in triangle_blocks:
                                 if bullet["rect"].colliderect(tr.get("bounding_rect", tr.get("rect"))):
                                     if not bullet.get("bouncing", False):
-                                        game_state.player_bullets.remove(bullet)
+                                        if bullet in game_state.player_bullets:
+                                            game_state.player_bullets.remove(bullet)
                                         bullet["removed"] = True
                                         break
                                     else:
@@ -1355,7 +1447,8 @@ def main():
                                             push_force = bullet_vel.normalize() * 200.0  # Push force
                                             hazard["velocity"] += push_force * dt
                                         # Remove bullet (hazards stop bullets)
-                                        game_state.player_bullets.remove(bullet)
+                                        if bullet in game_state.player_bullets:
+                                            game_state.player_bullets.remove(bullet)
                                         bullet["removed"] = True
                                         break
                 
@@ -1396,31 +1489,32 @@ def main():
                     # Check collision with player (only if not already removed)
                     if not proj_removed and proj["rect"].colliderect(player):
                         # Shield blocks all damage - check shield first
-                        if shield_active:
+                        if game_state.shield_active:
                             # Shield is active - block damage, remove projectile
                             if proj in game_state.enemy_projectiles:
                                 game_state.enemy_projectiles.remove(proj)
                         elif not (testing_mode and invulnerability_mode):
                             # No shield - apply damage (overshield takes damage first, then player health)
                             damage = proj.get("damage", 10)
-                            if overshield > 0:
-                                damage_to_overshield = min(damage, overshield)
-                                overshield = max(0, overshield - damage)
+                            if game_state.overshield > 0:
+                                damage_to_overshield = min(damage, game_state.overshield)
+                                game_state.overshield = max(0, game_state.overshield - damage)
                                 remaining_damage = damage - damage_to_overshield
                             else:
                                 remaining_damage = damage
                             if remaining_damage > 0:
-                                player_hp -= remaining_damage
-                            damage_taken += damage
-                            if player_hp <= 0:
-                                if lives > 0:
-                                    lives -= 1
+                                game_state.player_hp -= remaining_damage
+                            game_state.damage_taken += damage
+                            game_state.wave_damage_taken += damage  # Track damage for side quest
+                            if game_state.player_hp <= 0:
+                                if game_state.lives > 0:
+                                    game_state.lives -= 1
                                     reset_after_death(game_state)
                                 else:
                                     # Game over - transition to name input
-                                    final_score_for_high_score = score
-                                    player_name_input = ""
-                                    name_input_active = True
+                                    game_state.final_score_for_high_score = game_state.score
+                                    game_state.player_name_input = ""
+                                    game_state.name_input_active = True
                                     state = STATE_NAME_INPUT
                             if proj in game_state.enemy_projectiles:
                                 game_state.enemy_projectiles.remove(proj)
@@ -1430,28 +1524,33 @@ def main():
                                 game_state.enemy_projectiles.remove(proj)
                 
                 # Pickup collection
-                for pickup in pickups[:]:
+                for pickup in game_state.pickups[:]:
                     if player.colliderect(pickup["rect"]):
                         # Create visual effect when picking up
-                        create_pickup_collection_effect(pickup["rect"].centerx, pickup["rect"].centery, pickup["color"])
-                        apply_pickup_effect(pickup["type"])
-                        pickups.remove(pickup)
+                        create_pickup_collection_effect(pickup["rect"].centerx, pickup["rect"].centery, pickup["color"], game_state)
+                        apply_pickup_effect(pickup["type"], game_state)
+                        game_state.pickups.remove(pickup)
+                
+                # Health regeneration (from pickups)
+                if game_state.player_health_regen_rate > 0:
+                    regen_amount = game_state.player_health_regen_rate * dt
+                    game_state.player_hp = min(game_state.player_max_hp, game_state.player_hp + regen_amount)
                 
                 # Health zone interaction
                 if player.colliderect(moving_health_zone["rect"]):
-                    if player_hp < player_max_hp:
-                        player_hp = min(player_max_hp, player_hp + 50 * dt)  # Heal over time
+                    if game_state.player_hp < game_state.player_max_hp:
+                        game_state.player_hp = min(game_state.player_max_hp, game_state.player_hp + 50 * dt)  # Heal over time
                 
                 # Friendly AI updates
                 update_friendly_ai(
-                    friendly_ai,
-                    enemies,
+                    game_state.friendly_ai,
+                    game_state.enemies,
                     blocks,
                     dt,
                     find_nearest_enemy,
                     vec_toward,
-                    move_enemy_with_push,
-                    lambda f, t: spawn_friendly_projectile(f, t, friendly_projectiles, vec_toward, telemetry, run_time),
+                    lambda rect, mx, my, bl: move_enemy_with_push(rect, mx, my, bl, game_state),
+                    lambda f, t: spawn_friendly_projectile(f, t, game_state.friendly_projectiles, vec_toward, telemetry, game_state.run_time),
                 )
                 
                 # Friendly projectile updates
@@ -1478,7 +1577,7 @@ def main():
                             enemy["hp"] -= damage
                             
                             # Damage number (displayed for 2 seconds)
-                            damage_numbers.append({
+                            game_state.damage_numbers.append({
                                 "x": enemy["rect"].centerx,
                                 "y": enemy["rect"].y - 20,
                                 "damage": int(damage),  # Display as integer
@@ -1492,12 +1591,12 @@ def main():
                             break
                 
                 # Grenade explosion updates
-                for explosion in grenade_explosions[:]:
+                for explosion in game_state.grenade_explosions[:]:
                     explosion["timer"] -= dt
                     explosion["radius"] = int(explosion["max_radius"] * (1.0 - explosion["timer"] / 0.3))
                     
                     if explosion["timer"] <= 0:
-                        grenade_explosions.remove(explosion)
+                        game_state.grenade_explosions.remove(explosion)
                         continue
                     
                     # Damage enemies and blocks in radius
@@ -1510,7 +1609,7 @@ def main():
                             enemy["hp"] -= damage
                             
                             # Damage number (displayed for 2 seconds)
-                            damage_numbers.append({
+                            game_state.damage_numbers.append({
                                 "x": enemy["rect"].centerx,
                                 "y": enemy["rect"].y - 20,
                                 "damage": int(damage),  # Display as integer
@@ -1529,31 +1628,31 @@ def main():
                         # Only damage player if explosion is from enemy (not player grenade)
                         if explosion.get("source") != "player":
                             # Shield blocks all damage - check shield first
-                            if shield_active:
+                            if game_state.shield_active:
                                 # Shield is active - block damage
                                 pass
                             elif not (testing_mode and invulnerability_mode):
                                 # No shield - apply damage (overshield takes damage first, then player health)
                                 damage = explosion.get("damage", 500)
-                                if overshield > 0:
-                                    damage_to_overshield = min(damage, overshield)
-                                    overshield = max(0, overshield - damage)
+                                if game_state.overshield > 0:
+                                    damage_to_overshield = min(damage, game_state.overshield)
+                                    game_state.overshield = max(0, game_state.overshield - damage)
                                     remaining_damage = damage - damage_to_overshield
                                 else:
                                     remaining_damage = damage
                                 if remaining_damage > 0:
-                                    player_hp -= remaining_damage
-                                damage_taken += damage
-                                wave_damage_taken += damage  # Track damage for side quest
-                                if player_hp <= 0:
-                                    if lives > 0:
-                                        lives -= 1
+                                    game_state.player_hp -= remaining_damage
+                                game_state.damage_taken += damage
+                                game_state.wave_damage_taken += damage  # Track damage for side quest
+                                if game_state.player_hp <= 0:
+                                    if game_state.lives > 0:
+                                        game_state.lives -= 1
                                         reset_after_death(game_state)
                                     else:
                                         # Game over - transition to name input
-                                        final_score_for_high_score = score
-                                        player_name_input = ""
-                                        name_input_active = True
+                                        game_state.final_score_for_high_score = game_state.score
+                                        game_state.player_name_input = ""
+                                        game_state.name_input_active = True
                                         state = STATE_NAME_INPUT
                     
                     # Damage destructible blocks
@@ -1570,7 +1669,7 @@ def main():
                                         moveable_destructible_blocks.remove(block)
                 
                 # Missile updates
-                for missile in missiles[:]:
+                for missile in game_state.missiles[:]:
                     # Handle player-targeting missiles (from queen)
                     if missile.get("target_player"):
                         # Seek player
@@ -1602,7 +1701,7 @@ def main():
                     missile["rect"].y += int(missile["vel"].y * dt)
                     
                     if rect_offscreen(missile["rect"]):
-                        missiles.remove(missile)
+                        game_state.missiles.remove(missile)
                         continue
                     
                     # Check collision with target
@@ -1611,30 +1710,31 @@ def main():
                         # Queen missile hit player
                         hit_target = True
                         # Shield blocks all damage - check shield first
-                        if shield_active:
+                        if game_state.shield_active:
                             # Shield is active - block damage
                             pass
                         elif not (testing_mode and invulnerability_mode):
                             # No shield - apply damage (overshield takes damage first, then player health)
                             damage = missile.get("damage", missile_damage)
-                            if overshield > 0:
-                                damage_to_overshield = min(damage, overshield)
-                                overshield = max(0, overshield - damage)
+                            if game_state.overshield > 0:
+                                damage_to_overshield = min(damage, game_state.overshield)
+                                game_state.overshield = max(0, game_state.overshield - damage)
                                 remaining_damage = damage - damage_to_overshield
                             else:
                                 remaining_damage = damage
                             if remaining_damage > 0:
-                                player_hp -= remaining_damage
-                            damage_taken += damage
-                            if player_hp <= 0:
-                                if lives > 0:
-                                    lives -= 1
+                                game_state.player_hp -= remaining_damage
+                            game_state.damage_taken += damage
+                            game_state.wave_damage_taken += damage  # Track damage for side quest
+                            if game_state.player_hp <= 0:
+                                if game_state.lives > 0:
+                                    game_state.lives -= 1
                                     reset_after_death(game_state)
                                 else:
                                     # Game over - transition to name input
-                                    final_score_for_high_score = score
-                                    player_name_input = ""
-                                    name_input_active = True
+                                    game_state.final_score_for_high_score = game_state.score
+                                    game_state.player_name_input = ""
+                                    game_state.name_input_active = True
                                     state = STATE_NAME_INPUT
                     elif missile.get("target_enemy") and missile["rect"].colliderect(missile["target_enemy"]["rect"]):
                         # Player missile hit enemy
@@ -1652,7 +1752,7 @@ def main():
                                 enemy["hp"] -= damage
                                 
                                 # Damage number (displayed for 2 seconds)
-                                damage_numbers.append({
+                                game_state.damage_numbers.append({
                                     "x": enemy["rect"].centerx,
                                     "y": enemy["rect"].y - 20,
                                     "damage": int(damage),  # Display as integer
@@ -1669,47 +1769,47 @@ def main():
                             dist = (player_pos - explosion_pos).length()
                             if dist <= missile["explosion_radius"]:
                                 # Shield blocks all damage - check shield first
-                                if shield_active:
+                                if game_state.shield_active:
                                     # Shield is active - block damage
                                     pass
                                 elif not (testing_mode and invulnerability_mode):
                                     # No shield - apply damage (overshield takes damage first, then player health)
                                     damage = missile.get("damage", missile_damage)
-                                    if overshield > 0:
-                                        damage_to_overshield = min(damage, overshield)
-                                        overshield = max(0, overshield - damage)
+                                    if game_state.overshield > 0:
+                                        damage_to_overshield = min(damage, game_state.overshield)
+                                        game_state.overshield = max(0, game_state.overshield - damage)
                                         remaining_damage = damage - damage_to_overshield
                                     else:
                                         remaining_damage = damage
                                     if remaining_damage > 0:
-                                        player_hp -= remaining_damage
-                                    damage_taken += damage
-                                    wave_damage_taken += damage  # Track damage for side quest
-                                    if player_hp <= 0:
-                                        if lives > 0:
-                                            lives -= 1
+                                        game_state.player_hp -= remaining_damage
+                                    game_state.damage_taken += damage
+                                    game_state.wave_damage_taken += damage  # Track damage for side quest
+                                    if game_state.player_hp <= 0:
+                                        if game_state.lives > 0:
+                                            game_state.lives -= 1
                                             reset_after_death(game_state)
                                         else:
                                             # Game over - transition to name input
-                                            final_score_for_high_score = score
-                                            player_name_input = ""
-                                            name_input_active = True
+                                            game_state.final_score_for_high_score = game_state.score
+                                            game_state.player_name_input = ""
+                                            game_state.name_input_active = True
                                             state = STATE_NAME_INPUT
                         
-                        missiles.remove(missile)
+                        game_state.missiles.remove(missile)
                 
                 # Wave management
-                if wave_active and len(game_state.enemies) == 0:
-                    time_to_next_wave += dt
-                    if time_to_next_wave >= 3.0:  # 3 second countdown between waves
+                if game_state.wave_active and len(game_state.enemies) == 0:
+                    game_state.time_to_next_wave += dt
+                    if game_state.time_to_next_wave >= 3.0:  # 3 second countdown between waves
                         # Check side quest: Perfect Wave (no damage taken)
-                        if wave_damage_taken == 0 and side_quests["no_hit_wave"]["active"]:
+                        if game_state.wave_damage_taken == 0 and game_state.side_quests["no_hit_wave"]["active"]:
                             # Award bonus points
-                            bonus = side_quests["no_hit_wave"]["bonus_points"]
-                            score += bonus
-                            side_quests["no_hit_wave"]["completed"] = True
+                            bonus = game_state.side_quests["no_hit_wave"]["bonus_points"]
+                            game_state.score += bonus
+                            game_state.side_quests["no_hit_wave"]["completed"] = True
                             # Show bonus message
-                            damage_numbers.append({
+                            game_state.damage_numbers.append({
                                 "x": WIDTH // 2,
                                 "y": HEIGHT // 2,
                                 "value": f"PERFECT WAVE! +{bonus}",
@@ -1717,21 +1817,21 @@ def main():
                                 "color": (255, 215, 0)  # Gold color
                             })
                         
-                        wave_number += 1
-                        wave_in_level += 1
-                        if wave_in_level > 3:
-                            wave_in_level = 1
-                            current_level += 1
-                            if current_level > max_level:
+                        game_state.wave_number += 1
+                        game_state.wave_in_level += 1
+                        if game_state.wave_in_level > 3:
+                            game_state.wave_in_level = 1
+                            game_state.current_level += 1
+                            if game_state.current_level > game_state.max_level:
                                 state = STATE_VICTORY
-                                wave_active = False
+                                game_state.wave_active = False
                         if state != STATE_VICTORY:
-                            start_wave(wave_number, game_state)
-                            time_to_next_wave = 0.0
+                            start_wave(game_state.wave_number, game_state)
+                            game_state.time_to_next_wave = 0.0
             
             # Rendering
             # Clear screen with background color based on level theme
-            theme = level_themes.get(current_level, level_themes[1])
+            theme = level_themes.get(game_state.current_level, level_themes[1])
             screen.fill(theme["bg_color"])
             
             # Draw game elements based on state
@@ -1911,7 +2011,7 @@ def main():
                 zone_center = (zone["rect"].centerx, zone["rect"].centery)
                 zone_width = zone["rect"].w
                 zone_height = zone["rect"].h
-                use_triangle = (wave_in_level % 2 == 0)
+                use_triangle = (game_state.wave_in_level % 2 == 0)
                 
                 zone_surf = pygame.Surface((zone["rect"].w + 20, zone["rect"].h + 20), pygame.SRCALPHA)
                 
@@ -1923,7 +2023,7 @@ def main():
                     ]
                     pygame.draw.polygon(zone_surf, zone["color"], triangle_points)
                     screen.blit(zone_surf, (zone["rect"].x - 10, zone["rect"].y - 10))
-                    pulse = 0.5 + 0.5 * math.sin(run_time * 3.0)
+                    pulse = 0.5 + 0.5 * math.sin(game_state.run_time * 3.0)
                     border_alpha = int(150 + 100 * pulse)
                     border_color = (50, 255, 50)
                     pygame.draw.polygon(screen, border_color, [
@@ -1934,13 +2034,13 @@ def main():
                 else:
                     pygame.draw.rect(zone_surf, zone["color"], (10, 10, zone["rect"].w, zone["rect"].h))
                     screen.blit(zone_surf, (zone["rect"].x - 10, zone["rect"].y - 10))
-                    pulse = 0.5 + 0.5 * math.sin(run_time * 3.0)
+                    pulse = 0.5 + 0.5 * math.sin(game_state.run_time * 3.0)
                     border_alpha = int(150 + 100 * pulse)
                     border_color = (50, 255, 50)
                     pygame.draw.rect(screen, border_color, zone["rect"], 3)
                 
                 # Draw pickups
-                for pickup in pickups:
+                for pickup in game_state.pickups:
                     pygame.draw.circle(screen, pickup["color"], pickup["rect"].center, pickup["rect"].w // 2)
                     pygame.draw.circle(screen, (255, 255, 255), pickup["rect"].center, pickup["rect"].w // 2, 2)
                     
@@ -1972,11 +2072,11 @@ def main():
                     draw_projectile(screen, bullet["rect"], bullet["color"], bullet.get("shape", "circle"))
                 
                 # Draw friendly projectiles
-                for proj in friendly_projectiles:
+                for proj in game_state.friendly_projectiles:
                     draw_projectile(screen, proj["rect"], proj["color"], proj.get("shape", "circle"))
                 
                 # Draw friendly AI (only dropped allies from Q key, not regular spawns)
-                for friendly in friendly_ai:
+                for friendly in game_state.friendly_ai:
                     pygame.draw.rect(screen, friendly.get("color", (100, 200, 100)), friendly["rect"])
                     if friendly.get("hp", 0) > 0 and ui_show_health_bars:
                         draw_health_bar(screen, friendly["rect"].x, friendly["rect"].y - 10, friendly["rect"].w, 5, friendly["hp"], friendly.get("max_hp", friendly["hp"]))
@@ -1989,21 +2089,21 @@ def main():
                         draw_health_bar(screen, enemy["rect"].x, enemy["rect"].y - 10, enemy["rect"].w, 5, enemy["hp"], enemy.get("max_hp", enemy["hp"]))
                 
                 # Draw grenade explosions
-                for explosion in grenade_explosions:
+                for explosion in game_state.grenade_explosions:
                     alpha = int(255 * (explosion["timer"] / 0.3))
                     color = (255, 100, 0, alpha)
                     pygame.draw.circle(screen, (255, 100, 0), (explosion["x"], explosion["y"]), explosion["radius"], 3)
                     pygame.draw.circle(screen, (255, 200, 0), (explosion["x"], explosion["y"]), explosion["radius"] // 2)
                 
                 # Draw missiles
-                for missile in missiles:
+                for missile in game_state.missiles:
                     pygame.draw.rect(screen, (255, 200, 0), missile["rect"])
                     pygame.draw.rect(screen, (255, 100, 0), missile["rect"], 2)
                 
                 # Draw player (circle with border)
                 player_color = (255, 255, 255)
                 border_color = (200, 200, 200)
-                if shield_active:
+                if game_state.shield_active:
                     player_color = (255, 100, 100)  # Red when shield is active
                     border_color = (255, 150, 150)  # Lighter red border when shield active
                 # Draw border circle (slightly larger)
@@ -2013,12 +2113,12 @@ def main():
                 # Health bar and overshield bar moved to bottom of screen (drawn later in HUD section)
                 
                 # Draw laser beams
-                for beam in laser_beams:
+                for beam in game_state.laser_beams:
                     if "start" in beam and "end" in beam:
                         pygame.draw.line(screen, beam.get("color", (255, 50, 50)), beam["start"], beam["end"], beam.get("width", 5))
                 
                 # Draw wave beams
-                for beam in wave_beams:
+                for beam in game_state.wave_beams:
                     points = beam.get("points", [])
                     if len(points) >= 2:
                         pygame.draw.lines(screen, beam.get("color", (50, 255, 50)), False, points, beam.get("width", 10))
@@ -2026,7 +2126,7 @@ def main():
                 # Draw HUD
                 if ui_show_hud:
                     # Draw prominent score at center top with yellow text and black outline
-                    score_text = f"Score: {score}"
+                    score_text = f"Score: {game_state.score}"
                     score_surface = big_font.render(score_text, True, (255, 255, 0))  # Yellow text
                     # Create outline by rendering black text at offsets
                     outline_surface = big_font.render(score_text, True, (0, 0, 0))  # Black outline
@@ -2040,24 +2140,24 @@ def main():
                     
                     y_pos = 10
                     if ui_show_metrics:
-                        y_pos = render_hud_text(screen, font, f"HP: {player_hp}/{player_max_hp}", y_pos)
-                        if overshield > 0:
-                            y_pos = render_hud_text(screen, font, f"Overshield: {overshield}/{overshield_max}", y_pos)
-                        y_pos = render_hud_text(screen, font, f"Wave: {wave_number} | Level: {current_level}", y_pos)
+                        y_pos = render_hud_text(screen, font, f"HP: {game_state.player_hp}/{game_state.player_max_hp}", y_pos)
+                        if game_state.overshield > 0:
+                            y_pos = render_hud_text(screen, font, f"Overshield: {game_state.overshield}/{overshield_max}", y_pos)
+                        y_pos = render_hud_text(screen, font, f"Wave: {game_state.wave_number} | Level: {game_state.current_level}", y_pos)
                         # Display time survived (format as MM:SS)
-                        minutes = int(survival_time // 60)
-                        seconds = int(survival_time % 60)
+                        minutes = int(game_state.survival_time // 60)
+                        seconds = int(game_state.survival_time % 60)
                         y_pos = render_hud_text(screen, font, f"Time: {minutes:02d}:{seconds:02d}", y_pos)
                         if state == STATE_PLAYING:
-                            y_pos = render_hud_text(screen, font, f"Lives: {lives}", y_pos)
+                            y_pos = render_hud_text(screen, font, f"Lives: {game_state.lives}", y_pos)
                         y_pos = render_hud_text(screen, font, f"Enemies: {len(game_state.enemies)}", y_pos)
-                        y_pos = render_hud_text(screen, font, f"Weapon: {current_weapon_mode.upper()}", y_pos)
-                        if shield_active:
+                        y_pos = render_hud_text(screen, font, f"Weapon: {game_state.current_weapon_mode.upper()}", y_pos)
+                        if game_state.shield_active:
                             y_pos = render_hud_text(screen, font, "SHIELD ACTIVU", y_pos, (255, 100, 100))
                         # Display random damage multiplier if not 1.0x
-                        if random_damage_multiplier != 1.0:
-                            multiplier_color = (255, 255, 0) if random_damage_multiplier > 1.0 else (255, 150, 150)
-                            y_pos = render_hud_text(screen, font, f"DMG MULT: {random_damage_multiplier:.2f}x", y_pos, multiplier_color)
+                        if game_state.random_damage_multiplier != 1.0:
+                            multiplier_color = (255, 255, 0) if game_state.random_damage_multiplier > 1.0 else (255, 150, 150)
+                            y_pos = render_hud_text(screen, font, f"DMG MULT: {game_state.random_damage_multiplier:.2f}x", y_pos, multiplier_color)
                         
                         # Draw health bar and overshield bar at bottom of screen (above controls)
                         health_bar_y = HEIGHT - 80
@@ -2065,22 +2165,22 @@ def main():
                         health_bar_width = 300
                         
                         # Draw overshield bar (above health bar, only if active)
-                        if overshield > 0:
+                        if game_state.overshield > 0:
                             overshield_bar_y = health_bar_y - 25
                             overshield_bar_height = 15
-                            overshield_fill = int((overshield / overshield_max) * health_bar_width)
+                            overshield_fill = int((game_state.overshield / overshield_max) * health_bar_width)
                             pygame.draw.rect(screen, (60, 60, 60), (10, overshield_bar_y, health_bar_width, overshield_bar_height))
                             pygame.draw.rect(screen, (255, 150, 0), (10, overshield_bar_y, overshield_fill, overshield_bar_height))
                             pygame.draw.rect(screen, (20, 20, 20), (10, overshield_bar_y, health_bar_width, overshield_bar_height), 2)
-                            overshield_text = small_font.render(f"Armor: {int(overshield)}/{int(overshield_max)}", True, (255, 255, 255))
+                            overshield_text = small_font.render(f"Armor: {int(game_state.overshield)}/{int(overshield_max)}", True, (255, 255, 255))
                             screen.blit(overshield_text, (15, overshield_bar_y + 2))
                         
                         # Draw health bar
-                        health_fill = int((player_hp / player_max_hp) * health_bar_width)
+                        health_fill = int((game_state.player_hp / game_state.player_max_hp) * health_bar_width)
                         pygame.draw.rect(screen, (60, 60, 60), (10, health_bar_y, health_bar_width, health_bar_height))
                         pygame.draw.rect(screen, (100, 255, 100), (10, health_bar_y, health_fill, health_bar_height))
                         pygame.draw.rect(screen, (20, 20, 20), (10, health_bar_y, health_bar_width, health_bar_height), 2)
-                        health_text = small_font.render(f"HP: {int(player_hp)}/{int(player_max_hp)}", True, (255, 255, 255))
+                        health_text = small_font.render(f"HP: {int(game_state.player_hp)}/{int(game_state.player_max_hp)}", True, (255, 255, 255))
                         screen.blit(health_text, (15, health_bar_y + 2))
                         
                         # Draw cooldown bars at bottom
@@ -2089,7 +2189,7 @@ def main():
                         bar_width = 200
                         
                         # Bomb (grenade) cooldown - red when not ready, purple when ready
-                        grenade_progress = min(1.0, grenade_time_since_used / grenade_cooldown)
+                        grenade_progress = min(1.0, game_state.grenade_time_since_used / grenade_cooldown)
                         grenade_x = 10
                         pygame.draw.rect(screen, (60, 60, 60), (grenade_x, bar_y, bar_width, bar_height))
                         pygame.draw.rect(screen, (200, 100, 255) if grenade_progress >= 1.0 else (255, 50, 50), 
@@ -2099,7 +2199,7 @@ def main():
                         screen.blit(small_font_surf, (grenade_x + 5, bar_y + 2))
                         
                         # Missile cooldown
-                        missile_progress = min(1.0, missile_time_since_used / missile_cooldown)
+                        missile_progress = min(1.0, game_state.missile_time_since_used / missile_cooldown)
                         missile_x = grenade_x + bar_width + 10
                         pygame.draw.rect(screen, (60, 60, 60), (missile_x, bar_y, bar_width, bar_height))
                         pygame.draw.rect(screen, (255, 200, 0) if missile_progress >= 1.0 else (100, 100, 100), 
@@ -2109,7 +2209,7 @@ def main():
                         screen.blit(small_font_surf, (missile_x + 5, bar_y + 2))
                         
                         # Ally drop cooldown
-                        ally_progress = min(1.0, ally_drop_timer / ally_drop_cooldown)
+                        ally_progress = min(1.0, game_state.ally_drop_timer / ally_drop_cooldown)
                         ally_x = missile_x + bar_width + 10
                         pygame.draw.rect(screen, (60, 60, 60), (ally_x, bar_y, bar_width, bar_height))
                         pygame.draw.rect(screen, (200, 100, 255) if ally_progress >= 1.0 else (100, 100, 100), 
@@ -2119,7 +2219,7 @@ def main():
                         screen.blit(small_font_surf, (ally_x + 5, bar_y + 2))
                         
                         # Overshield cooldown
-                        overshield_progress = min(1.0, overshield_recharge_timer / overshield_recharge_cooldown)
+                        overshield_progress = min(1.0, game_state.overshield_recharge_timer / overshield_recharge_cooldown)
                         overshield_x = ally_x + bar_width + 10
                         pygame.draw.rect(screen, (60, 60, 60), (overshield_x, bar_y, bar_width, bar_height))
                         pygame.draw.rect(screen, (255, 150, 0) if overshield_progress >= 1.0 else (100, 100, 100), 
@@ -2130,14 +2230,14 @@ def main():
                         
                         # Shield recharge cooldown
                         # Calculate progress: if shield is active, show duration remaining; if on cooldown, show recharge progress
-                        if shield_active:
+                        if game_state.shield_active:
                             # Shield is active - show duration remaining (inverse progress)
-                            shield_progress = min(1.0, shield_duration_remaining / shield_duration)
+                            shield_progress = min(1.0, game_state.shield_duration_remaining / shield_duration)
                             shield_ready = False
                         else:
                             # Shield is on cooldown - show recharge progress
-                            if shield_recharge_cooldown > 0:
-                                shield_progress = min(1.0, shield_recharge_timer / shield_recharge_cooldown)
+                            if game_state.shield_recharge_cooldown > 0:
+                                shield_progress = min(1.0, game_state.shield_recharge_timer / game_state.shield_recharge_cooldown)
                             else:
                                 shield_progress = 1.0  # Ready if no cooldown set
                             shield_ready = shield_progress >= 1.0
@@ -2145,7 +2245,7 @@ def main():
                         shield_x = overshield_x + bar_width + 10
                         pygame.draw.rect(screen, (60, 60, 60), (shield_x, bar_y, bar_width, bar_height))
                         # Blue/cyan when ready, red when not ready, yellow when active
-                        if shield_active:
+                        if game_state.shield_active:
                             shield_color = (255, 255, 100)  # Yellow when active
                         elif shield_ready:
                             shield_color = (100, 200, 255)  # Blue/cyan when ready
@@ -2170,7 +2270,7 @@ def main():
                 
                 # Draw damage numbers (fade out over 2 seconds)
                 # Note: Timers are decremented in the update loop above
-                for dmg_num in damage_numbers[:]:
+                for dmg_num in game_state.damage_numbers[:]:
                     if dmg_num["timer"] > 0:
                         alpha = int(255 * (dmg_num["timer"] / 2.0))  # Fade over 2 seconds
                         color = (*dmg_num["color"][:3], alpha) if len(dmg_num["color"]) > 3 else dmg_num["color"]
@@ -2184,11 +2284,11 @@ def main():
                             text_surf = small_font.render(text, True, color[:3])
                         screen.blit(text_surf, (dmg_num["x"], dmg_num["y"]))
                     else:
-                        damage_numbers.remove(dmg_num)
+                        game_state.damage_numbers.remove(dmg_num)
                 
                 # Draw enemy defeat messages in bottom right corner
                 defeat_y_start = HEIGHT - 100  # Start from bottom, work upwards
-                for i, msg in enumerate(enemy_defeat_messages[-5:]):  # Show last 5 messages
+                for i, msg in enumerate(game_state.enemy_defeat_messages[-5:]):  # Show last 5 messages
                     if msg["timer"] > 0:
                         enemy_type = msg.get("enemy_type", "enemy")
                         alpha = int(255 * (msg["timer"] / 3.0))  # Fade over 3 seconds
@@ -2203,7 +2303,7 @@ def main():
                 
                 # Draw weapon pickup messages
                 # Note: Timers are decremented in the update loop above
-                for msg in weapon_pickup_messages[:]:
+                for msg in game_state.weapon_pickup_messages[:]:
                     if msg["timer"] > 0:
                         alpha = int(255 * (msg["timer"] / 3.0))
                         color = (*msg["color"][:3], alpha) if len(msg["color"]) > 3 else msg["color"]
@@ -2211,20 +2311,20 @@ def main():
                         text_rect = text_surf.get_rect(center=(WIDTH // 2, HEIGHT // 2))
                         screen.blit(text_surf, text_rect)
                     else:
-                        weapon_pickup_messages.remove(msg)
+                        game_state.weapon_pickup_messages.remove(msg)
                 
                 # Draw wave countdown (3, 2, 1) when wave is complete and next wave is starting
-                if wave_active and len(game_state.enemies) == 0 and time_to_next_wave < 3.0:
+                if game_state.wave_active and len(game_state.enemies) == 0 and game_state.time_to_next_wave < 3.0:
                     # Calculate countdown number (3, 2, or 1)
                     # time_to_next_wave goes from 0.0 to 3.0
                     # At 0.0-0.99: show 3
                     # At 1.0-1.99: show 2
                     # At 2.0-2.99: show 1
-                    countdown_number = 3 - int(time_to_next_wave)
+                    countdown_number = 3 - int(game_state.time_to_next_wave)
                     countdown_number = max(1, min(3, countdown_number))  # Clamp between 1 and 3
                     
                     # Display countdown text
-                    next_wave_num = wave_number + 1
+                    next_wave_num = game_state.wave_number + 1
                     countdown_text = f"WAVE {next_wave_num} STARTING IN {countdown_number}"
                     draw_centered_text(screen, font, big_font, WIDTH, countdown_text, HEIGHT // 2, (255, 255, 0), use_big=True)
             elif state == STATE_PAUSED:
@@ -2292,12 +2392,12 @@ def main():
                 screen.blit(title, (WIDTH // 2 - title.get_width() // 2, HEIGHT // 2 - 100))
                 
                 # Display current input with cursor
-                display_text = player_name_input + ("_" if int(run_time * 2) % 2 == 0 else " ")
+                display_text = game_state.player_name_input + ("_" if int(game_state.run_time * 2) % 2 == 0 else " ")
                 input_surface = font.render(display_text, True, (255, 255, 255))
                 screen.blit(input_surface, (WIDTH // 2 - input_surface.get_width() // 2, HEIGHT // 2))
                 
                 # Display score
-                score_text = font.render(f"Score: {final_score_for_high_score}", True, (200, 200, 200))
+                score_text = font.render(f"Score: {game_state.final_score_for_high_score}", True, (200, 200, 200))
                 screen.blit(score_text, (WIDTH // 2 - score_text.get_width() // 2, HEIGHT // 2 + 50))
                 
                 # Instructions
@@ -2324,16 +2424,16 @@ def main():
         if telemetry_enabled and telemetry:
             telemetry.end_run(
                 ended_at_iso=run_ended_at,
-                seconds_survived=run_time,
-                player_hp_end=player_hp,
-                shots_fired=shots_fired,
-                hits=hits,
-                damage_taken=damage_taken,
-                damage_dealt=damage_dealt,
-                enemies_spawned=enemies_spawned,
-                enemies_killed=enemies_killed,
-                deaths=deaths,
-                max_wave=wave_number,
+                seconds_survived=game_state.run_time,
+                player_hp_end=game_state.player_hp,
+                shots_fired=game_state.shots_fired,
+                hits=game_state.hits,
+                damage_taken=game_state.damage_taken,
+                damage_dealt=game_state.damage_dealt,
+                enemies_spawned=game_state.enemies_spawned,
+                enemies_killed=game_state.enemies_killed,
+                deaths=game_state.deaths,
+                max_wave=game_state.wave_number,
             )
             telemetry.close()
             print(f"Saved run_id={run_id} to game_telemetry.db")
@@ -3243,7 +3343,7 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
     clamp_rect_to_screen(player_rect)
 
 
-def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict]):
+def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict], state: GameState):
     """Enemy movement - enemies cannot go through objects and must navigate around them."""
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -3305,7 +3405,7 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
         
         # Check pickups (enemies cannot collect pickups - only collision detection)
         if not collision:
-            for pickup in pickups:
+            for pickup in state.pickups:
                 if enemy_rect.colliderect(pickup["rect"]):
                     collision = True
                     break
@@ -3322,14 +3422,14 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
         
         # Check friendly AI
         if not collision:
-            for f in friendly_ai:
+            for f in state.friendly_ai:
                 if f.get("hp", 1) > 0 and enemy_rect.colliderect(f["rect"]):
                     collision = True
                     break
         
         # Check other enemies (prevent enemy stacking)
         if not collision:
-            for other_e in enemies:
+            for other_e in state.enemies:
                 if other_e["rect"] is not enemy_rect and enemy_rect.colliderect(other_e["rect"]):
                     collision = True
                     break
@@ -3358,7 +3458,7 @@ def filter_blocks_too_close_to_player(block_list: list[dict], player_center: pyg
     return filtered
 
 
-def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pygame.Rect:
+def random_spawn_position(size: tuple[int, int], state: GameState, max_attempts: int = 25) -> pygame.Rect:
     """Find a spawn position not overlapping player or blocks. Player spawn takes priority."""
     w, h = size
     player_center = pygame.Vector2(player.center)
@@ -3392,7 +3492,7 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
             continue
         if any(candidate.colliderect(tr["bounding_rect"]) for tr in triangle_blocks):
             continue
-        if any(candidate.colliderect(p["rect"]) for p in pickups):
+        if any(candidate.colliderect(p["rect"]) for p in state.pickups):
             continue
         # Prevent spawning in health recovery zone
         if candidate.colliderect(moving_health_zone["rect"]):
@@ -3404,25 +3504,23 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
 
 def start_wave(wave_num: int, state: GameState):
     """Spawn a new wave with scaling. Each level has 3 waves, boss on wave 3."""
-    global wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer, ally_drop_timer, shield_recharge_timer, shield_cooldown_remaining, enemies_spawned
-    global wave_damage_taken, side_quests
     state.enemies = []
-    boss_active = False
+    state.boss_active = False
     # Reset wave damage tracking and activate side quest
-    wave_damage_taken = 0
-    side_quests["no_hit_wave"]["active"] = True
-    side_quests["no_hit_wave"]["completed"] = False
+    state.wave_damage_taken = 0
+    state.side_quests["no_hit_wave"]["active"] = True
+    state.side_quests["no_hit_wave"]["completed"] = False
     # Reset lives to 3 at the beginning of each wave (unless in endurance mode)
     # In endurance mode, lives is set to 999 and should not be reset
-    if lives != 999:
-        lives = 3  # Reset to 3 lives at the beginning of each wave
+    if state.lives != 999:
+        state.lives = 3  # Reset to 3 lives at the beginning of each wave
     
     # Calculate level and wave within level (1-based)
-    current_level = min(max_level, (wave_num - 1) // 3 + 1)
-    wave_in_level = ((wave_num - 1) % 3) + 1
+    state.current_level = min(state.max_level, (wave_num - 1) // 3 + 1)
+    state.wave_in_level = ((wave_num - 1) % 3) + 1
     
     # Boss appears on wave 3 of each level
-    if wave_in_level == 3:
+    if state.wave_in_level == 3:
         # Spawn boss (create a copy from template)
         boss = BOSS_TEMPLATE.copy()  # Create a copy to modify
         # Set rect position at runtime (WIDTH/HEIGHT are now available)
@@ -3433,7 +3531,7 @@ def start_wave(wave_num: int, state: GameState):
         # Boss HP is capped at 300 (same as all enemies)
         # Scale boss HP for different levels, but cap at 300
         # Apply 110% multiplier (1.1x) to all boss stats
-        boss_hp_scale = 1.0 + (current_level - 1) * 0.3
+        boss_hp_scale = 1.0 + (state.current_level - 1) * 0.3
         boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"] * 1.1), 300)  # 110% health
         boss["max_hp"] = boss["hp"]
         boss["shoot_cooldown"] = boss_template["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER  # Apply fire rate multiplier
@@ -3442,23 +3540,24 @@ def start_wave(wave_num: int, state: GameState):
         boss["phase"] = 1
         boss["time_since_shot"] = 0.0
         state.enemies.append(boss)
-        boss_active = True
-        enemies_spawned_ref = [enemies_spawned]
-        log_enemy_spawns([boss], telemetry, run_time, enemies_spawned_ref)
-        enemies_spawned = enemies_spawned_ref[0]
+        state.boss_active = True
+        enemies_spawned_ref = [state.enemies_spawned]
+        log_enemy_spawns([boss], telemetry, state.run_time, enemies_spawned_ref)
+        state.enemies_spawned = enemies_spawned_ref[0]
         # Log boss as enemy type for this wave
-        telemetry.log_wave_enemy_types(
-            WaveEnemyTypeEvent(
-                t=run_time,
-                wave_number=wave_num,
-                enemy_type=boss["type"],
-                count=1,
+        if telemetry_enabled and telemetry:
+            telemetry.log_wave_enemy_types(
+                WaveEnemyTypeEvent(
+                    t=state.run_time,
+                    wave_number=wave_num,
+                    enemy_type=boss["type"],
+                    count=1,
+                )
             )
-        )
-        wave_active = True
+        state.wave_active = True
         
         # Charge overshield at wave start (boss wave)
-        overshield_recharge_timer = overshield_recharge_cooldown  # Set to full charge
+        state.overshield_recharge_timer = overshield_recharge_cooldown  # Set to full charge
         
         return
     
@@ -3466,8 +3565,8 @@ def start_wave(wave_num: int, state: GameState):
     # Apply difficulty multipliers
     diff_mult = difficulty_multipliers[difficulty]
     # Level-based scaling - increase difficulty with level and wave in level
-    level_mult = 1.0 + (current_level - 1) * 0.3
-    wave_in_level_mult = 1.0 + (wave_in_level - 1) * 0.15  # Wave 2 is harder than wave 1
+    level_mult = 1.0 + (state.current_level - 1) * 0.3
+    wave_in_level_mult = 1.0 + (state.wave_in_level - 1) * 0.15  # Wave 2 is harder than wave 1
     hp_scale = (1.0 + 0.15 * (wave_num - 1)) * diff_mult["enemy_hp"] * level_mult * wave_in_level_mult
     speed_scale = (1.0 + 0.05 * (wave_num - 1)) * diff_mult["enemy_speed"] * level_mult * wave_in_level_mult
     # Apply difficulty to enemy count
@@ -3492,7 +3591,7 @@ def start_wave(wave_num: int, state: GameState):
                 continue  # Skip if no other templates available
         
         enemy = make_enemy_from_template(tmpl, hp_scale, speed_scale)
-        enemy["rect"] = random_spawn_position((enemy["rect"].w, enemy["rect"].h))
+        enemy["rect"] = random_spawn_position((enemy["rect"].w, enemy["rect"].h), state)
         spawned.append(enemy)
         # Count enemy types
         enemy_type = enemy["type"]
@@ -3501,20 +3600,22 @@ def start_wave(wave_num: int, state: GameState):
             queen_count += 1
 
     state.enemies.extend(spawned)
-    enemies_spawned_ref = [enemies_spawned]
-    log_enemy_spawns(spawned, telemetry, run_time, enemies_spawned_ref)
-    enemies_spawned = enemies_spawned_ref[0]
+    enemies_spawned_ref = [state.enemies_spawned]
+    if telemetry_enabled and telemetry:
+        log_enemy_spawns(spawned, telemetry, state.run_time, enemies_spawned_ref)
+    state.enemies_spawned = enemies_spawned_ref[0]
     
     # Log enemy types for this wave
-    for enemy_type, type_count in enemy_type_counts.items():
-        telemetry.log_wave_enemy_types(
-            WaveEnemyTypeEvent(
-                t=run_time,
-                wave_number=wave_num,
-                enemy_type=enemy_type,
-                count=type_count,
+    if telemetry_enabled and telemetry:
+        for enemy_type, type_count in enemy_type_counts.items():
+            telemetry.log_wave_enemy_types(
+                WaveEnemyTypeEvent(
+                    t=state.run_time,
+                    wave_number=wave_num,
+                    enemy_type=enemy_type,
+                    count=type_count,
+                )
             )
-        )
     
     # Spawn friendly AI: 2-4 per wave (increased from 1-2)
     # Calculate friendly AI count based on enemy count - more friendly AI
@@ -3522,26 +3623,27 @@ def start_wave(wave_num: int, state: GameState):
     # friendly_count = max(2, min(4, (count + 1) // 2))  # 2-4 friendly per wave
     # spawn_friendly_ai(friendly_count, hp_scale, speed_scale, friendly_ai_templates, friendly_ai, random_spawn_position, telemetry, run_time)
     
-    wave_active = True
+    state.wave_active = True
     
     # Charge overshield at wave start
-    overshield_recharge_timer = overshield_recharge_cooldown  # Set to full charge
-    ally_drop_timer = ally_drop_cooldown  # Charge ally drop at wave start
+    state.overshield_recharge_timer = overshield_recharge_cooldown  # Set to full charge
+    state.ally_drop_timer = ally_drop_cooldown  # Charge ally drop at wave start
     # Charge shield at wave start
-    shield_recharge_timer = shield_recharge_cooldown  # Set to full charge
-    shield_cooldown_remaining = 0.0  # Shield ready to use
+    state.shield_recharge_timer = state.shield_recharge_cooldown  # Set to full charge
+    state.shield_cooldown_remaining = 0.0  # Shield ready to use
     
     # Log wave start event
-    telemetry.log_wave(
-        WaveEvent(
-            t=run_time,
-            wave_number=wave_num,
-            event_type="start",
-            enemies_spawned=count,
-            hp_scale=hp_scale,
-            speed_scale=speed_scale,
+    if telemetry_enabled and telemetry:
+        telemetry.log_wave(
+            WaveEvent(
+                t=state.run_time,
+                wave_number=wave_num,
+                event_type="start",
+                enemies_spawned=count,
+                hp_scale=hp_scale,
+                speed_scale=speed_scale,
+            )
         )
-    )
 
 
 def init_high_scores_db():
@@ -3953,10 +4055,10 @@ def spawn_pickup(pickup_type: str):
     size = (64, 64)  # Doubled from 32x32
     max_attempts = 50  # Increased attempts to avoid overlaps
     for _ in range(max_attempts):
-        r = random_spawn_position(size)
+        r = random_spawn_position(size, state)
         # Check if pickup overlaps with existing pickups
         overlaps = False
-        for existing_pickup in pickups:
+        for existing_pickup in state.pickups:
             if r.colliderect(existing_pickup["rect"]):
                 overlaps = True
                 break
@@ -3986,7 +4088,7 @@ def spawn_pickup(pickup_type: str):
     # If we couldn't find a non-overlapping position, skip spawning this pickup
 
 
-def spawn_weapon_in_center(weapon_type: str):
+def spawn_weapon_in_center(weapon_type: str, state: GameState):
     """Spawn a weapon pickup in the center of the screen (level completion reward)."""
     # Do not spawn basic beam as a pickup
     if weapon_type == "basic":
@@ -3999,7 +4101,7 @@ def spawn_weapon_in_center(weapon_type: str):
         weapon_pickup_size[0],
         weapon_pickup_size[1]
     )
-    pickups.append({
+    state.pickups.append({
         "type": weapon_type,
         "rect": weapon_pickup_rect,
         "color": WEAPON_DISPLAY_COLORS.get(weapon_type, (180, 100, 255)),
@@ -4010,7 +4112,7 @@ def spawn_weapon_in_center(weapon_type: str):
     })
 
 
-def spawn_weapon_drop(enemy: dict):
+def spawn_weapon_drop(enemy: dict, state: GameState):
     """Spawn a weapon drop from a killed enemy."""
     enemy_type = enemy.get("type", "grunt")
     weapon_drop_map = {
@@ -4044,7 +4146,7 @@ def spawn_weapon_drop(enemy: dict):
             "giant": (255, 200, 0),
             "laser": (255, 50, 50),
         }
-        pickups.append({
+        state.pickups.append({
             "type": weapon_type,
             "rect": weapon_pickup_rect,
             "color": WEAPON_DISPLAY_COLORS.get(weapon_type, (180, 100, 255)),
@@ -4057,13 +4159,12 @@ def spawn_weapon_drop(enemy: dict):
 # Rendering helper functions are now imported from rendering.py
 
 
-def create_pickup_collection_effect(x: int, y: int, color: tuple[int, int, int]):
+def create_pickup_collection_effect(x: int, y: int, color: tuple[int, int, int], state: GameState):
     """Create particle effect when pickup is collected."""
-    global collection_effects
     for _ in range(12):
         angle = random.uniform(0, 2 * math.pi)
         speed = random.uniform(50, 150)
-        collection_effects.append({
+        state.collection_effects.append({
             "x": float(x),
             "y": float(y),
             "vel_x": math.cos(angle) * speed,
@@ -4074,21 +4175,19 @@ def create_pickup_collection_effect(x: int, y: int, color: tuple[int, int, int])
         })
 
 
-def update_pickup_effects(dt: float):
+def update_pickup_effects(dt: float, state: GameState):
     """Update pickup particle effects."""
-    global pickup_particles, collection_effects
-    
     # Update collection effects
-    for effect in collection_effects[:]:
+    for effect in state.collection_effects[:]:
         effect["x"] += effect["vel_x"] * dt
         effect["y"] += effect["vel_y"] * dt
         effect["life"] -= dt
         if effect["life"] <= 0:
-            collection_effects.remove(effect)
+            state.collection_effects.remove(effect)
     
     # Generate particles around pickups
-    pickup_particles.clear()
-    for p in pickups:
+    state.pickup_particles.clear()
+    for p in state.pickups:
         center_x = p["rect"].centerx
         center_y = p["rect"].centery
         age = p.get("age", 0.0)
@@ -4103,7 +4202,7 @@ def update_pickup_effects(dt: float):
             dist = glow_radius * 0.7
             px = center_x + math.cos(angle) * dist
             py = center_y + math.sin(angle) * dist
-            pickup_particles.append({
+            state.pickup_particles.append({
                 "x": px,
                 "y": py,
                 "color": p["color"],
@@ -4116,8 +4215,6 @@ def update_pickup_effects(dt: float):
 
 
 def spawn_player_bullet_and_log(state: GameState):
-    global shots_fired, player_bullet_shape_index
-
     # Determine aiming direction based on aiming mode
     if aiming_mode == AIM_ARROWS:
         # Arrow key aiming
@@ -4135,8 +4232,8 @@ def spawn_player_bullet_and_log(state: GameState):
         
         if dx == 0 and dy == 0:
             # No arrow keys pressed, use last movement direction or default
-            if last_move_velocity.length_squared() > 0:
-                base_dir = last_move_velocity.normalize()
+            if state.last_move_velocity.length_squared() > 0:
+                base_dir = state.last_move_velocity.normalize()
             else:
                 base_dir = pygame.Vector2(1, 0)  # Default right
         else:
@@ -4151,11 +4248,11 @@ def spawn_player_bullet_and_log(state: GameState):
         mx, my = pygame.mouse.get_pos()
         base_dir = vec_toward(player.centerx, player.centery, mx, my)
 
-    shape = player_bullet_shapes[player_bullet_shape_index % len(player_bullet_shapes)]
-    player_bullet_shape_index = (player_bullet_shape_index + 1) % len(player_bullet_shapes)
+    shape = player_bullet_shapes[state.player_bullet_shape_index % len(player_bullet_shapes)]
+    state.player_bullet_shape_index = (state.player_bullet_shape_index + 1) % len(player_bullet_shapes)
 
     # Get weapon config (default to basic if not found)
-    weapon_config = WEAPON_CONFIGS.get(current_weapon_mode, WEAPON_CONFIGS["basic"])
+    weapon_config = WEAPON_CONFIGS.get(state.current_weapon_mode, WEAPON_CONFIGS["basic"])
     
     # Determine shot pattern based on weapon mode
     if weapon_config["num_projectiles"] > 1:
@@ -4172,76 +4269,77 @@ def spawn_player_bullet_and_log(state: GameState):
     # Spawn bullets for each direction
     for d in directions:
         # Apply stat multipliers and weapon-specific multipliers
-        size_mult = player_stat_multipliers["bullet_size"] * weapon_config["size_multiplier"]
+        size_mult = state.player_stat_multipliers["bullet_size"] * weapon_config["size_multiplier"]
         
         effective_size = (
             int(player_bullet_size[0] * size_mult),
             int(player_bullet_size[1] * size_mult),
         )
-        effective_speed = player_bullet_speed * player_stat_multipliers["bullet_speed"] * weapon_config["speed_multiplier"]
-        base_damage = int(player_bullet_damage * player_stat_multipliers["bullet_damage"])
+        effective_speed = player_bullet_speed * state.player_stat_multipliers["bullet_speed"] * weapon_config["speed_multiplier"]
+        base_damage = int(state.player_bullet_damage * state.player_stat_multipliers["bullet_damage"])
         
         # Apply weapon damage multiplier
         effective_damage = int(base_damage * weapon_config["damage_multiplier"])
         
         # Apply random damage multiplier (from random_damage pickup)
-        effective_damage = int(effective_damage * random_damage_multiplier)
+        effective_damage = int(effective_damage * state.random_damage_multiplier)
         
         # Rocket launcher: always has explosion
         if weapon_config["is_rocket"]:
-            rocket_explosion = max(weapon_config["explosion_radius"], player_stat_multipliers["bullet_explosion_radius"] + 100.0)
+            rocket_explosion = max(weapon_config["explosion_radius"], state.player_stat_multipliers["bullet_explosion_radius"] + 100.0)
         else:
-            rocket_explosion = max(weapon_config["explosion_radius"], player_stat_multipliers["bullet_explosion_radius"])
+            rocket_explosion = max(weapon_config["explosion_radius"], state.player_stat_multipliers["bullet_explosion_radius"])
 
-    r = pygame.Rect(
-        player.centerx - effective_size[0] // 2,
-        player.centery - effective_size[1] // 2,
-        effective_size[0],
-        effective_size[1],
-    )
-    state.player_bullets.append({
-            "rect": r,
-            "vel": d * effective_speed,
-            "shape": shape,
-            "color": weapon_config.get("color", player_bullets_color),  # Use weapon color from config
-            "damage": effective_damage,
-            "penetration": int(player_stat_multipliers["bullet_penetration"]),
-            "explosion_radius": rocket_explosion,
-            "knockback": player_stat_multipliers["bullet_knockback"],
-            "bounces": weapon_config["max_bounces"],  # Max bounces from config
-            "is_rocket": weapon_config["is_rocket"],
-        })
-    shots_fired += 1
+        r = pygame.Rect(
+            player.centerx - effective_size[0] // 2,
+            player.centery - effective_size[1] // 2,
+            effective_size[0],
+            effective_size[1],
+        )
+        state.player_bullets.append({
+                "rect": r,
+                "vel": d * effective_speed,
+                "shape": shape,
+                "color": weapon_config.get("color", player_bullets_color),  # Use weapon color from config
+                "damage": effective_damage,
+                "penetration": int(state.player_stat_multipliers["bullet_penetration"]),
+                "explosion_radius": rocket_explosion,
+                "knockback": state.player_stat_multipliers["bullet_knockback"],
+                "bounces": weapon_config["max_bounces"],  # Max bounces from config
+                "is_rocket": weapon_config["is_rocket"],
+            })
+    state.shots_fired += 1
 
-    telemetry.log_shot(
-        ShotEvent(
-            t=run_time,
-            origin_x=player.centerx,
-            origin_y=player.centery,
-            target_x=mx,
-            target_y=my,
-            dir_x=float(d.x),
-            dir_y=float(d.y),
+    if telemetry_enabled and telemetry:
+        telemetry.log_shot(
+            ShotEvent(
+                t=state.run_time,
+                origin_x=player.centerx,
+                origin_y=player.centery,
+                target_x=mx,
+                target_y=my,
+                dir_x=float(d.x),
+                dir_y=float(d.y),
+            )
         )
-    )
-    
-    # Log bullet metadata
-    telemetry.log_bullet_metadata(
-        BulletMetadataEvent(
-            t=run_time,
-            bullet_type="player",
-            shape=shape,
-            color_r=player_bullets_color[0],
-            color_g=player_bullets_color[1],
-            color_b=player_bullets_color[2],
+        
+        # Log bullet metadata
+        telemetry.log_bullet_metadata(
+            BulletMetadataEvent(
+                t=state.run_time,
+                bullet_type="player",
+                shape=shape,
+                color_r=player_bullets_color[0],
+                color_g=player_bullets_color[1],
+                color_b=player_bullets_color[2],
+            )
         )
-    )
 
 
 def spawn_enemy_projectile(enemy: dict, state: GameState):
     """Spawn projectile from enemy targeting nearest threat (player or friendly AI)."""
     e_pos = pygame.Vector2(enemy["rect"].center)
-    threat_result = find_nearest_threat(e_pos, player, friendly_ai)
+    threat_result = find_nearest_threat(e_pos, player, state.friendly_ai)
     
     # Calculate direction
     if threat_result:
@@ -4275,7 +4373,7 @@ def spawn_enemy_projectile(enemy: dict, state: GameState):
     if telemetry_enabled and telemetry:
         telemetry.log_bullet_metadata(
             BulletMetadataEvent(
-                t=run_time,
+                t=state.run_time,
                 bullet_type="enemy",
                 shape=proj_shape,
                 color_r=proj_color[0],
@@ -4346,7 +4444,6 @@ enemy_defeat_messages: list[dict] = []  # List of {enemy_type, timer} for defeat
 
 def kill_enemy(enemy: dict, state: GameState):
     """Handle enemy death: drop weapon, update score, remove from list, and clean up projectiles."""
-    global enemies_killed, score, current_level, enemy_defeat_messages, damage_numbers
     is_boss = enemy.get("is_boss", False)
     
     # Spawner enemy: when killed, all spawned enemies die
@@ -4365,12 +4462,12 @@ def kill_enemy(enemy: dict, state: GameState):
                     state.enemies.remove(spawned_enemy)
                 except ValueError:
                     pass
-                enemies_killed += 1
-                score += calculate_kill_score(wave_number, run_time)
+                state.enemies_killed += 1
+                state.score += calculate_kill_score(state.wave_number, state.run_time)
     
     # Add defeat message
     enemy_type = enemy.get("type", "enemy")
-    enemy_defeat_messages.append({
+    state.enemy_defeat_messages.append({
         "enemy_type": enemy_type,
         "timer": 3.0,  # Display for 3 seconds
     })
@@ -4388,220 +4485,221 @@ def kill_enemy(enemy: dict, state: GameState):
             state.enemy_projectiles.remove(proj)
     
     # Remove damage numbers near the dead enemy's position
-    for dmg_num in damage_numbers[:]:
+    for dmg_num in state.damage_numbers[:]:
         dmg_pos = pygame.Vector2(dmg_num["x"], dmg_num["y"])
         if (dmg_pos - enemy_pos).length_squared() < cleanup_radius_sq:
-            damage_numbers.remove(dmg_num)
+            state.damage_numbers.remove(dmg_num)
     
     # If boss is killed, spawn level completion weapon in center
     if is_boss:
         # Weapon unlock order is now imported from config_weapons.py
-        if current_level in WEAPON_UNLOCK_ORDER:
-            weapon_to_unlock = WEAPON_UNLOCK_ORDER[current_level]
-            if weapon_to_unlock not in unlocked_weapons:
-                spawn_weapon_in_center(weapon_to_unlock)
+        if state.current_level in WEAPON_UNLOCK_ORDER:
+            weapon_to_unlock = WEAPON_UNLOCK_ORDER[state.current_level]
+            if weapon_to_unlock not in state.unlocked_weapons:
+                spawn_weapon_in_center(weapon_to_unlock, state)
     else:
         # Regular enemies drop weapons randomly (except suicide enemies which despawn)
         if not enemy.get("is_suicide"):
-            spawn_weapon_drop(enemy)
+            spawn_weapon_drop(enemy, state)
     
     try:
         state.enemies.remove(enemy)
     except ValueError:
         pass  # Already removed
-    enemies_killed += 1
-    score += calculate_kill_score(wave_number, run_time)
+    state.enemies_killed += 1
+    state.score += calculate_kill_score(state.wave_number, state.run_time)
 
 
-def apply_pickup_effect(pickup_type: str):
+def apply_pickup_effect(pickup_type: str, state: GameState):
     """Apply the effect of a collected pickup."""
-    global boost_meter, fire_rate_buff_t, player_max_hp, player_hp
-    global player_stat_multipliers, current_weapon_mode, overshield, weapon_pickup_messages
-    
     if pickup_type == "boost":
-        boost_meter = min(boost_meter_max, boost_meter + 45.0)
+        state.boost_meter = min(boost_meter_max, state.boost_meter + 45.0)
     elif pickup_type == "firerate":
-        fire_rate_buff_t = fire_rate_buff_duration
+        state.fire_rate_buff_t = fire_rate_buff_duration
     elif pickup_type == "health":
         # Restore 100 HP (capped at max HP)
-        player_hp = min(player_max_hp, player_hp + 100)
+        state.player_hp = min(state.player_max_hp, state.player_hp + 100)
     elif pickup_type == "max_health":
-        player_max_hp += 15
-        player_hp += 15  # also heal by the same amount
+        state.player_max_hp += 15
+        state.player_hp += 15  # also heal by the same amount
     elif pickup_type == "speed":
-        player_stat_multipliers["speed"] += 0.15
+        state.player_stat_multipliers["speed"] += 0.15
     elif pickup_type == "firerate_permanent":
         # Cap fire rate multiplier at 2.0 (2x firing speed max) to prevent performance issues
-        player_stat_multipliers["firerate"] = min(2.0, player_stat_multipliers["firerate"] + 0.12)
+        state.player_stat_multipliers["firerate"] = min(2.0, state.player_stat_multipliers["firerate"] + 0.12)
     elif pickup_type == "bullet_size":
-        player_stat_multipliers["bullet_size"] += 0.20
+        state.player_stat_multipliers["bullet_size"] += 0.20
     elif pickup_type == "bullet_speed":
-        player_stat_multipliers["bullet_speed"] += 0.15
+        state.player_stat_multipliers["bullet_speed"] += 0.15
     elif pickup_type == "bullet_damage":
-        player_stat_multipliers["bullet_damage"] += 0.20
+        state.player_stat_multipliers["bullet_damage"] += 0.20
     elif pickup_type == "bullet_knockback":
-        player_stat_multipliers["bullet_knockback"] += 0.25
+        state.player_stat_multipliers["bullet_knockback"] += 0.25
     elif pickup_type == "bullet_penetration":
-        player_stat_multipliers["bullet_penetration"] += 1
+        state.player_stat_multipliers["bullet_penetration"] += 1
     elif pickup_type == "bullet_explosion":
-        player_stat_multipliers["bullet_explosion_radius"] += 25.0
+        state.player_stat_multipliers["bullet_explosion_radius"] += 25.0
     elif pickup_type == "health_regen":
         # Increase player health regeneration rate
-        global player_health_regen_rate
-        player_health_regen_rate += 5.0  # Add 5 HP per second regeneration
+        state.player_health_regen_rate += 5.0  # Add 5 HP per second regeneration
     elif pickup_type == "random_damage":
         # Randomize damage multiplier (between 0.5x and 2.0x)
-        global random_damage_multiplier
-        random_damage_multiplier = random.uniform(0.5, 2.0)  # Random multiplier between 0.5x and 2.0x
+        state.random_damage_multiplier = random.uniform(0.5, 2.0)  # Random multiplier between 0.5x and 2.0x
     elif pickup_type == "spawn_boost":
         # Reduce ally drop cooldown (boost player's ability to spawn allies)
         global ally_drop_cooldown
         ally_drop_cooldown = max(1.0, ally_drop_cooldown * 0.8)  # Reduce cooldown by 20% (minimum 1 second)
     # Weapon pickups - unlock and switch to weapon
     elif pickup_type in ["giant_bullets", "giant"]:
-        unlocked_weapons.add("giant")
-        previous_weapon_mode = current_weapon_mode
+        state.unlocked_weapons.add("giant")
+        state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if previous_weapon_mode == "wave_beam":
-            wave_beams.clear()
-        if previous_weapon_mode == "laser":
-            laser_beams.clear()
-        current_weapon_mode = "giant"
+        if state.previous_weapon_mode == "wave_beam":
+            state.wave_beams.clear()
+        if state.previous_weapon_mode == "laser":
+            state.laser_beams.clear()
+        state.current_weapon_mode = "giant"
         # Log weapon switch from pickup
-        if previous_weapon_mode != current_weapon_mode:
-            telemetry.log_player_action(PlayerActionEvent(
-                t=run_time,
-                action_type="weapon_switch",
-                x=player.centerx,
-                y=player.centery,
-                duration=None,
-                success=True
-            ))
+        if state.previous_weapon_mode != state.current_weapon_mode:
+            if telemetry_enabled and telemetry:
+                telemetry.log_player_action(PlayerActionEvent(
+                    t=state.run_time,
+                    action_type="weapon_switch",
+                    x=player.centerx,
+                    y=player.centery,
+                    duration=None,
+                    success=True
+                ))
     elif pickup_type in ["triple_shot", "triple"]:
-        unlocked_weapons.add("triple")
-        previous_weapon_mode = current_weapon_mode
+        state.unlocked_weapons.add("triple")
+        state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if previous_weapon_mode == "wave_beam":
-            wave_beams.clear()
-        if previous_weapon_mode == "laser":
-            laser_beams.clear()
-        current_weapon_mode = "triple"
+        if state.previous_weapon_mode == "wave_beam":
+            state.wave_beams.clear()
+        if state.previous_weapon_mode == "laser":
+            state.laser_beams.clear()
+        state.current_weapon_mode = "triple"
         # Weapon names and colors are now imported from config_weapons.py
-        weapon_pickup_messages.append({
+        state.weapon_pickup_messages.append({
             "weapon_name": WEAPON_NAMES.get("triple", "TRIPLE SHOT"),
             "timer": 3.0,
             "color": WEAPON_DISPLAY_COLORS.get("triple", (255, 255, 255))
         })
-        if previous_weapon_mode != current_weapon_mode:
-            telemetry.log_player_action(PlayerActionEvent(
-                t=run_time,
-                action_type="weapon_switch",
-                x=player.centerx,
-                y=player.centery,
-                duration=None,
-                success=True
-            ))
+        if state.previous_weapon_mode != state.current_weapon_mode:
+            if telemetry_enabled and telemetry:
+                telemetry.log_player_action(PlayerActionEvent(
+                    t=state.run_time,
+                    action_type="weapon_switch",
+                    x=player.centerx,
+                    y=player.centery,
+                    duration=None,
+                    success=True
+                ))
     elif pickup_type in ["bouncing_bullets", "bouncing"]:
-        unlocked_weapons.add("bouncing")
-        previous_weapon_mode = current_weapon_mode
+        state.unlocked_weapons.add("bouncing")
+        state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if previous_weapon_mode == "wave_beam":
-            wave_beams.clear()
-        if previous_weapon_mode == "laser":
-            laser_beams.clear()
-        current_weapon_mode = "bouncing"
+        if state.previous_weapon_mode == "wave_beam":
+            state.wave_beams.clear()
+        if state.previous_weapon_mode == "laser":
+            state.laser_beams.clear()
+        state.current_weapon_mode = "bouncing"
         # Weapon names and colors are now imported from config_weapons.py
-        weapon_pickup_messages.append({
+        state.weapon_pickup_messages.append({
             "weapon_name": WEAPON_NAMES.get("bouncing", "BOUNCING BULLETS"),
             "timer": 3.0,
             "color": WEAPON_DISPLAY_COLORS.get("bouncing", (255, 255, 255))
         })
-        if previous_weapon_mode != current_weapon_mode:
-            telemetry.log_player_action(PlayerActionEvent(
-                t=run_time,
-                action_type="weapon_switch",
-                x=player.centerx,
-                y=player.centery,
-                duration=None,
-                success=True
-            ))
+        if state.previous_weapon_mode != state.current_weapon_mode:
+            if telemetry_enabled and telemetry:
+                telemetry.log_player_action(PlayerActionEvent(
+                    t=state.run_time,
+                    action_type="weapon_switch",
+                    x=player.centerx,
+                    y=player.centery,
+                    duration=None,
+                    success=True
+                ))
     elif pickup_type in ["rocket_launcher", "rocket"]:
-        unlocked_weapons.add("rocket")
-        previous_weapon_mode = current_weapon_mode
+        state.unlocked_weapons.add("rocket")
+        state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if previous_weapon_mode == "wave_beam":
-            wave_beams.clear()
-        if previous_weapon_mode == "laser":
-            laser_beams.clear()
-        current_weapon_mode = "rocket"
+        if state.previous_weapon_mode == "wave_beam":
+            state.wave_beams.clear()
+        if state.previous_weapon_mode == "laser":
+            state.laser_beams.clear()
+        state.current_weapon_mode = "rocket"
         # Weapon names and colors are now imported from config_weapons.py
-        weapon_pickup_messages.append({
+        state.weapon_pickup_messages.append({
             "weapon_name": WEAPON_NAMES.get("rocket", "ROCKET LAUNCHER"),
             "timer": 3.0,
             "color": WEAPON_DISPLAY_COLORS.get("rocket", (255, 255, 255))
         })
-        if previous_weapon_mode != current_weapon_mode:
-            telemetry.log_player_action(PlayerActionEvent(
-                t=run_time,
-                action_type="weapon_switch",
-                x=player.centerx,
-                y=player.centery,
-                duration=None,
-                success=True
-            ))
+        if state.previous_weapon_mode != state.current_weapon_mode:
+            if telemetry_enabled and telemetry:
+                telemetry.log_player_action(PlayerActionEvent(
+                    t=state.run_time,
+                    action_type="weapon_switch",
+                    x=player.centerx,
+                    y=player.centery,
+                    duration=None,
+                    success=True
+                ))
     elif pickup_type == "laser":
-        unlocked_weapons.add("laser")
-        previous_weapon_mode = current_weapon_mode
+        state.unlocked_weapons.add("laser")
+        state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if previous_weapon_mode == "wave_beam":
-            wave_beams.clear()
-        current_weapon_mode = "laser"
+        if state.previous_weapon_mode == "wave_beam":
+            state.wave_beams.clear()
+        state.current_weapon_mode = "laser"
         # Weapon names and colors are now imported from config_weapons.py
-        weapon_pickup_messages.append({
+        state.weapon_pickup_messages.append({
             "weapon_name": WEAPON_NAMES.get("laser", "LASER BEAM"),
             "timer": 3.0,
             "color": WEAPON_DISPLAY_COLORS.get("laser", (255, 255, 255))
         })
-        if previous_weapon_mode != current_weapon_mode:
-            telemetry.log_player_action(PlayerActionEvent(
-                t=run_time,
-                action_type="weapon_switch",
-                x=player.centerx,
-                y=player.centery,
-                duration=None,
-                success=True
-            ))
+        if state.previous_weapon_mode != state.current_weapon_mode:
+            if telemetry_enabled and telemetry:
+                telemetry.log_player_action(PlayerActionEvent(
+                    t=state.run_time,
+                    action_type="weapon_switch",
+                    x=player.centerx,
+                    y=player.centery,
+                    duration=None,
+                    success=True
+                ))
     elif pickup_type == "basic":
-        unlocked_weapons.add("basic")  # Should already be unlocked, but ensure it
-        previous_weapon_mode = current_weapon_mode
+        state.unlocked_weapons.add("basic")  # Should already be unlocked, but ensure it
+        state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if previous_weapon_mode == "wave_beam":
-            wave_beams.clear()
-        if previous_weapon_mode == "laser":
-            laser_beams.clear()
-        current_weapon_mode = "basic"
+        if state.previous_weapon_mode == "wave_beam":
+            state.wave_beams.clear()
+        if state.previous_weapon_mode == "laser":
+            state.laser_beams.clear()
+        state.current_weapon_mode = "basic"
         # Weapon names and colors are now imported from config_weapons.py
-        weapon_pickup_messages.append({
+        state.weapon_pickup_messages.append({
             "weapon_name": WEAPON_NAMES.get("basic", "BASIC FIRE"),
             "timer": 3.0,
             "color": WEAPON_DISPLAY_COLORS.get("basic", (255, 255, 255))
         })
-        if previous_weapon_mode != current_weapon_mode:
-            telemetry.log_player_action(PlayerActionEvent(
-                t=run_time,
-                action_type="weapon_switch",
-                x=player.centerx,
-                y=player.centery,
-                duration=None,
-                success=True
-            ))
+        if state.previous_weapon_mode != state.current_weapon_mode:
+            if telemetry_enabled and telemetry:
+                telemetry.log_player_action(PlayerActionEvent(
+                    t=state.run_time,
+                    action_type="weapon_switch",
+                    x=player.centerx,
+                    y=player.centery,
+                    duration=None,
+                    success=True
+                ))
     elif pickup_type == "wave_beam":
-        unlocked_weapons.add("wave_beam")
-        previous_weapon_mode = current_weapon_mode
+        state.unlocked_weapons.add("wave_beam")
+        state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if previous_weapon_mode == "laser":
-            laser_beams.clear()
-        current_weapon_mode = "wave_beam"
+        if state.previous_weapon_mode == "laser":
+            state.laser_beams.clear()
+        state.current_weapon_mode = "wave_beam"
         weapon_names = {
             "giant": "GIANT BULLETS",
             "triple": "TRIPLE SHOT",
@@ -4620,70 +4718,64 @@ def apply_pickup_effect(pickup_type: str):
             "basic": (200, 200, 200),
             "wave_beam": (50, 255, 50)
         }
-        weapon_pickup_messages.append({
+        state.weapon_pickup_messages.append({
             "weapon_name": weapon_names.get("wave_beam", "WAVE BEAM"),
             "timer": 3.0,
             "color": weapon_colors.get("wave_beam", (50, 255, 50))
         })
-        if previous_weapon_mode != current_weapon_mode:
-            telemetry.log_player_action(PlayerActionEvent(
-                t=run_time,
-                action_type="weapon_switch",
-                x=player.centerx,
-                y=player.centery,
-                duration=None,
-                success=True
-            ))
+        if state.previous_weapon_mode != state.current_weapon_mode:
+            if telemetry_enabled and telemetry:
+                telemetry.log_player_action(PlayerActionEvent(
+                    t=state.run_time,
+                    action_type="weapon_switch",
+                    x=player.centerx,
+                    y=player.centery,
+                    duration=None,
+                    success=True
+                ))
     elif pickup_type == "overshield":
-        overshield = min(overshield_max, overshield + 25)
+        state.overshield = min(overshield_max, state.overshield + 25)
 
 
 # render_hud_text is now imported from rendering.py
 
 
 def reset_after_death(state: GameState):
-    global player_hp, player_time_since_shot, pos_timer, previous_weapon_mode, current_weapon_mode
-    global previous_boost_state, previous_slow_state, player_current_zones
-    global enemies, wave_number, time_to_next_wave, wave_active
-    global current_weapon_mode, overshield, unlocked_weapons, wave_in_level, current_level
-    global jump_cooldown_timer, jump_timer, is_jumping, jump_velocity
-    global laser_beams, laser_time_since_shot
-    global shield_active, shield_duration_remaining, shield_cooldown_remaining
-    global player_health_regen_rate, moving_health_zone, dropped_ally, ally_drop_timer
-
-    player_hp = player_max_hp
-    player_health_regen_rate = 0.0  # Reset health regeneration rate
-    random_damage_multiplier = 1.0  # Reset random damage multiplier
-    damage_numbers.clear()  # Clear damage numbers on death
-    weapon_pickup_messages.clear()  # Clear weapon pickup messages on death
-    grenade_explosions.clear()  # Clear grenade explosions on death
-    grenade_time_since_used = 999.0  # Reset grenade cooldown
-    missiles.clear()  # Clear missiles on death
-    missile_time_since_used = 999.0  # Reset missile cooldown
-    dropped_ally = None  # Clear dropped ally on death
-    ally_drop_timer = 0.0  # Reset ally drop timer on death
+    state.player_hp = state.player_max_hp
+    state.player_health_regen_rate = 0.0  # Reset health regeneration rate
+    state.random_damage_multiplier = 1.0  # Reset random damage multiplier
+    state.damage_numbers.clear()  # Clear damage numbers on death
+    state.weapon_pickup_messages.clear()  # Clear weapon pickup messages on death
+    state.grenade_explosions.clear()  # Clear grenade explosions on death
+    state.grenade_time_since_used = 999.0  # Reset grenade cooldown
+    state.missiles.clear()  # Clear missiles on death
+    state.missile_time_since_used = 999.0  # Reset missile cooldown
+    state.dropped_ally = None  # Clear dropped ally on death
+    state.ally_drop_timer = 0.0  # Reset ally drop timer on death
     # Reset moving health zone to center
     moving_health_zone["rect"].center = (WIDTH // 4, HEIGHT // 4)  # Offset from center (boss spawn)
     moving_health_zone["target"] = None
-    overshield = 0  # Reset overshield
-    player_time_since_shot = 999.0
-    laser_time_since_shot = 999.0
-    pos_timer = 0.0
-    wave_number = 1
-    wave_in_level = 1
-    current_level = 1
-    unlocked_weapons = {"basic"}  # Reset to basic only
-    current_weapon_mode = "basic"  # Reset to basic weapon
-    previous_weapon_mode = "basic"
-    previous_boost_state = False
-    previous_slow_state = False
-    player_current_zones = set()
-    jump_cooldown_timer = 0.0
-    jump_timer = 0.0
-    is_jumping = False
-    jump_velocity = pygame.Vector2(0, 0)
-    laser_beams.clear()
-    wave_beams.clear()
+    state.overshield = 0  # Reset overshield
+    state.player_time_since_shot = 999.0
+    state.laser_time_since_shot = 999.0
+    state.wave_beam_time_since_shot = 999.0
+    state.wave_beam_pattern_index = 0
+    state.pos_timer = 0.0
+    state.wave_number = 1
+    state.wave_in_level = 1
+    state.current_level = 1
+    state.unlocked_weapons = {"basic"}  # Reset to basic only
+    state.current_weapon_mode = "basic"  # Reset to basic weapon
+    state.previous_weapon_mode = "basic"
+    state.previous_boost_state = False
+    state.previous_slow_state = False
+    state.player_current_zones = set()
+    state.jump_cooldown_timer = 0.0
+    state.jump_timer = 0.0
+    state.is_jumping = False
+    state.jump_velocity = pygame.Vector2(0, 0)
+    state.laser_beams.clear()
+    state.wave_beams.clear()
     # Reset hazard obstacles positions (corners)
     hazard_obstacles[0]["center"] = pygame.Vector2(250, 250)  # Top-left
     hazard_obstacles[0]["rotation_angle"] = 0.0
@@ -4706,9 +4798,9 @@ def reset_after_death(state: GameState):
     hazard_obstacles[3]["velocity"] = pygame.Vector2(-105, -120)  # 3x faster
     hazard_obstacles[3]["points"] = []
     # Reset shield
-    shield_active = False
-    shield_duration_remaining = 0.0
-    shield_cooldown_remaining = 0.0
+    state.shield_active = False
+    state.shield_duration_remaining = 0.0
+    state.shield_cooldown_remaining = 0.0
 
     player.x = (WIDTH - player.w) // 2
     player.y = (HEIGHT - player.h) // 2
@@ -4716,13 +4808,12 @@ def reset_after_death(state: GameState):
 
     state.player_bullets.clear()
     state.enemy_projectiles.clear()
-    friendly_ai.clear()
-    
+    state.friendly_ai.clear()
     state.friendly_projectiles.clear()
 
-    wave_number = 1
-    time_to_next_wave = 0.0
-    start_wave(wave_number, state)
+    state.wave_number = 1
+    state.time_to_next_wave = 0.0
+    start_wave(state.wave_number, state)
 
 
 if __name__ == "__main__":
