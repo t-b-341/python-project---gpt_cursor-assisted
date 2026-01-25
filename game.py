@@ -83,9 +83,7 @@ from rendering import (
     draw_silver_wall_texture,
     draw_cracked_brick_wall_texture,
     draw_projectile,
-    draw_health_bar,
     draw_centered_text,
-    render_hud_text,
 )
 from enemies import (
     move_enemy_with_push_cached,
@@ -103,10 +101,12 @@ from allies import (
 )
 from state import GameState
 from screens import SCREEN_HANDLERS
+from screens.gameplay import render as gameplay_render
 from entities import Enemy
 from systems.movement_system import update as movement_update
 from systems.collision_system import update as collision_update
 from systems.spawn_system import update as spawn_update, start_wave as spawn_system_start_wave
+from systems.ai_system import update as ai_update
 
 # Placeholder WIDTH/HEIGHT for module-level initialization
 # Will be updated in main() after pygame.display.init()
@@ -227,6 +227,10 @@ def main():
             "enemy_projectiles_color": enemy_projectiles_color,
             "wave_beam_width": wave_beam_width,
             "missile_damage": missile_damage,
+            # AI system
+            "find_nearest_threat": find_nearest_threat,
+            "spawn_enemy_projectile": spawn_enemy_projectile,
+            "spawn_enemy_projectile_predictive": spawn_enemy_projectile_predictive,
             # Spawn system
             "difficulty": difficulty,
             "random_spawn_position": random_spawn_position,
@@ -852,6 +856,7 @@ def main():
                 movement_update(game_state, dt)
                 collision_update(game_state, dt)
                 spawn_update(game_state, dt)
+                ai_update(game_state, dt)
                 state = game_state.current_screen  # pick up transitions (e.g. game over -> name input, victory)
 
                 # Apply fire rate buff
@@ -932,165 +937,7 @@ def main():
                     game_state.wave_beam_time_since_shot = 0.0
                 
                 # Laser/wave beam collisions are in collision_system
-                
-                # Enemy updates (dead-enemy cleanup is in collision_system)
-                for enemy in game_state.enemies[:]:
-                    # Target/direction for Queen, reflector, shooting (movement done in movement_system)
-                    enemy_pos = pygame.Vector2(enemy["rect"].center)
-                    target_info = find_nearest_threat(enemy_pos, player, game_state.friendly_ai)
-                    if target_info:
-                        target_pos, target_type = target_info
-                        direction = vec_toward(enemy_pos.x, enemy_pos.y, target_pos.x, target_pos.y)
-                    else:
-                        direction = pygame.Vector2(1, 0)  # fallback for shooting checks
-                    
-                    # Queen-specific: Shield activation/deactivation system
-                    if enemy.get("type") == "queen" and enemy.get("has_shield"):
-                        shield_timer = enemy.get("shield_timer", 0.0) + dt
-                        shield_active = enemy.get("shield_active", False)
-                        shield_phase_duration = enemy.get("shield_phase_duration", 15.0)
-                        shield_active_duration = enemy.get("shield_active_duration", 7.5)
-                        
-                        if shield_active:
-                            # Shield is active - check if duration expired
-                            if shield_timer >= shield_active_duration:
-                                # Deactivate shield and reset timer for next phase
-                                enemy["shield_active"] = False
-                                enemy["shield_timer"] = 0.0
-                                # Randomize next phase duration (10-20 seconds)
-                                enemy["shield_phase_duration"] = random.uniform(10.0, 20.0)
-                        else:
-                            # Shield is inactive - check if phase duration expired
-                            if shield_timer >= shield_phase_duration:
-                                # Activate shield and reset timer
-                                enemy["shield_active"] = True
-                                enemy["shield_timer"] = 0.0
-                                # Randomize active duration (5-10 seconds)
-                                enemy["shield_active_duration"] = random.uniform(5.0, 10.0)
-                        
-                        enemy["shield_timer"] = shield_timer
-                    
-                    # Queen-specific: Missile firing (10 second cooldown)
-                    if enemy.get("type") == "queen" and enemy.get("can_use_missiles"):
-                        time_since_missile = enemy.get("time_since_missile", 999.0) + dt
-                        missile_cooldown = enemy.get("missile_cooldown", 10.0)
-                        
-                        if time_since_missile >= missile_cooldown:
-                            # Fire missile at player
-                            if target_info:
-                                target_pos, target_type = target_info
-                                # Spawn missile targeting player
-                                missile_rect = pygame.Rect(
-                                    enemy["rect"].centerx - 8,
-                                    enemy["rect"].centery - 8,
-                                    16, 16
-                                )
-                                game_state.missiles.append({
-                                    "rect": missile_rect,
-                                    "vel": pygame.Vector2(0, 0),
-                                    "target_enemy": None,  # Queen missiles target player, not enemy
-                                    "target_player": True,  # Mark as player-targeting
-                                    "speed": 500,
-                                    "damage": missile_damage,
-                                    "explosion_radius": 150,
-                                    "source": "queen"
-                                })
-                                time_since_missile = 0.0
-                        
-                        enemy["time_since_missile"] = time_since_missile
-                    
-                    # Suicide enemy: detonate when close to player
-                    if enemy.get("is_suicide"):
-                        player_pos = pygame.Vector2(player.center)
-                        enemy_pos = pygame.Vector2(enemy["rect"].center)
-                        dist_to_player = (enemy_pos - player_pos).length()
-                        detonation_distance = enemy.get("detonation_distance", 50)
-                        
-                        if dist_to_player <= detonation_distance:
-                            # Detonate - create explosion
-                            explosion_range = enemy.get("explosion_range", 150)
-                            game_state.grenade_explosions.append({
-                                "x": enemy["rect"].centerx,
-                                "y": enemy["rect"].centery,
-                                "radius": 0,
-                                "max_radius": explosion_range,
-                                "timer": 0.3,
-                                "damage": 500,  # Same as player grenade
-                            })
-                            # Damage player if in range
-                            if dist_to_player <= explosion_range:
-                                # Shield blocks all damage - check shield first
-                                if game_state.shield_active:
-                                    # Shield is active - block damage
-                                    pass
-                                elif not (testing_mode and invulnerability_mode):
-                                    # No shield - apply damage (overshield takes damage first, then player health)
-                                    damage = 500
-                                    if game_state.overshield > 0:
-                                        damage_to_overshield = min(damage, game_state.overshield)
-                                        game_state.overshield = max(0, game_state.overshield - damage)
-                                        remaining_damage = damage - damage_to_overshield
-                                    else:
-                                        remaining_damage = damage
-                                    if remaining_damage > 0:
-                                        game_state.player_hp -= remaining_damage
-                                    game_state.damage_taken += damage
-                                    game_state.wave_damage_taken += damage  # Track damage for side quest
-                                    if game_state.player_hp <= 0:
-                                        if game_state.lives > 0:
-                                            game_state.lives -= 1
-                                            reset_after_death(game_state)
-                                        else:
-                                            # Game over - transition to name input
-                                            game_state.final_score_for_high_score = game_state.score
-                                            game_state.player_name_input = ""
-                                            game_state.name_input_active = True
-                                            state = STATE_NAME_INPUT
-                            # Remove suicide enemy (despawns after detonation)
-                            kill_enemy(enemy, game_state)
-                            continue
-                    
-                    # Spawner enemy minion spawning is in spawn_system.update()
-                    
-                    # Reflector enemy: turn shield towards player (slow turn speed)
-                    if enemy.get("has_reflective_shield"):
-                        if target_info:
-                            target_pos, target_type = target_info
-                            enemy_center = pygame.Vector2(enemy["rect"].center)
-                            to_target = (target_pos - enemy_center).normalize()
-                            target_angle = math.atan2(to_target.y, to_target.x)
-                            
-                            # Turn shield towards target (slow turn speed)
-                            shield_angle = enemy.get("shield_angle", 0.0)
-                            turn_speed = enemy.get("turn_speed", 0.5) * dt
-                            
-                            # Calculate angle difference
-                            angle_diff = target_angle - shield_angle
-                            # Normalize to [-pi, pi]
-                            while angle_diff > math.pi:
-                                angle_diff -= 2 * math.pi
-                            while angle_diff < -math.pi:
-                                angle_diff += 2 * math.pi
-                            
-                            # Turn towards target
-                            if abs(angle_diff) > turn_speed:
-                                shield_angle += turn_speed if angle_diff > 0 else -turn_speed
-                            else:
-                                shield_angle = target_angle
-                            
-                            enemy["shield_angle"] = shield_angle
-                    
-                    # Enemy shooting (reflector doesn't shoot normally)
-                    if not enemy.get("has_reflective_shield"):
-                        enemy["shoot_cooldown"] = enemy.get("shoot_cooldown", 999.0) + dt
-                        if enemy["shoot_cooldown"] >= enemy.get("shoot_cooldown_time", 1.0):
-                            if target_info:
-                                target_pos, target_type = target_info
-                                if enemy.get("is_predictive", False):
-                                    spawn_enemy_projectile_predictive(enemy, direction, game_state)
-                                else:
-                                    spawn_enemy_projectile(enemy, game_state)
-                            enemy["shoot_cooldown"] = 0.0
+                # Enemy AI (targeting, queen shield/missiles, suicide, reflector, shooting) is in ai_system.update()
                 
                 # Bullet/projectile, pickups, health zone, friendly projs, grenades, missiles: collision_system
                 # Wave timers and next-wave start (including victory) are in spawn_system.update()
@@ -1341,23 +1188,19 @@ def main():
                 for proj in game_state.friendly_projectiles:
                     draw_projectile(screen, proj["rect"], proj["color"], proj.get("shape", "circle"))
                 
-                # Draw friendly AI (unified entity.draw)
+                # Draw friendly AI (unified entity.draw); entity health bars drawn by ui_system
                 for friendly in game_state.friendly_ai:
                     if hasattr(friendly, "draw"):
                         friendly.draw(screen)
                     else:
                         pygame.draw.rect(screen, friendly.get("color", (100, 200, 100)), friendly["rect"])
-                    if friendly.get("hp", 0) > 0 and ui_show_health_bars:
-                        draw_health_bar(screen, friendly["rect"].x, friendly["rect"].y - 10, friendly["rect"].w, 5, friendly["hp"], friendly.get("max_hp", friendly["hp"]))
                 
-                # Draw enemies (unified entity.draw)
+                # Draw enemies (unified entity.draw); entity health bars drawn by ui_system
                 for enemy in game_state.enemies:
                     if hasattr(enemy, "draw"):
                         enemy.draw(screen)
                     else:
                         pygame.draw.rect(screen, enemy.get("color", (200, 50, 50)), enemy["rect"])
-                    if enemy.get("hp", 0) > 0 and ui_show_health_bars:
-                        draw_health_bar(screen, enemy["rect"].x, enemy["rect"].y - 10, enemy["rect"].w, 5, enemy["hp"], enemy.get("max_hp", enemy["hp"]))
                 
                 # Draw grenade explosions
                 for explosion in game_state.grenade_explosions:
@@ -1394,210 +1237,23 @@ def main():
                     if len(points) >= 2:
                         pygame.draw.lines(screen, beam.get("color", (50, 255, 50)), False, points, beam.get("width", 10))
                 
-                # Draw HUD
-                if ui_show_hud:
-                    # Draw prominent score at center top with yellow text and black outline
-                    score_text = f"Score: {game_state.score}"
-                    score_surface = big_font.render(score_text, True, (255, 255, 0))  # Yellow text
-                    # Create outline by rendering black text at offsets
-                    outline_surface = big_font.render(score_text, True, (0, 0, 0))  # Black outline
-                    score_x = WIDTH // 2 - score_surface.get_width() // 2
-                    score_y = 10
-                    # Draw outline (8 directions)
-                    for dx, dy in [(-2, -2), (-2, 0), (-2, 2), (0, -2), (0, 2), (2, -2), (2, 0), (2, 2)]:
-                        screen.blit(outline_surface, (score_x + dx, score_y + dy))
-                    # Draw yellow text on top
-                    screen.blit(score_surface, (score_x, score_y))
-                    
-                    y_pos = 10
-                    if ui_show_metrics:
-                        y_pos = render_hud_text(screen, font, f"HP: {game_state.player_hp}/{game_state.player_max_hp}", y_pos)
-                        if game_state.overshield > 0:
-                            y_pos = render_hud_text(screen, font, f"Overshield: {game_state.overshield}/{overshield_max}", y_pos)
-                        y_pos = render_hud_text(screen, font, f"Wave: {game_state.wave_number} | Level: {game_state.current_level}", y_pos)
-                        # Display time survived (format as MM:SS)
-                        minutes = int(game_state.survival_time // 60)
-                        seconds = int(game_state.survival_time % 60)
-                        y_pos = render_hud_text(screen, font, f"Time: {minutes:02d}:{seconds:02d}", y_pos)
-                        if state == STATE_PLAYING:
-                            y_pos = render_hud_text(screen, font, f"Lives: {game_state.lives}", y_pos)
-                        y_pos = render_hud_text(screen, font, f"Enemies: {len(game_state.enemies)}", y_pos)
-                        y_pos = render_hud_text(screen, font, f"Weapon: {game_state.current_weapon_mode.upper()}", y_pos)
-                        if game_state.shield_active:
-                            y_pos = render_hud_text(screen, font, "SHIELD ACTIVU", y_pos, (255, 100, 100))
-                        # Display random damage multiplier if not 1.0x
-                        if game_state.random_damage_multiplier != 1.0:
-                            multiplier_color = (255, 255, 0) if game_state.random_damage_multiplier > 1.0 else (255, 150, 150)
-                            y_pos = render_hud_text(screen, font, f"DMG MULT: {game_state.random_damage_multiplier:.2f}x", y_pos, multiplier_color)
-                        
-                        # Draw health bar and overshield bar at bottom of screen (above controls)
-                        health_bar_y = HEIGHT - 80
-                        health_bar_height = 20
-                        health_bar_width = 300
-                        
-                        # Draw overshield bar (above health bar, only if active)
-                        if game_state.overshield > 0:
-                            overshield_bar_y = health_bar_y - 25
-                            overshield_bar_height = 15
-                            overshield_fill = int((game_state.overshield / overshield_max) * health_bar_width)
-                            pygame.draw.rect(screen, (60, 60, 60), (10, overshield_bar_y, health_bar_width, overshield_bar_height))
-                            pygame.draw.rect(screen, (255, 150, 0), (10, overshield_bar_y, overshield_fill, overshield_bar_height))
-                            pygame.draw.rect(screen, (20, 20, 20), (10, overshield_bar_y, health_bar_width, overshield_bar_height), 2)
-                            overshield_text = small_font.render(f"Armor: {int(game_state.overshield)}/{int(overshield_max)}", True, (255, 255, 255))
-                            screen.blit(overshield_text, (15, overshield_bar_y + 2))
-                        
-                        # Draw health bar
-                        health_fill = int((game_state.player_hp / game_state.player_max_hp) * health_bar_width)
-                        pygame.draw.rect(screen, (60, 60, 60), (10, health_bar_y, health_bar_width, health_bar_height))
-                        pygame.draw.rect(screen, (100, 255, 100), (10, health_bar_y, health_fill, health_bar_height))
-                        pygame.draw.rect(screen, (20, 20, 20), (10, health_bar_y, health_bar_width, health_bar_height), 2)
-                        health_text = small_font.render(f"HP: {int(game_state.player_hp)}/{int(game_state.player_max_hp)}", True, (255, 255, 255))
-                        screen.blit(health_text, (15, health_bar_y + 2))
-                        
-                        # Draw cooldown bars at bottom
-                        bar_y = HEIGHT - 30
-                        bar_height = 20
-                        bar_width = 200
-                        
-                        # Bomb (grenade) cooldown - red when not ready, purple when ready
-                        grenade_progress = min(1.0, game_state.grenade_time_since_used / grenade_cooldown)
-                        grenade_x = 10
-                        pygame.draw.rect(screen, (60, 60, 60), (grenade_x, bar_y, bar_width, bar_height))
-                        pygame.draw.rect(screen, (200, 100, 255) if grenade_progress >= 1.0 else (255, 50, 50), 
-                                        (grenade_x, bar_y, int(bar_width * grenade_progress), bar_height))
-                        pygame.draw.rect(screen, (255, 255, 255), (grenade_x, bar_y, bar_width, bar_height), 2)
-                        small_font_surf = small_font.render("BOMB (E)", True, (255, 255, 255))
-                        screen.blit(small_font_surf, (grenade_x + 5, bar_y + 2))
-                        
-                        # Missile cooldown
-                        missile_progress = min(1.0, game_state.missile_time_since_used / missile_cooldown)
-                        missile_x = grenade_x + bar_width + 10
-                        pygame.draw.rect(screen, (60, 60, 60), (missile_x, bar_y, bar_width, bar_height))
-                        pygame.draw.rect(screen, (255, 200, 0) if missile_progress >= 1.0 else (100, 100, 100), 
-                                        (missile_x, bar_y, int(bar_width * missile_progress), bar_height))
-                        pygame.draw.rect(screen, (255, 255, 255), (missile_x, bar_y, bar_width, bar_height), 2)
-                        small_font_surf = small_font.render("MISSILE (R)", True, (255, 255, 255))
-                        screen.blit(small_font_surf, (missile_x + 5, bar_y + 2))
-                        
-                        # Ally drop cooldown
-                        ally_progress = min(1.0, game_state.ally_drop_timer / ally_drop_cooldown)
-                        ally_x = missile_x + bar_width + 10
-                        pygame.draw.rect(screen, (60, 60, 60), (ally_x, bar_y, bar_width, bar_height))
-                        pygame.draw.rect(screen, (200, 100, 255) if ally_progress >= 1.0 else (100, 100, 100), 
-                                        (ally_x, bar_y, int(bar_width * ally_progress), bar_height))
-                        pygame.draw.rect(screen, (255, 255, 255), (ally_x, bar_y, bar_width, bar_height), 2)
-                        small_font_surf = small_font.render("ALLY DROP (Q)", True, (255, 255, 255))
-                        screen.blit(small_font_surf, (ally_x + 5, bar_y + 2))
-                        
-                        # Overshield cooldown
-                        overshield_progress = min(1.0, game_state.overshield_recharge_timer / overshield_recharge_cooldown)
-                        overshield_x = ally_x + bar_width + 10
-                        pygame.draw.rect(screen, (60, 60, 60), (overshield_x, bar_y, bar_width, bar_height))
-                        pygame.draw.rect(screen, (255, 150, 0) if overshield_progress >= 1.0 else (100, 100, 100), 
-                                        (overshield_x, bar_y, int(bar_width * overshield_progress), bar_height))
-                        pygame.draw.rect(screen, (255, 255, 255), (overshield_x, bar_y, bar_width, bar_height), 2)
-                        small_font_surf = small_font.render("OVERSHIELD (TAB)", True, (255, 255, 255))
-                        screen.blit(small_font_surf, (overshield_x + 5, bar_y + 2))
-                        
-                        # Shield recharge cooldown
-                        # Calculate progress: if shield is active, show duration remaining; if on cooldown, show recharge progress
-                        if game_state.shield_active:
-                            # Shield is active - show duration remaining (inverse progress)
-                            shield_progress = min(1.0, game_state.shield_duration_remaining / shield_duration)
-                            shield_ready = False
-                        else:
-                            # Shield is on cooldown - show recharge progress
-                            if game_state.shield_recharge_cooldown > 0:
-                                shield_progress = min(1.0, game_state.shield_recharge_timer / game_state.shield_recharge_cooldown)
-                            else:
-                                shield_progress = 1.0  # Ready if no cooldown set
-                            shield_ready = shield_progress >= 1.0
-                        
-                        shield_x = overshield_x + bar_width + 10
-                        pygame.draw.rect(screen, (60, 60, 60), (shield_x, bar_y, bar_width, bar_height))
-                        # Blue/cyan when ready, red when not ready, yellow when active
-                        if game_state.shield_active:
-                            shield_color = (255, 255, 100)  # Yellow when active
-                        elif shield_ready:
-                            shield_color = (100, 200, 255)  # Blue/cyan when ready
-                        else:
-                            shield_color = (255, 50, 50)  # Red when recharging
-                        pygame.draw.rect(screen, shield_color, 
-                                        (shield_x, bar_y, int(bar_width * shield_progress), bar_height))
-                        pygame.draw.rect(screen, (255, 255, 255), (shield_x, bar_y, bar_width, bar_height), 2)
-                        small_font_surf = small_font.render("SHIELD (LALT)", True, (255, 255, 255))
-                        screen.blit(small_font_surf, (shield_x + 5, bar_y + 2))
-                        
-                        # Draw controls at bottom of screen
-                        controls_y = HEIGHT - 10
-                        controls_text = ""
-                        if aiming_mode == AIM_ARROWS:
-                            controls_text = "WASD: Move | Arrow Keys: Aim & Shoot | E: Bomb | R: Missile | Q: Ally Drop | TAB: Overshield | LALT: Shield | SPACE: Dash"
-                        else:
-                            controls_text = "WASD: Move | Mouse + Click: Aim & Shoot | E: Bomb | R: Missile | Q: Ally Drop | TAB: Overshield | LALT: Shield | SPACE: Dash"
-                        controls_surf = small_font.render(controls_text, True, (150, 150, 150))
-                        controls_rect = controls_surf.get_rect(center=(WIDTH // 2, controls_y))
-                        screen.blit(controls_surf, controls_rect)
+                # Draw HUD/UI (delegated to ui_system via gameplay.render)
+                hud_ctx = {
+                    "WIDTH": WIDTH, "HEIGHT": HEIGHT, "font": font, "big_font": big_font, "small_font": small_font,
+                    "ui_show_hud": ui_show_hud, "ui_show_metrics": ui_show_metrics, "ui_show_health_bars": ui_show_health_bars,
+                    "overshield_max": overshield_max, "grenade_cooldown": grenade_cooldown, "missile_cooldown": missile_cooldown,
+                    "ally_drop_cooldown": ally_drop_cooldown, "overshield_recharge_cooldown": overshield_recharge_cooldown,
+                    "shield_duration": shield_duration, "aiming_mode": aiming_mode, "current_state": state,
+                }
+                gameplay_render(screen, game_state, hud_ctx)
                 
-                # Draw damage numbers (fade out over 2 seconds)
-                # Note: Timers are decremented in the update loop above
+                # Clean up expired UI tokens (state updates; timers decremented in update loop)
                 for dmg_num in game_state.damage_numbers[:]:
-                    if dmg_num["timer"] > 0:
-                        alpha = int(255 * (dmg_num["timer"] / 2.0))  # Fade over 2 seconds
-                        color = (*dmg_num["color"][:3], alpha) if len(dmg_num["color"]) > 3 else dmg_num["color"]
-                        # Handle both "damage" (numeric) and "value" (text) keys
-                        if "value" in dmg_num:
-                            text = dmg_num["value"]
-                            # Use bigger font for text messages like "PERFECT WAVE!"
-                            text_surf = font.render(text, True, color[:3])
-                        else:
-                            text = str(int(dmg_num.get("damage", 0)))  # Ensure integer display
-                            text_surf = small_font.render(text, True, color[:3])
-                        screen.blit(text_surf, (dmg_num["x"], dmg_num["y"]))
-                    else:
+                    if dmg_num["timer"] <= 0:
                         game_state.damage_numbers.remove(dmg_num)
-                
-                # Draw enemy defeat messages in bottom right corner
-                defeat_y_start = HEIGHT - 100  # Start from bottom, work upwards
-                for i, msg in enumerate(game_state.enemy_defeat_messages[-5:]):  # Show last 5 messages
-                    if msg["timer"] > 0:
-                        enemy_type = msg.get("enemy_type", "enemy")
-                        alpha = int(255 * (msg["timer"] / 3.0))  # Fade over 3 seconds
-                        color = (255, 200, 100, alpha)  # Orange color with alpha
-                        text = f"{enemy_type.upper()} DEFEATED!"
-                        text_surf = small_font.render(text, True, color[:3])
-                        text_rect = text_surf.get_rect()
-                        # Position in bottom right corner, stacked upwards
-                        x_pos = WIDTH - text_rect.width - 20
-                        y_pos = defeat_y_start - (i * 25)  # Stack messages with 25px spacing
-                        screen.blit(text_surf, (x_pos, y_pos))
-                
-                # Draw weapon pickup messages
-                # Note: Timers are decremented in the update loop above
                 for msg in game_state.weapon_pickup_messages[:]:
-                    if msg["timer"] > 0:
-                        alpha = int(255 * (msg["timer"] / 3.0))
-                        color = (*msg["color"][:3], alpha) if len(msg["color"]) > 3 else msg["color"]
-                        text_surf = font.render(f"PICKED UP: {msg['weapon_name']}", True, color[:3])
-                        text_rect = text_surf.get_rect(center=(WIDTH // 2, HEIGHT // 2))
-                        screen.blit(text_surf, text_rect)
-                    else:
+                    if msg["timer"] <= 0:
                         game_state.weapon_pickup_messages.remove(msg)
-                
-                # Draw wave countdown (3, 2, 1) when wave is complete and next wave is starting
-                if game_state.wave_active and len(game_state.enemies) == 0 and game_state.time_to_next_wave < 3.0:
-                    # Calculate countdown number (3, 2, or 1)
-                    # time_to_next_wave goes from 0.0 to 3.0
-                    # At 0.0-0.99: show 3
-                    # At 1.0-1.99: show 2
-                    # At 2.0-2.99: show 1
-                    countdown_number = 3 - int(game_state.time_to_next_wave)
-                    countdown_number = max(1, min(3, countdown_number))  # Clamp between 1 and 3
-                    
-                    # Display countdown text
-                    next_wave_num = game_state.wave_number + 1
-                    countdown_text = f"WAVE {next_wave_num} STARTING IN {countdown_number}"
-                    draw_centered_text(screen, font, big_font, WIDTH, countdown_text, HEIGHT // 2, (255, 255, 0), use_big=True)
             elif state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT) and state in SCREEN_HANDLERS and SCREEN_HANDLERS[state].get("render"):
                 SCREEN_HANDLERS[state]["render"](screen, game_state, screen_ctx)
             elif state == STATE_GAME_OVER:

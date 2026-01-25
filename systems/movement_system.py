@@ -25,7 +25,7 @@ def update(state, dt: float) -> None:
     _update_enemy_projectiles(state, dt, ctx)
     _update_friendly_projectiles(state, dt, ctx)
     _update_missiles(state, dt, ctx)
-    _update_friendly_ai(state, dt, ctx)
+    # Ally AI is run in ai_system.update()
 
 
 def _update_player(state, dt: float, ctx: dict) -> None:
@@ -220,10 +220,3 @@ def _update_missiles(state, dt: float, ctx: dict) -> None:
 
         missile["rect"].x += int(missile["vel"].x * dt)
         missile["rect"].y += int(missile["vel"].y * dt)
-
-
-def _update_friendly_ai(state, dt: float, ctx: dict) -> None:
-    """Ally movement via level_context callback."""
-    update_friendly = ctx.get("update_friendly_ai")
-    if update_friendly:
-        update_friendly(state, dt)
