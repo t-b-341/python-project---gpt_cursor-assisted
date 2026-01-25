@@ -101,7 +101,7 @@ from allies import (
     update_friendly_ai,
 )
 from state import GameState
-
+from screens import SCREEN_HANDLERS
 
 # Placeholder WIDTH/HEIGHT for module-level initialization
 # Will be updated in main() after pygame.display.init()
@@ -215,11 +215,56 @@ def main():
             controls_selected = game_state.controls_selected
             controls_rebinding = game_state.controls_rebinding
 
+            # Context for screen handlers (shared by event and render)
+            screen_ctx = {"WIDTH": WIDTH, "HEIGHT": HEIGHT, "font": font, "big_font": big_font, "small_font": small_font, "get_high_scores": get_high_scores, "save_high_score": save_high_score, "difficulty": difficulty}
+
             # Event handling
-            for event in pygame.event.get():
+            events = pygame.event.get()
+            for event in events:
                 if event.type == pygame.QUIT:
                     running = False
-                
+
+            handled_by_screen = False
+            if running and state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT):
+                h = SCREEN_HANDLERS.get(state)
+                if h and h.get("handle_events"):
+                    result = h["handle_events"](events, game_state, screen_ctx)
+                    if result.get("quit"):
+                        running = False
+                    if result.get("restart"):
+                        game_state.enemies.clear()
+                        game_state.player_bullets.clear()
+                        game_state.enemy_projectiles.clear()
+                        game_state.friendly_projectiles.clear()
+                        game_state.friendly_ai.clear()
+                        game_state.grenade_explosions.clear()
+                        game_state.missiles.clear()
+                        game_state.wave_number = 1
+                        game_state.wave_in_level = 1
+                        game_state.current_level = 1
+                        game_state.player_hp = game_state.player_max_hp
+                        game_state.lives = 3
+                        game_state.score = 0
+                        game_state.run_time = 0.0
+                        game_state.survival_time = 0.0
+                        game_state.wave_active = False
+                        game_state.time_to_next_wave = 0.0
+                        game_state.unlocked_weapons = {"basic"}
+                        game_state.current_weapon_mode = "basic"
+                        game_state.menu_section = 0
+                    if state == STATE_PAUSED:
+                        pause_selected = game_state.pause_selected
+                    if result.get("screen") is not None:
+                        state = result["screen"]
+                    handled_by_screen = True
+
+            for event in events:
+                if handled_by_screen:
+                    continue
+                if event.type == pygame.QUIT:
+                    running = False
+                    continue
+
                 # Handle text input for name input screen
                 if state == STATE_NAME_INPUT and event.type == pygame.TEXTINPUT:
                     if len(game_state.player_name_input) < 20:  # Limit name length
@@ -2231,21 +2276,8 @@ def main():
                     next_wave_num = game_state.wave_number + 1
                     countdown_text = f"WAVE {next_wave_num} STARTING IN {countdown_number}"
                     draw_centered_text(screen, font, big_font, WIDTH, countdown_text, HEIGHT // 2, (255, 255, 0), use_big=True)
-            elif state == STATE_PAUSED:
-                # Draw paused game with overlay
-                overlay = pygame.Surface((WIDTH, HEIGHT))
-                overlay.set_alpha(128)
-                overlay.fill((0, 0, 0))
-                screen.blit(overlay, (0, 0))
-                
-                draw_centered_text(screen, font, big_font, WIDTH, "PAUSED", HEIGHT // 2 - 100, use_big=True)
-                
-                y_offset = HEIGHT // 2
-                for i, option in enumerate(pause_options):
-                    color = (255, 255, 0) if i == pause_selected else (200, 200, 200)
-                    draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == pause_selected else '  '} {option}", y_offset + i * 50, color)
-                
-                draw_centered_text(screen, font, big_font, WIDTH, "Press ENTER to select, ESC to unpause", HEIGHT - 100, (150, 150, 150))
+            elif state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT) and state in SCREEN_HANDLERS and SCREEN_HANDLERS[state].get("render"):
+                SCREEN_HANDLERS[state]["render"](screen, game_state, screen_ctx)
             elif state == STATE_GAME_OVER:
                 # Game over screen
                 # (Game over rendering would go here)
@@ -2254,61 +2286,6 @@ def main():
                 # Victory screen
                 # (Victory rendering would go here)
                 pass
-            elif state == STATE_HIGH_SCORES:
-                # High scores screen
-                screen.fill((20, 20, 40))
-                title = big_font.render("HIGH SCORES", True, (255, 255, 255))
-                screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 50))
-                
-                scores = get_high_scores(10)
-                y_offset = 150
-                if scores:
-                    # Header
-                    header = font.render("Rank  Name          Score    Waves  Time    Kills   Difficulty", True, (200, 200, 200))
-                    screen.blit(header, (WIDTH // 2 - header.get_width() // 2, y_offset))
-                    y_offset += 40
-                    
-                    for i, score_data in enumerate(scores, 1):
-                        name = score_data["name"][:12]  # Limit name length
-                        score_val = score_data["score"]
-                        waves = score_data["waves"]
-                        time_val = score_data["time"]
-                        minutes = int(time_val // 60)
-                        seconds = int(time_val % 60)
-                        kills = score_data["kills"]
-                        diff = score_data["difficulty"]
-                        
-                        rank_color = (255, 215, 0) if i == 1 else (255, 255, 255) if i <= 3 else (200, 200, 200)
-                        text = font.render(f"{i:2d}.  {name:12s}  {score_val:8d}  {waves:3d}  {minutes:02d}:{seconds:02d}  {kills:5d}  {diff:8s}", True, rank_color)
-                        screen.blit(text, (WIDTH // 2 - text.get_width() // 2, y_offset))
-                        y_offset += 35
-                else:
-                    no_scores = font.render("No high scores yet!", True, (150, 150, 150))
-                    screen.blit(no_scores, (WIDTH // 2 - no_scores.get_width() // 2, y_offset))
-                
-                # Instructions
-                instruction = small_font.render("Press ESC to exit", True, (100, 100, 100))
-                screen.blit(instruction, (WIDTH // 2 - instruction.get_width() // 2, HEIGHT - 50))
-            elif state == STATE_NAME_INPUT:
-                # Name input screen
-                screen.fill((20, 20, 40))
-                title = big_font.render("ENTER YOUR NAME", True, (255, 255, 255))
-                screen.blit(title, (WIDTH // 2 - title.get_width() // 2, HEIGHT // 2 - 100))
-                
-                # Display current input with cursor
-                display_text = game_state.player_name_input + ("_" if int(game_state.run_time * 2) % 2 == 0 else " ")
-                input_surface = font.render(display_text, True, (255, 255, 255))
-                screen.blit(input_surface, (WIDTH // 2 - input_surface.get_width() // 2, HEIGHT // 2))
-                
-                # Display score
-                score_text = font.render(f"Score: {game_state.final_score_for_high_score}", True, (200, 200, 200))
-                screen.blit(score_text, (WIDTH // 2 - score_text.get_width() // 2, HEIGHT // 2 + 50))
-                
-                # Instructions
-                instruction1 = small_font.render("Type your name and press ENTER to save", True, (150, 150, 150))
-                instruction2 = small_font.render("Press ESC to skip", True, (150, 150, 150))
-                screen.blit(instruction1, (WIDTH // 2 - instruction1.get_width() // 2, HEIGHT // 2 + 100))
-                screen.blit(instruction2, (WIDTH // 2 - instruction2.get_width() // 2, HEIGHT // 2 + 125))
             elif state == STATE_CONTROLS:
                 # Controls menu
                 # (Controls menu rendering would go here)
