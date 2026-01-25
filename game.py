@@ -191,6 +191,7 @@ def main():
                 find_nearest_enemy, vec_toward,
                 lambda rect, mx, my, bl: move_enemy_with_push(rect, mx, my, bl, s),
                 lambda f, t: spawn_friendly_projectile(f, t, s.friendly_projectiles, vec_toward, telemetry, s.run_time),
+                state=s,
             ),
             # Collision system
             "kill_enemy": kill_enemy,
@@ -203,7 +204,6 @@ def main():
             "hazard_obstacles": hazard_obstacles,
             "moving_health_zone": moving_health_zone,
             "check_point_in_hazard": check_point_in_hazard,
-            "check_wave_beam_collision": check_wave_beam_collision,
             "line_rect_intersection": line_rect_intersection,
             "testing_mode": testing_mode,
             "invulnerability_mode": invulnerability_mode,
@@ -212,7 +212,6 @@ def main():
             "apply_pickup_effect": apply_pickup_effect,
             "enemy_projectile_size": enemy_projectile_size,
             "enemy_projectiles_color": enemy_projectiles_color,
-            "wave_beam_width": wave_beam_width,
             "missile_damage": missile_damage,
             # AI system
             "find_nearest_threat": find_nearest_threat,
@@ -316,6 +315,11 @@ def main():
                     if len(game_state.player_name_input) < 20:  # Limit name length
                         game_state.player_name_input += event.text
                 
+                # Ally direction command: left-click during play sends allies toward mouse position
+                if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    game_state.ally_command_target = (float(event.pos[0]), float(event.pos[1]))
+                    game_state.ally_command_timer = 5.0
+
                 # Handle keyboard events
                 if event.type == pygame.KEYDOWN:
                     # Handle name input
@@ -523,16 +527,10 @@ def main():
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                                 selected_weapon = weapon_selection_options[beam_selection_selected]
                                 game_state.unlocked_weapons.add(selected_weapon)
-                                if game_state.current_weapon_mode == "wave_beam" and selected_weapon != "wave_beam":
-                                    game_state.wave_beams.clear()
                                 if game_state.current_weapon_mode == "laser" and selected_weapon != "laser":
                                     game_state.laser_beams.clear()
                                 game_state.current_weapon_mode = selected_weapon
-                                if selected_weapon == "wave_beam":
-                                    game_state.wave_beam_pattern_index = 0
-                                    beam_selection_pattern = "sine"
-                                else:
-                                    beam_selection_pattern = selected_weapon
+                                beam_selection_pattern = selected_weapon
                                 if testing_mode:
                                     menu_section = 4.5  # Go to testing options
                                 else:
@@ -584,6 +582,8 @@ def main():
                                     game_state.level_context["difficulty"] = difficulty
 
                                 game_state.run_id = telemetry.start_run(game_state.run_started_at, game_state.player_max_hp) if telemetry_enabled else None
+                                game_state.wave_reset_log.clear()
+                                game_state.wave_start_reason = "menu_start"
                                 spawn_system_start_wave(game_state.wave_number, game_state)
                     
                     # Controls rebinding
@@ -664,12 +664,9 @@ def main():
                                     })
                                 game_state.missile_time_since_used = 0.0
                     
-                    # Ally drop (Q key)
+                    # Ally drop (Q key) — multiple allies; do not remove previous
                     if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == controls.get("ally_drop", pygame.K_q):
                         if game_state.ally_drop_timer >= ally_drop_cooldown:
-                            if game_state.dropped_ally and game_state.dropped_ally in game_state.friendly_ai:
-                                game_state.friendly_ai.remove(game_state.dropped_ally)
-                            
                             # Find tank template
                             tank_template = None
                             for tmpl in friendly_ai_templates:
@@ -699,62 +696,49 @@ def main():
                             game_state.current_weapon_mode = "basic"
                         elif event.key == pygame.K_2 and "rocket" in game_state.unlocked_weapons:
                             game_state.previous_weapon_mode = game_state.current_weapon_mode
-                            if game_state.previous_weapon_mode == "wave_beam":
-                                game_state.wave_beams.clear()
                             if game_state.previous_weapon_mode == "laser":
                                 game_state.laser_beams.clear()
                             game_state.current_weapon_mode = "rocket"
                         elif event.key == pygame.K_3 and "triple" in game_state.unlocked_weapons:
                             game_state.previous_weapon_mode = game_state.current_weapon_mode
-                            if game_state.previous_weapon_mode == "wave_beam":
-                                game_state.wave_beams.clear()
                             if game_state.previous_weapon_mode == "laser":
                                 game_state.laser_beams.clear()
                             game_state.current_weapon_mode = "triple"
                         elif event.key == pygame.K_4 and "bouncing" in game_state.unlocked_weapons:
                             game_state.previous_weapon_mode = game_state.current_weapon_mode
-                            if game_state.previous_weapon_mode == "wave_beam":
-                                game_state.wave_beams.clear()
                             if game_state.previous_weapon_mode == "laser":
                                 game_state.laser_beams.clear()
                             game_state.current_weapon_mode = "bouncing"
                         elif event.key == pygame.K_5 and "giant" in game_state.unlocked_weapons:
                             game_state.previous_weapon_mode = game_state.current_weapon_mode
-                            if game_state.previous_weapon_mode == "wave_beam":
-                                game_state.wave_beams.clear()
                             if game_state.previous_weapon_mode == "laser":
                                 game_state.laser_beams.clear()
                             game_state.current_weapon_mode = "giant"
                         elif event.key == pygame.K_6 and "laser" in game_state.unlocked_weapons:
                             game_state.previous_weapon_mode = game_state.current_weapon_mode
-                            if game_state.previous_weapon_mode == "wave_beam":
-                                game_state.wave_beams.clear()
-                            game_state.current_weapon_mode = "laser"
-                        elif event.key == pygame.K_7 and "wave_beam" in game_state.unlocked_weapons:
-                            game_state.previous_weapon_mode = game_state.current_weapon_mode
                             if game_state.previous_weapon_mode == "laser":
                                 game_state.laser_beams.clear()
-                            game_state.current_weapon_mode = "wave_beam"
-                            game_state.wave_beam_pattern_index = 0
-                            beam_selection_pattern = "sine"  # beam_selection_pattern is a menu state variable, not game state
-            
+                            game_state.current_weapon_mode = "laser"
+
             # Game state updates (only when playing)
             if state == STATE_PLAYING or state == STATE_ENDURANCE:
                 # Update timers
                 game_state.player_time_since_shot += dt
                 game_state.laser_time_since_shot += dt
-                game_state.wave_beam_time_since_shot += dt
                 game_state.grenade_time_since_used += dt
                 game_state.missile_time_since_used += dt
                 game_state.jump_cooldown_timer += dt
                 game_state.jump_timer += dt
                 game_state.overshield_recharge_timer += dt
+                # Armor drains at 10 HP per second
+                game_state.overshield = max(0, game_state.overshield - int(10 * dt))
                 # Only decrement shield duration when shield is active
                 if game_state.shield_active:
                     game_state.shield_duration_remaining -= dt
                 game_state.shield_cooldown_remaining -= dt
                 game_state.shield_recharge_timer += dt
                 game_state.ally_drop_timer += dt
+                game_state.ally_command_timer = max(0.0, getattr(game_state, "ally_command_timer", 0.0) - dt)
                 game_state.fire_rate_buff_t += dt
                 game_state.pos_timer += dt
                 continue_blink_t += dt
@@ -887,43 +871,7 @@ def main():
                     })
                     game_state.laser_time_since_shot = 0.0
                 
-                # Wave beam weapon
-                if game_state.current_weapon_mode == "wave_beam" and game_state.wave_beam_time_since_shot >= wave_beam_cooldown:
-                    if aiming_mode == AIM_ARROWS:
-                        keys = pygame.key.get_pressed()
-                        dx = (1 if keys[pygame.K_RIGHT] else 0) - (1 if keys[pygame.K_LEFT] else 0)
-                        dy = (1 if keys[pygame.K_DOWN] else 0) - (1 if keys[pygame.K_UP] else 0)
-                        if dx == 0 and dy == 0:
-                            if game_state.last_move_velocity.length_squared() > 0:
-                                direction = game_state.last_move_velocity.normalize()
-                            else:
-                                direction = pygame.Vector2(1, 0)
-                        else:
-                            direction = pygame.Vector2(dx, dy).normalize()
-                    else:
-                        mx, my = pygame.mouse.get_pos()
-                        direction = vec_toward(player.centerx, player.centery, mx, my)
-                    
-                    pattern = wave_beam_patterns[game_state.wave_beam_pattern_index % len(wave_beam_patterns)]
-                    points = generate_wave_beam_points(
-                        pygame.Vector2(player.center),
-                        direction,
-                        pattern,
-                        wave_beam_length,
-                        amplitude=7.0,  # 7 pixels amplitude as specified
-                        frequency=0.02,
-                        time_offset=game_state.run_time
-                    )
-                    game_state.wave_beams.append({
-                        "points": points,
-                        "color": (50, 255, 50),  # Lime green
-                        "width": wave_beam_width,
-                        "damage": wave_beam_damage,
-                        "timer": 999.0  # Constant beam (no flashing) - very long timer
-                    })
-                    game_state.wave_beam_time_since_shot = 0.0
-                
-                # Laser/wave beam collisions are in collision_system
+                # Laser beam collisions are in collision_system
                 # Enemy AI (targeting, queen shield/missiles, suicide, reflector, shooting) is in ai_system.update()
                 
                 # Bullet/projectile, pickups, health zone, friendly projs, grenades, missiles: collision_system
@@ -1207,7 +1155,7 @@ wave_damage_taken = 0  # Track damage taken in current wave
 # Beam selection for testing (harder to access - requires testing mode)
 testing_mode = True  # Set to True to enable weapon selection menu and testing options
 invulnerability_mode = False  # Set to True to make player invulnerable (testing mode only)
-beam_selection_selected = 6  # 0 = wave_beam, 1 = rocket, etc., 6 = basic (default)
+beam_selection_selected = 5  # 0 = rocket, 1 = triple, ..., 5 = basic (default)
 beam_selection_pattern = "basic"  # Default weapon pattern
 
 # Level system - 3 levels, each with 3 waves (boss on wave 3)
@@ -1850,7 +1798,6 @@ WEAPON_KEY_MAP = {
     pygame.K_4: "bouncing",
     pygame.K_5: "giant",
     pygame.K_6: "laser",
-    pygame.K_7: "wave_beam",  # Wave pattern beam weapon
 }
 
 # Visual effects for pickups
@@ -2027,8 +1974,50 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
     clamp_rect_to_screen(player_rect)
 
 
+def _enemy_collides(enemy_rect: pygame.Rect, block_list: list[dict], state: GameState) -> bool:
+    """Return True if enemy_rect collides with any solid object."""
+    for b in block_list:
+        if enemy_rect.colliderect(b["rect"]):
+            return True
+    for b in destructible_blocks:
+        if enemy_rect.colliderect(b["rect"]):
+            return True
+    for b in moveable_destructible_blocks:
+        if enemy_rect.colliderect(b["rect"]):
+            return True
+    for gb in giant_blocks:
+        if enemy_rect.colliderect(gb["rect"]):
+            return True
+    for sgb in super_giant_blocks:
+        if enemy_rect.colliderect(sgb["rect"]):
+            return True
+    for tb in trapezoid_blocks:
+        if enemy_rect.colliderect(tb.get("bounding_rect", tb.get("rect"))):
+            return True
+    for tr in triangle_blocks:
+        if enemy_rect.colliderect(tr.get("bounding_rect", tr.get("rect"))):
+            return True
+    for pickup in state.pickups:
+        if enemy_rect.colliderect(pickup["rect"]):
+            return True
+    if enemy_rect.colliderect(moving_health_zone["rect"]):
+        return True
+    if state.player_rect is not None and enemy_rect.colliderect(state.player_rect):
+        return True
+    for f in state.friendly_ai:
+        if f.get("hp", 1) > 0 and enemy_rect.colliderect(f["rect"]):
+            return True
+    for other_e in state.enemies:
+        if other_e["rect"] is not enemy_rect and enemy_rect.colliderect(other_e["rect"]):
+            return True
+    return False
+
+
 def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict], state: GameState):
-    """Enemy movement - enemies cannot go through objects and must navigate around them."""
+    """Enemy movement - enemies cannot go through objects and must navigate around them.
+    When stuck (both axes blocked), tries sliding along walls to avoid getting stuck."""
+    start_x, start_y = enemy_rect.x, enemy_rect.y
+
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
             continue
@@ -2122,6 +2111,28 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
         if collision:
             enemy_rect.x -= axis_dx
             enemy_rect.y -= axis_dy
+
+    # If stuck (no movement), try sliding along walls to avoid getting stuck
+    if enemy_rect.x == start_x and enemy_rect.y == start_y and (move_x != 0 or move_y != 0):
+        step = max(1, (abs(move_x) + abs(move_y)) // 2)
+        for slide_dx, slide_dy in [(move_y, move_x), (-move_y, -move_x), (move_y, -move_x), (-move_y, move_x)]:
+            if slide_dx == 0 and slide_dy == 0:
+                continue
+            # Scale to same magnitude as step
+            try:
+                scale = step / (slide_dx * slide_dx + slide_dy * slide_dy) ** 0.5
+            except ZeroDivisionError:
+                continue
+            sx = int(slide_dx * scale) if slide_dx else 0
+            sy = int(slide_dy * scale) if slide_dy else 0
+            if sx == 0 and sy == 0:
+                continue
+            enemy_rect.x += sx
+            enemy_rect.y += sy
+            if not _enemy_collides(enemy_rect, block_list, state):
+                break
+            enemy_rect.x -= sx
+            enemy_rect.y -= sy
 
     clamp_rect_to_screen(enemy_rect)
 
@@ -2668,7 +2679,7 @@ def spawn_weapon_drop(enemy: dict, state: GameState):
         "heavy": "rocket",
         "baka": "triple",
         "neko neko desu": "bouncing",
-        "BIG NEKU": "wave_beam",  # Wave beam second to last
+        "BIG NEKU": "giant",
         "bouncer": "bouncing",
     }
     # 30% chance to drop weapon (exclude basic beam)
@@ -3096,8 +3107,6 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
         state.unlocked_weapons.add("giant")
         state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "wave_beam":
-            state.wave_beams.clear()
         if state.previous_weapon_mode == "laser":
             state.laser_beams.clear()
         state.current_weapon_mode = "giant"
@@ -3116,8 +3125,6 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
         state.unlocked_weapons.add("triple")
         state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "wave_beam":
-            state.wave_beams.clear()
         if state.previous_weapon_mode == "laser":
             state.laser_beams.clear()
         state.current_weapon_mode = "triple"
@@ -3141,8 +3148,6 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
         state.unlocked_weapons.add("bouncing")
         state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "wave_beam":
-            state.wave_beams.clear()
         if state.previous_weapon_mode == "laser":
             state.laser_beams.clear()
         state.current_weapon_mode = "bouncing"
@@ -3166,8 +3171,6 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
         state.unlocked_weapons.add("rocket")
         state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "wave_beam":
-            state.wave_beams.clear()
         if state.previous_weapon_mode == "laser":
             state.laser_beams.clear()
         state.current_weapon_mode = "rocket"
@@ -3191,8 +3194,6 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
         state.unlocked_weapons.add("laser")
         state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "wave_beam":
-            state.wave_beams.clear()
         state.current_weapon_mode = "laser"
         # Weapon names and colors are now imported from config_weapons.py
         state.weapon_pickup_messages.append({
@@ -3214,8 +3215,6 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
         state.unlocked_weapons.add("basic")  # Should already be unlocked, but ensure it
         state.previous_weapon_mode = state.current_weapon_mode
         # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "wave_beam":
-            state.wave_beams.clear()
         if state.previous_weapon_mode == "laser":
             state.laser_beams.clear()
         state.current_weapon_mode = "basic"
@@ -3224,46 +3223,6 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "weapon_name": WEAPON_NAMES.get("basic", "BASIC FIRE"),
             "timer": 3.0,
             "color": WEAPON_DISPLAY_COLORS.get("basic", (255, 255, 255))
-        })
-        if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry and state.player_rect:
-                telemetry.log_player_action(PlayerActionEvent(
-                    t=state.run_time,
-                    action_type="weapon_switch",
-                    x=state.player_rect.centerx,
-                    y=state.player_rect.centery,
-                    duration=None,
-                    success=True
-                ))
-    elif pickup_type == "wave_beam":
-        state.unlocked_weapons.add("wave_beam")
-        state.previous_weapon_mode = state.current_weapon_mode
-        # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "laser":
-            state.laser_beams.clear()
-        state.current_weapon_mode = "wave_beam"
-        weapon_names = {
-            "giant": "GIANT BULLETS",
-            "triple": "TRIPLE SHOT",
-            "bouncing": "BOUNCING BULLETS",
-            "rocket": "ROCKET LAUNCHER",
-            "laser": "LASER BEAM",
-            "basic": "BASIC FIRE",
-            "wave_beam": "WAVE BEAM"
-        }
-        weapon_colors = {
-            "giant": (255, 200, 0),
-            "triple": (100, 200, 255),
-            "bouncing": (100, 255, 100),
-            "rocket": (255, 100, 0),
-            "laser": (255, 50, 50),
-            "basic": (200, 200, 200),
-            "wave_beam": (50, 255, 50)
-        }
-        state.weapon_pickup_messages.append({
-            "weapon_name": weapon_names.get("wave_beam", "WAVE BEAM"),
-            "timer": 3.0,
-            "color": weapon_colors.get("wave_beam", (50, 255, 50))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
             if telemetry_enabled and telemetry and state.player_rect:
@@ -3294,21 +3253,14 @@ def reset_after_death(state: GameState):
     state.missile_time_since_used = 999.0  # Reset missile cooldown
     state.dropped_ally = None  # Clear dropped ally on death
     state.ally_drop_timer = 0.0  # Reset ally drop timer on death
-    # Reset moving health zone to center
-    moving_health_zone["rect"].center = (WIDTH // 4, HEIGHT // 4)  # Offset from center (boss spawn)
-    moving_health_zone["target"] = None
+    # Keep map as-is on respawn: do not reposition moving_health_zone or hazard_obstacles
     state.overshield = 0  # Reset overshield
     state.player_time_since_shot = 999.0
     state.laser_time_since_shot = 999.0
     state.wave_beam_time_since_shot = 999.0
     state.wave_beam_pattern_index = 0
     state.pos_timer = 0.0
-    state.wave_number = 1
-    state.wave_in_level = 1
-    state.current_level = 1
-    state.unlocked_weapons = {"basic"}  # Reset to basic only
-    state.current_weapon_mode = "basic"  # Reset to basic weapon
-    state.previous_weapon_mode = "basic"
+    # Keep wave/level and weapons on respawn so the map does not reset
     state.previous_boost_state = False
     state.previous_slow_state = False
     state.player_current_zones = set()
@@ -3318,44 +3270,23 @@ def reset_after_death(state: GameState):
     state.jump_velocity = pygame.Vector2(0, 0)
     state.laser_beams.clear()
     state.wave_beams.clear()
-    # Reset hazard obstacles positions (corners)
-    hazard_obstacles[0]["center"] = pygame.Vector2(250, 250)  # Top-left
-    hazard_obstacles[0]["rotation_angle"] = 0.0
-    hazard_obstacles[0]["orbit_angle"] = 0.0
-    hazard_obstacles[0]["velocity"] = pygame.Vector2(150, 90)  # 3x faster
-    hazard_obstacles[0]["points"] = []
-    hazard_obstacles[1]["center"] = pygame.Vector2(WIDTH - 250, 250)  # Top-right
-    hazard_obstacles[1]["rotation_angle"] = 1.0
-    hazard_obstacles[1]["orbit_angle"] = 1.5
-    hazard_obstacles[1]["velocity"] = pygame.Vector2(-120, 150)  # 3x faster
-    hazard_obstacles[1]["points"] = []
-    hazard_obstacles[2]["center"] = pygame.Vector2(250, HEIGHT - 250)  # Bottom-left
-    hazard_obstacles[2]["rotation_angle"] = 2.0
-    hazard_obstacles[2]["orbit_angle"] = 3.0
-    hazard_obstacles[2]["velocity"] = pygame.Vector2(90, -135)  # 3x faster
-    hazard_obstacles[2]["points"] = []
-    hazard_obstacles[3]["center"] = pygame.Vector2(WIDTH - 250, HEIGHT - 250)  # Bottom-right
-    hazard_obstacles[3]["rotation_angle"] = 1.5
-    hazard_obstacles[3]["orbit_angle"] = 2.5
-    hazard_obstacles[3]["velocity"] = pygame.Vector2(-105, -120)  # 3x faster
-    hazard_obstacles[3]["points"] = []
+    # Keep hazard obstacles as-is on respawn (map no longer resets)
     # Reset shield
     state.shield_active = False
     state.shield_duration_remaining = 0.0
     state.shield_cooldown_remaining = 0.0
 
-    player.x = (WIDTH - player.w) // 2
-    player.y = (HEIGHT - player.h) // 2
-    clamp_rect_to_screen(player)
+    player = state.player_rect
+    if player is not None:
+        player.x = (WIDTH - player.w) // 2
+        player.y = (HEIGHT - player.h) // 2
+        clamp_rect_to_screen(player)
 
     state.player_bullets.clear()
     state.enemy_projectiles.clear()
-    state.friendly_ai.clear()
     state.friendly_projectiles.clear()
-
-    state.wave_number = 1
-    state.time_to_next_wave = 0.0
-    spawn_system_start_wave(state.wave_number, state)
+    # Do not clear friendly_ai or call start_wave: keep current wave and enemies.
+    # Respawn = player back at center, projectiles/explosions cleared; enemies and wave continue.
 
 
 if __name__ == "__main__":

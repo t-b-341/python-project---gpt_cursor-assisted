@@ -225,7 +225,6 @@ ENEMY_TEMPLATES: list[dict] = [
         "is_patrol": True,  # Marks this as patrol enemy
         "patrol_side": 0,  # 0=top, 1=right, 2=bottom, 3=left
         "patrol_progress": 0.0,  # Progress along current side (0.0 to 1.0)
-        "uses_wave_beam": True,  # Uses wave beam weapon
     },
 ]
 
@@ -264,7 +263,7 @@ ENEMY_SPAWN_MULTIPLIER = 3.5  # Multiplier applied to base count (increased from
 # These multipliers are applied when creating enemies from templates
 ENEMY_HP_SCALE_MULTIPLIER = 1.1  # 110% health multiplier
 ENEMY_SPEED_SCALE_MULTIPLIER = 1.1  # 110% speed multiplier
-ENEMY_FIRE_RATE_MULTIPLIER = 1.5  # 150% fire rate (faster = lower cooldown)
+ENEMY_FIRE_RATE_MULTIPLIER = 7.5  # 5x fire rate (cooldown / 5; was 1.5 for 150%)
 ENEMY_HP_CAP = 300  # Maximum HP for non-queen enemies
 
 # Queen-specific constants (not affected by normal scaling)

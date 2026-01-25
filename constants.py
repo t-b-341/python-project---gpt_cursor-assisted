@@ -104,7 +104,7 @@ controls_actions = ["move_left", "move_right", "move_up", "move_down", "boost", 
 # ----------------------------
 # Weapon constants
 # ----------------------------
-weapon_selection_options = ["wave_beam", "rocket", "bouncing", "laser", "triple", "giant", "basic"]
+weapon_selection_options = ["rocket", "bouncing", "laser", "triple", "giant", "basic"]
 
 # Note: WEAPON_KEY_MAP uses pygame constants and must remain in game.py
 
@@ -119,13 +119,6 @@ player_shoot_cooldown = 0.12
 laser_length = 800
 laser_damage = 50
 laser_cooldown = 0.3
-
-# Wave beam constants
-wave_beam_length = 1000
-wave_beam_width = 10
-wave_beam_damage = 30
-wave_beam_cooldown = 0.5
-wave_beam_patterns = ["sine"]
 
 # ----------------------------
 # Physics constants

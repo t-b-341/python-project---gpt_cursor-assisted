@@ -40,6 +40,8 @@ def render(state: "GameState", screen: pygame.Surface, ctx: dict) -> None:
     _draw_defeat_messages(screen, state, small_font, WIDTH, HEIGHT)
     _draw_weapon_pickup_messages(screen, state, font, WIDTH, HEIGHT)
     _draw_wave_countdown(screen, state, font, big_font, WIDTH, HEIGHT)
+    if ui_show_metrics:
+        _draw_wave_reset_debug(screen, state, small_font, WIDTH, HEIGHT)
 
 
 def _draw_entity_health_bars(screen: pygame.Surface, state, show: bool) -> None:
@@ -213,13 +215,37 @@ def _draw_defeat_messages(screen: pygame.Surface, state, small_font, WIDTH: int,
 
 
 def _draw_weapon_pickup_messages(screen: pygame.Surface, state, font, WIDTH: int, HEIGHT: int) -> None:
-    for msg in getattr(state, "weapon_pickup_messages", []):
-        if msg.get("timer", 0) > 0:
-            alpha = int(255 * (msg["timer"] / 3.0))
-            color = (*msg.get("color", (255, 255, 255))[:3], alpha) if len(msg.get("color", (0, 0, 0))) > 3 else msg.get("color", (255, 255, 255))
-            text_surf = font.render(f"PICKED UP: {msg.get('weapon_name', '')}", True, color[:3])
-            text_rect = text_surf.get_rect(center=(WIDTH // 2, HEIGHT // 2))
-            screen.blit(text_surf, text_rect)
+    messages = [m for m in getattr(state, "weapon_pickup_messages", []) if m.get("timer", 0) > 0]
+    line_height = 28
+    total_h = (len(messages) - 1) * line_height
+    y_start = HEIGHT // 2 - total_h // 2
+    for i, msg in enumerate(messages):
+        alpha = int(255 * (msg["timer"] / 3.0))
+        color = (*msg.get("color", (255, 255, 255))[:3], alpha) if len(msg.get("color", (0, 0, 0))) > 3 else msg.get("color", (255, 255, 255))
+        text_surf = font.render(f"PICKED UP: {msg.get('weapon_name', '')}", True, color[:3])
+        text_rect = text_surf.get_rect(center=(WIDTH // 2, y_start + i * line_height))
+        screen.blit(text_surf, text_rect)
+
+
+def _draw_wave_reset_debug(screen: pygame.Surface, state, font, WIDTH: int, HEIGHT: int) -> None:
+    """Show last wave-reset events (trigger, wave_num, enemies_before) to debug spurious resets."""
+    log = getattr(state, "wave_reset_log", None)
+    if not log:
+        return
+    x = WIDTH - 420
+    y = 10
+    title = font.render("Wave resets (trigger | wave | enemies_before):", True, (255, 200, 100))
+    screen.blit(title, (x, y))
+    y += 18
+    for entry in log[-5:]:  # last 5
+        t = entry.get("trigger", "?")
+        w = entry.get("wave_num", "?")
+        e = entry.get("enemies_before", "?")
+        rt = entry.get("run_time", 0)
+        color = (255, 100, 100) if e and e > 0 else (150, 255, 150)
+        line = font.render(f"  t={rt:.1f}s {t!r} wave={w} enemies_before={e}", True, color)
+        screen.blit(line, (x, y))
+        y += 16
 
 
 def _draw_wave_countdown(screen: pygame.Surface, state, font, big_font, WIDTH: int, HEIGHT: int) -> None:

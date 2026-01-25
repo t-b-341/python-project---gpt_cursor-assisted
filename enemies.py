@@ -207,9 +207,9 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> En
         base_speed = t.get("speed", 80)
         final_speed = base_speed * ENEMY_SPEED_SCALE_MULTIPLIER  # Still apply speed multiplier
     else:
-        hp = int(t["hp"] * hp_scale * ENEMY_HP_SCALE_MULTIPLIER)  # Apply HP scale multiplier
+        hp = int(t["hp"] * hp_scale * ENEMY_HP_SCALE_MULTIPLIER * 10)  # Apply HP scale multiplier and x10
         # Cap HP at maximum (except queen)
-        hp = min(hp, ENEMY_HP_CAP)
+        hp = min(hp, ENEMY_HP_CAP * 10)
         final_speed = t.get("speed", 80) * speed_scale * ENEMY_SPEED_SCALE_MULTIPLIER  # Apply speed multiplier
     
     enemy = {

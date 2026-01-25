@@ -23,7 +23,6 @@ def update(state: "GameState", dt: float) -> None:
 
     _handle_hazard_enemy_collisions(state, dt, ctx)
     _handle_laser_beam_collisions(state, dt, ctx)
-    _handle_wave_beam_collisions(state, dt, ctx)
     _handle_dead_enemies(state, ctx)
     _handle_player_bullet_offscreen(state, ctx)
     _handle_player_bullet_enemy_collisions(state, ctx)
@@ -94,26 +93,6 @@ def _handle_laser_beam_collisions(state, dt: float, ctx: dict) -> None:
         damage = beam.get("damage", 50) * dt * 60
         for enemy in state.enemies[:]:
             if line_rect(beam["start"], beam["end"], enemy["rect"]):
-                enemy["hp"] -= damage
-                if enemy["hp"] <= 0:
-                    kill(enemy, state)
-
-
-def _handle_wave_beam_collisions(state, dt: float, ctx: dict) -> None:
-    check_wave = ctx.get("check_wave_beam_collision")
-    kill = ctx.get("kill_enemy")
-    width = ctx.get("wave_beam_width", 10)
-    if not check_wave or not kill:
-        return
-    for beam in state.wave_beams[:]:
-        beam["timer"] = beam.get("timer", 999.0) - dt
-        if beam["timer"] <= 0:
-            state.wave_beams.remove(beam)
-            continue
-        damage = beam.get("damage", 30) * dt * 60
-        for enemy in state.enemies[:]:
-            hit_pos, _ = check_wave(beam["points"], enemy["rect"], width)
-            if hit_pos:
                 enemy["hp"] -= damage
                 if enemy["hp"] <= 0:
                     kill(enemy, state)
@@ -435,7 +414,8 @@ def _handle_grenade_explosion_damage(state, dt: float, ctx: dict) -> None:
                     kill(enemy, state)
         if player:
             pd = (pygame.Vector2(player.center) - pos).length()
-            if pd <= r and explosion.get("source") != "player":
+            # No player damage from own grenades ("player") or from missiles exploding on walls ("wall_impact")
+            if pd <= r and explosion.get("source") not in ("player", "wall_impact"):
                 if not state.shield_active:
                     _apply_player_damage(state, explosion.get("damage", 500), ctx)
         for block in list(d_blocks) + list(m_blocks):

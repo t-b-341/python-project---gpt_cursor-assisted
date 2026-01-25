@@ -80,18 +80,6 @@ WEAPON_CONFIGS = {
         "max_bounces": 0,
         "is_rocket": False,
     },
-    "wave_beam": {
-        "damage_multiplier": 1.0,  # Damage per frame (wave_beam_damage constant)
-        "size_multiplier": 1.0,  # Not applicable (beam weapon)
-        "speed_multiplier": 1.0,  # Not applicable (beam weapon)
-        "cooldown_multiplier": 1.0,  # Uses wave_beam_cooldown constant
-        "spread_angle_deg": 0.0,
-        "num_projectiles": 0,  # Beam weapon, not projectiles
-        "color": (50, 255, 50),  # Lime green
-        "explosion_radius": 0.0,
-        "max_bounces": 0,
-        "is_rocket": False,
-    },
 }
 
 # ----------------------------
@@ -104,7 +92,6 @@ WEAPON_NAMES = {
     "rocket": "ROCKET LAUNCHER",
     "laser": "LASER BEAM",
     "basic": "BASIC FIRE",
-    "wave_beam": "WAVE BEAM",
 }
 
 WEAPON_DISPLAY_COLORS = {
@@ -114,7 +101,6 @@ WEAPON_DISPLAY_COLORS = {
     "rocket": (255, 100, 0),
     "laser": (255, 50, 50),
     "basic": (200, 200, 200),
-    "wave_beam": (50, 255, 50),
 }
 
 # ----------------------------
@@ -124,8 +110,7 @@ WEAPON_DISPLAY_COLORS = {
 WEAPON_UNLOCK_ORDER = {
     1: "rocket",
     2: "triple",
-    3: "wave_beam",
-    4: "giant",
+    3: "giant",
 }
 
 # Note: "basic" is available from start, "laser" and "bouncing" are pickup-only

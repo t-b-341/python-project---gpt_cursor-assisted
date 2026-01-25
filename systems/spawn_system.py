@@ -39,15 +39,44 @@ def update(state: "GameState", dt: float) -> None:
 
 def start_wave(wave_num: int, state) -> None:
     """Start a new wave (boss or regular). Called from menu "Start game" and from wave timer.
-    Requires state.level_context to be set."""
+    Requires state.level_context to be set. Set state.wave_start_reason before calling to log it."""
     ctx = getattr(state, "level_context", None)
     if ctx is None:
+        _log_wave_reset(state, "start_wave_no_ctx", wave_num, 0)
         return
+    if not getattr(state, "wave_start_reason", ""):
+        state.wave_start_reason = "start_wave_call"
     _start_wave(wave_num, state, ctx)
+
+
+def _log_wave_reset(state, trigger: str, wave_num: int, enemies_before: int) -> None:
+    """Append to wave_reset_log and print so we can trace spurious resets."""
+    entry = {
+        "run_time": getattr(state, "run_time", 0.0),
+        "trigger": trigger,
+        "wave_num": wave_num,
+        "enemies_before": enemies_before,
+    }
+    log = getattr(state, "wave_reset_log", None)
+    if log is not None:
+        log.append(entry)
+        # Keep last 20 entries
+        while len(log) > 20:
+            log.pop(0)
+    msg = (
+        f"[WAVE-RESET] run_time={entry['run_time']:.1f}s trigger={trigger!r} "
+        f"wave_num={wave_num} enemies_before={enemies_before}"
+    )
+    print(msg)
 
 
 def _start_wave(wave_num: int, state, ctx: dict) -> None:
     """Spawn a new wave with scaling. Each level has 3 waves; boss on wave 3."""
+    enemies_before = len(state.enemies)
+    trigger = getattr(state, "wave_start_reason", "unknown")
+    _log_wave_reset(state, trigger, wave_num, enemies_before)
+    state.wave_start_reason = ""
+
     state.enemies = []
     state.boss_active = False
     state.wave_damage_taken = 0
@@ -114,7 +143,7 @@ def _spawn_boss_wave(
     boss = BOSS_TEMPLATE.copy()
     boss["rect"] = pygame.Rect(w // 2 - 50, h // 2 - 50, 100, 100)
     boss_hp_scale = 1.0 + (state.current_level - 1) * 0.3
-    boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"] * 1.1), 300)
+    boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"] * 1.1 * 10), 3000)
     boss["max_hp"] = boss["hp"]
     boss["shoot_cooldown"] = BOSS_TEMPLATE["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER
     boss["speed"] = BOSS_TEMPLATE["speed"] * ENEMY_SPEED_SCALE_MULTIPLIER
@@ -266,5 +295,6 @@ def _update_wave_timers(state, dt: float, ctx: dict) -> None:
             state.time_to_next_wave = 0.0
             return
 
+    state.wave_start_reason = "wave_timer_all_dead"
     _start_wave(state.wave_number, state, ctx)
     state.time_to_next_wave = 0.0

@@ -192,13 +192,41 @@ def _update_friendly_projectiles(state, dt: float, ctx: dict) -> None:
         proj["rect"].y += int(proj["vel"].y * dt)
 
 
+def _missile_hits_wall(missile_rect: pygame.Rect, ctx: dict) -> bool:
+    """True if missile rect overlaps any solid block (walls block missiles)."""
+    for b in ctx.get("blocks", []):
+        if missile_rect.colliderect(b.get("rect", b)):
+            return True
+    for b in ctx.get("destructible_blocks", []):
+        if missile_rect.colliderect(b.get("rect", b)):
+            return True
+    for b in ctx.get("moveable_destructible_blocks", []):
+        if missile_rect.colliderect(b.get("rect", b)):
+            return True
+    for gb in ctx.get("giant_blocks", []):
+        if missile_rect.colliderect(gb.get("rect", gb)):
+            return True
+    for sgb in ctx.get("super_giant_blocks", []):
+        if missile_rect.colliderect(sgb.get("rect", sgb)):
+            return True
+    for tb in ctx.get("trapezoid_blocks", []):
+        r = tb.get("bounding_rect") or tb.get("rect")
+        if r and missile_rect.colliderect(r):
+            return True
+    for tr in ctx.get("triangle_blocks", []):
+        r = tr.get("bounding_rect") or tr.get("rect")
+        if r and missile_rect.colliderect(r):
+            return True
+    return False
+
+
 def _update_missiles(state, dt: float, ctx: dict) -> None:
-    """Update missile velocities (seek) and positions."""
+    """Update missile velocities (seek), positions; walls block missiles (explode on hit)."""
     player = state.player_rect
     if player is None:
         return
 
-    for missile in state.missiles:
+    for missile in state.missiles[:]:
         if missile.get("target_player"):
             target_pos = pygame.Vector2(player.center)
             missile_pos = pygame.Vector2(missile["rect"].center)
@@ -226,3 +254,15 @@ def _update_missiles(state, dt: float, ctx: dict) -> None:
 
         missile["rect"].x += int(missile["vel"].x * dt)
         missile["rect"].y += int(missile["vel"].y * dt)
+
+        if _missile_hits_wall(missile["rect"], ctx):
+            state.grenade_explosions.append({
+                "x": missile["rect"].centerx,
+                "y": missile["rect"].centery,
+                "radius": 0,
+                "max_radius": missile.get("explosion_radius", 150),
+                "timer": 0.3,
+                "damage": missile.get("damage", 100),
+                "source": "wall_impact",  # Player takes no damage from missile-on-wall explosions
+            })
+            state.missiles.remove(missile)

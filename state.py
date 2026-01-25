@@ -76,7 +76,9 @@ class GameState:
     missile_time_since_used: float = 999.0
     ally_drop_timer: float = 0.0
     dropped_ally: Optional[dict] = None
-    
+    ally_command_target: Optional[tuple[float, float]] = None  # Mouse position for "allies go here"
+    ally_command_timer: float = 0.0  # Seconds until allies stop following command
+
     # Player stat multipliers (from pickups)
     player_stat_multipliers: dict = field(default_factory=lambda: {
         "speed": 1.0,
@@ -101,6 +103,10 @@ class GameState:
     time_to_next_wave: float = 0.0
     boss_active: bool = False
     pickup_spawn_timer: float = 0.0
+
+    # Wave reset debugging: who started a wave and how many enemies were alive (to track spurious resets)
+    wave_reset_log: list = field(default_factory=list)  # [{run_time, trigger, wave_num, enemies_before}, ...]
+    wave_start_reason: str = ""  # Set by caller before start_wave; consumed and logged in _start_wave
     
     # Run statistics
     run_time: float = 0.0

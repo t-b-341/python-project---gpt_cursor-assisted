@@ -380,13 +380,17 @@ def _draw_allies_and_enemies(screen: pygame.Surface, state) -> None:
             r = friendly.get("rect")
             if r:
                 pygame.draw.rect(screen, friendly.get("color", (100, 200, 100)), r)
-    for enemy in getattr(state, "enemies", []):
+    enemies_list = getattr(state, "enemies", [])
+    highlight_when_few = len(enemies_list) <= 5
+    for enemy in enemies_list:
+        r = enemy.get("rect") if isinstance(enemy, dict) else getattr(enemy, "rect", None)
         if hasattr(enemy, "draw"):
             enemy.draw(screen)
-        else:
-            r = enemy.get("rect")
-            if r:
-                pygame.draw.rect(screen, enemy.get("color", (200, 50, 50)), r)
+        elif r:
+            pygame.draw.rect(screen, enemy.get("color", (200, 50, 50)), r)
+        if highlight_when_few and r:
+            out = r.inflate(8, 8)
+            pygame.draw.rect(screen, (255, 255, 0), out, 3)
 
 
 def _draw_effects(screen: pygame.Surface, state) -> None:
@@ -420,7 +424,3 @@ def _draw_beams(screen: pygame.Surface, state) -> None:
             pygame.draw.line(
                 screen, beam.get("color", (255, 50, 50)), beam["start"], beam["end"], beam.get("width", 5)
             )
-    for beam in getattr(state, "wave_beams", []):
-        points = beam.get("points", [])
-        if len(points) >= 2:
-            pygame.draw.lines(screen, beam.get("color", (50, 255, 50)), False, points, beam.get("width", 10))

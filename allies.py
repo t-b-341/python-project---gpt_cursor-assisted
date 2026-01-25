@@ -130,8 +130,10 @@ def update_friendly_ai(
     vec_toward_func,
     move_enemy_with_push_func,
     spawn_friendly_projectile_func,
+    state=None,
 ):
     """Update friendly AI movement, targeting, and shooting.
+    When no enemy target, allies follow player. Optional ally_command_target (from state) overrides move target.
     
     Args:
         friendly_ai: List of friendly AI units (modified in place)
@@ -142,24 +144,40 @@ def update_friendly_ai(
         vec_toward_func: Function to calculate direction vector
         move_enemy_with_push_func: Function to move friendly with collision
         spawn_friendly_projectile_func: Function to spawn friendly projectile
+        state: Game state (for player_rect and ally_command_target); optional
     """
+    player_rect = getattr(state, "player_rect", None) if state else None
+    ally_cmd = getattr(state, "ally_command_target", None) if state else None
+    ally_cmd_time = getattr(state, "ally_command_timer", 0.0) if state else 0.0
+
     for friendly in friendly_ai[:]:
         if friendly.get("hp", 1) <= 0:
             friendly_ai.remove(friendly)
             continue
-        
+
         target = find_nearest_enemy_func(pygame.Vector2(friendly["rect"].center), enemies)
-        if target:
+        move_toward_x, move_toward_y = None, None
+
+        if ally_cmd is not None and ally_cmd_time > 0:
+            move_toward_x, move_toward_y = ally_cmd[0], ally_cmd[1]
+        elif target:
+            move_toward_x = target["rect"].centerx
+            move_toward_y = target["rect"].centery
+        elif player_rect:
+            move_toward_x = player_rect.centerx
+            move_toward_y = player_rect.centery
+
+        if move_toward_x is not None and move_toward_y is not None:
             direction = vec_toward_func(
                 friendly["rect"].centerx, friendly["rect"].centery,
-                target["rect"].centerx, target["rect"].centery
+                move_toward_x, move_toward_y
             )
             friendly_speed = friendly.get("speed", 100) * dt
             move_x = int(direction.x * friendly_speed)
             move_y = int(direction.y * friendly_speed)
             move_enemy_with_push_func(friendly["rect"], move_x, move_y, blocks)
-            
-            # Friendly shooting
+
+        if target:
             friendly["shoot_cooldown"] = friendly.get("shoot_cooldown", 0.0) + dt
             if friendly["shoot_cooldown"] >= friendly.get("shoot_cooldown_time", 0.5):
                 spawn_friendly_projectile_func(friendly, target)

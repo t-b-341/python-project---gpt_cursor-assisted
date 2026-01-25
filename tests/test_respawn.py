@@ -1,0 +1,52 @@
+"""Tests that respawn does not restart the wave (no spawn_system_start_wave on death)."""
+import os
+import unittest
+
+# Source check avoids importing game (which may init display). We only need the contract.
+GAME_PY = os.path.join(os.path.dirname(__file__), "..", "game.py")
+
+
+def _get_reset_after_death_source() -> str:
+    """Return the source of reset_after_death from game.py without importing game."""
+    with open(GAME_PY, "r", encoding="utf-8") as f:
+        text = f.read()
+    start = text.find("def reset_after_death(")
+    if start == -1:
+        raise LookupError("reset_after_death not found in game.py")
+    # End at next top-level "def " or "if __name__" (at line start after newline).
+    search_from = start + 22
+    candidates = []
+    for marker in ("\ndef ", "\nif __name__"):
+        j = text.find(marker, search_from)
+        if j != -1:
+            candidates.append(j)
+    end = min(candidates) if candidates else len(text)
+    return text[start:end]
+
+
+class TestRespawnDoesNotRestartWave(unittest.TestCase):
+    """Ensure respawn keeps current wave and enemies (no map reset)."""
+
+    def test_reset_after_death_does_not_call_spawn_system_start_wave(self):
+        """Regression: respawn must not call start_wave or clear enemies/friendly_ai."""
+        src = _get_reset_after_death_source()
+        self.assertNotIn(
+            "spawn_system_start_wave",
+            src,
+            "reset_after_death must not call spawn_system_start_wave; respawn should keep wave and enemies.",
+        )
+        self.assertNotIn(
+            "state.enemies.clear()",
+            src,
+            "reset_after_death must not clear enemies on respawn.",
+        )
+        self.assertNotIn(
+            "state.friendly_ai.clear()",
+            src,
+            "reset_after_death must not clear friendly_ai on respawn.",
+        )
+        self.assertIn(
+            "Do not clear friendly_ai or call start_wave",
+            src,
+            "Expected comment documenting no-wave-restart behavior.",
+        )
