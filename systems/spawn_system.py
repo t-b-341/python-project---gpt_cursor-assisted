@@ -18,7 +18,7 @@ from config_enemies import (
     ENEMY_SPEED_SCALE_MULTIPLIER,
     ENEMY_TEMPLATES,
 )
-from constants import STATE_VICTORY, difficulty_multipliers
+from constants import ENEMY_COLOR, STATE_VICTORY, difficulty_multipliers
 from enemies import log_enemy_spawns, make_enemy_from_template
 from entities import Enemy
 from telemetry.events import WaveEnemyTypeEvent, WaveEvent
@@ -141,6 +141,7 @@ def _spawn_boss_wave(
 ) -> None:
     """Spawn boss for wave 3 of the level."""
     boss = BOSS_TEMPLATE.copy()
+    boss["color"] = ENEMY_COLOR  # All enemies same color
     boss["rect"] = pygame.Rect(w // 2 - 50, h // 2 - 50, 100, 100)
     boss_hp_scale = 1.0 + (state.current_level - 1) * 0.3
     boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"] * 1.1 * 10), 3000)

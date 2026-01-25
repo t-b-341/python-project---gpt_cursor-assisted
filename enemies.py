@@ -10,7 +10,7 @@ from config_enemies import (
     ENEMY_HP_CAP,
     QUEEN_FIXED_HP,
 )
-from constants import ENEMY_PROJECTILES_COLOR
+from constants import ENEMY_COLOR, ENEMY_PROJECTILES_COLOR
 from telemetry import EnemySpawnEvent
 
 
@@ -215,7 +215,7 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> En
     enemy = {
         "type": t["type"],
         "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
-        "color": t["color"],
+        "color": ENEMY_COLOR,  # All enemies same color
         "hp": hp,
         "max_hp": hp,
         "shoot_cooldown": t["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER,  # Faster fire rate (lower cooldown)

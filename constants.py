@@ -174,6 +174,11 @@ POS_SAMPLE_INTERVAL = 0.25
 PICKUP_SPAWN_INTERVAL = 7.5
 
 # ----------------------------
+# Enemy appearance (all enemies use same color)
+# ----------------------------
+ENEMY_COLOR = (200, 50, 50)  # Single color for all enemy types
+
+# ----------------------------
 # Enemy projectile constants
 # ----------------------------
 ENEMY_PROJECTILE_SIZE = (10, 10)

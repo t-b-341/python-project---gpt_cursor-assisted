@@ -133,7 +133,8 @@ def update_friendly_ai(
     state=None,
 ):
     """Update friendly AI movement, targeting, and shooting.
-    When no enemy target, allies follow player. Optional ally_command_target (from state) overrides move target.
+    Allies follow the player around the map; move target is always player (or ally_command_target when active).
+    Enemy is used only for shooting when in range.
     
     Args:
         friendly_ai: List of friendly AI units (modified in place)
@@ -158,11 +159,9 @@ def update_friendly_ai(
         target = find_nearest_enemy_func(pygame.Vector2(friendly["rect"].center), enemies)
         move_toward_x, move_toward_y = None, None
 
+        # Follow player around map: move toward player (or command target); only use enemy for shooting
         if ally_cmd is not None and ally_cmd_time > 0:
             move_toward_x, move_toward_y = ally_cmd[0], ally_cmd[1]
-        elif target:
-            move_toward_x = target["rect"].centerx
-            move_toward_y = target["rect"].centery
         elif player_rect:
             move_toward_x = player_rect.centerx
             move_toward_y = player_rect.centery
