@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# C extension build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Compiled extension binaries (from setup.py build_ext --inplace or build/)
+*.pyd
+*.so
+*.dll
+
+# Profiling
+*.prof
+profiling_results*.txt
+
+# Runtime-generated SQLite (telemetry and high scores; created on first run)
+game_telemetry.db
+game_telemetry.db-shm
+game_telemetry.db-wal
+high_scores.db
+
+# Telemetry visualization output (from visualize.py)
+telemetry_plots/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

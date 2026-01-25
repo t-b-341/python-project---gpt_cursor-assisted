@@ -168,7 +168,7 @@ Deliverables:
 - Minimal comments explaining the purpose of each module.
 
 
-#------------------------------------------------------------------------------------------------------------------------------------------------------------
+X#------------------------------------------------------------------------------------------------------------------------------------------------------------X
 You are an expert game architect helping to introduce an Entity component to a Python/Pygame project.
 
 Current state:
