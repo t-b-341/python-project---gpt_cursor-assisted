@@ -20,10 +20,9 @@ def find_nearest_enemy(friendly_pos: pygame.Vector2, enemies: list[dict]) -> dic
 
 def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
     """Create a friendly AI unit from a template."""
-    # Set max HP to 1000 (10x health - was 100, now 1000 for all friendly AI)
-    # Apply 110% multiplier (1.1x) to all stats
-    max_hp = int(1000 * 1.1)  # 110% health
-    hp = max_hp  # Always start with full health at wave start
+    # Randomize health between 50-100, full health at wave start (green bar)
+    max_hp = random.randint(50, 100)
+    hp = max_hp  # Always start with full health at wave start (green bar)
     return {
         "type": t["type"],
         "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),

@@ -182,9 +182,9 @@ ENEMY_TEMPLATES: list[dict] = [
         "name": "queen",  # Explicit name
         "rect": pygame.Rect(400, 400, 32, 32),
         "color": (100, 0, 0),  # Dark maroon (player clone)
-        "hp": 5000,  # 5000 health (increased from 2000)
+        "hp": 5000,  # 5000 health (per GAME_IMPROVEMENTS.md line 60)
         "max_hp": 5000,
-        "shoot_cooldown": 1.0,  # 1.0s cooldown
+        "shoot_cooldown": 0.5,  # Increased rate of fire (reduced from 1.0s to 0.5s)
         "projectile_speed": 350,
         "projectile_color": (150, 0, 0),
         "projectile_shape": "circle",
@@ -194,9 +194,16 @@ ENEMY_TEMPLATES: list[dict] = [
         "has_shield": True,  # Queen has shield
         "shield_angle": 0.0,
         "shield_length": 60,
+        "shield_active": False,  # Shield activation state
+        "shield_timer": 0.0,  # Timer for shield activation/deactivation cycles
+        "shield_phase_duration": random.uniform(10.0, 20.0),  # 10-20 seconds per phase
+        "shield_active_duration": random.uniform(5.0, 10.0),  # 5-10 seconds when enabled
         "can_use_grenades": True,  # Queen can use grenades
         "grenade_cooldown": 5.0,  # Grenade cooldown for queen
         "time_since_grenade": 999.0,
+        "can_use_missiles": True,  # Queen can use missiles
+        "missile_cooldown": 10.0,  # Missile cooldown (10 seconds)
+        "time_since_missile": 999.0,
         "damage_taken_since_rage": 0,  # Track damage for rage mode
         "rage_mode_active": False,  # Rage mode after 300-500 damage
         "rage_mode_timer": 0.0,  # Rage mode duration (5 seconds)
@@ -246,9 +253,9 @@ BOSS_TEMPLATE: dict = {
 # ----------------------------
 # Enemy Spawn Configuration
 # ----------------------------
-BASE_ENEMIES_PER_WAVE = 9  # Base enemy count per wave
-MAX_ENEMIES_PER_WAVE = 54  # Maximum enemies per wave
-ENEMY_SPAWN_MULTIPLIER = 3.0  # Multiplier applied to base count (increased from 2.0x)
+BASE_ENEMIES_PER_WAVE = 12  # Base enemy count per wave (increased from 9)
+MAX_ENEMIES_PER_WAVE = 72  # Maximum enemies per wave (increased from 54)
+ENEMY_SPAWN_MULTIPLIER = 3.5  # Multiplier applied to base count (increased from 3.0x)
 
 # ----------------------------
 # Enemy Scaling Configuration
@@ -271,8 +278,8 @@ FRIENDLY_AI_TEMPLATES: list[dict] = [
         "type": "scout",
         "rect": pygame.Rect(0, 0, 24, 24),
         "color": (100, 200, 255),  # Light blue
-        "hp": 400,  # 10x health (was 40)
-        "max_hp": 400,  # 10x health (was 40)
+        "hp": 75,  # 50-100 health range (randomized at spawn)
+        "max_hp": 75,
         "shoot_cooldown": 0.4,
         "projectile_speed": 600,
         "projectile_color": (150, 220, 255),
@@ -285,8 +292,8 @@ FRIENDLY_AI_TEMPLATES: list[dict] = [
         "type": "guardian",
         "rect": pygame.Rect(0, 0, 28, 28),
         "color": (100, 255, 150),  # Light green
-        "hp": 800,  # 10x health (was 80)
-        "max_hp": 800,  # 10x health (was 80)
+        "hp": 100,  # 50-100 health range (randomized at spawn)
+        "max_hp": 100,
         "shoot_cooldown": 0.6,
         "projectile_speed": 500,
         "projectile_color": (150, 255, 200),
@@ -299,8 +306,8 @@ FRIENDLY_AI_TEMPLATES: list[dict] = [
         "type": "sniper",
         "rect": pygame.Rect(0, 0, 22, 22),
         "color": (255, 200, 100),  # Orange
-        "hp": 300,  # 10x health (was 30)
-        "max_hp": 300,  # 10x health (was 30)
+        "hp": 60,  # 50-100 health range (randomized at spawn)
+        "max_hp": 60,
         "shoot_cooldown": 1.2,
         "projectile_speed": 800,
         "projectile_color": (255, 220, 150),
@@ -313,8 +320,8 @@ FRIENDLY_AI_TEMPLATES: list[dict] = [
         "type": "tank",
         "rect": pygame.Rect(0, 0, 32, 32),
         "color": (200, 150, 255),  # Purple
-        "hp": 1500,  # 10x health (was 150)
-        "max_hp": 1500,  # 10x health (was 150)
+        "hp": 100,  # 50-100 health range (randomized at spawn)
+        "max_hp": 100,
         "shoot_cooldown": 0.8,
         "projectile_speed": 400,
         "projectile_color": (220, 180, 255),
