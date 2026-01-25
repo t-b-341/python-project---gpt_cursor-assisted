@@ -131,12 +131,13 @@ def _start_wave(wave_num: int, state, ctx: dict) -> None:
 
 
 def _spawn_ambient_enemies(state, ctx: dict, wave_num: int, random_spawn, telemetry, telemetry_enabled: bool) -> None:
-    """Spawn 3 stationary ambient enemies at start of each round, randomly placed, non-overlapping."""
+    """Spawn 3–5 stationary ambient enemies at start of each round, randomly placed, non-overlapping."""
     ambient_tmpl = next((t for t in ENEMY_TEMPLATES if t.get("type") == "ambient"), None)
     if not ambient_tmpl or not random_spawn:
         return
+    count = random.randint(3, 5)
     spawned = []
-    for _ in range(3):
+    for _ in range(count):
         enemy = make_enemy_from_template(ambient_tmpl, 1.0, 1.0)
         for _ in range(25):
             r = random_spawn((enemy["rect"].w, enemy["rect"].h), state)
@@ -226,7 +227,16 @@ def _spawn_regular_wave(
     if not spawn_templates:
         spawn_templates = [t for t in ENEMY_TEMPLATES if t.get("type") != "queen"]
 
+    CAP_BASIC, CAP_LARGE, CAP_SUPER_LARGE = 20, 10, 2
+
+    def size_class_count(enemies_list, size_class: str) -> int:
+        return sum(1 for e in enemies_list if e.get("enemy_size_class") == size_class)
+
     for _ in range(count):
+        current_basic = size_class_count(state.enemies, "basic") + size_class_count(spawned, "basic")
+        current_large = size_class_count(state.enemies, "large") + size_class_count(spawned, "large")
+        current_super = size_class_count(state.enemies, "super_large") + size_class_count(spawned, "super_large")
+
         tmpl = random.choice(spawn_templates)
         if tmpl.get("type") == "queen" and queen_count >= max_queens_per_wave:
             non_queen = [t for t in spawn_templates if t.get("type") != "queen"]
@@ -234,6 +244,25 @@ def _spawn_regular_wave(
                 tmpl = random.choice(non_queen)
             else:
                 continue
+        sc = tmpl.get("enemy_size_class", "basic")
+        if sc == "super_large" and current_super >= CAP_SUPER_LARGE:
+            candidates = [t for t in spawn_templates if t.get("enemy_size_class") != "super_large"]
+            if not candidates:
+                continue
+            tmpl = random.choice(candidates)
+            sc = tmpl.get("enemy_size_class", "basic")
+        if sc == "large" and current_large >= CAP_LARGE:
+            candidates = [t for t in spawn_templates if t.get("enemy_size_class") != "large"]
+            if not candidates:
+                continue
+            tmpl = random.choice(candidates)
+            sc = tmpl.get("enemy_size_class", "basic")
+        if sc == "basic" and current_basic >= CAP_BASIC:
+            candidates = [t for t in spawn_templates if t.get("enemy_size_class") != "basic"]
+            if not candidates:
+                continue
+            tmpl = random.choice(candidates)
+
         enemy = make_enemy_from_template(tmpl, hp_scale, speed_scale)
         if random_spawn:
             enemy["rect"] = random_spawn((enemy["rect"].w, enemy["rect"].h), state)
@@ -279,7 +308,21 @@ def _handle_spawner_enemies(state, dt: float, ctx: dict) -> None:
 
         if time_since_spawn >= spawn_cooldown and spawn_count < max_spawns:
             pool = [t for t in ENEMY_TEMPLATES if t.get("type") not in ("spawner", "FINAL_BOSS") and not t.get("is_ambient")]
-            tmpl = random.choice(pool) if pool else random.choice(ENEMY_TEMPLATES)
+            if not pool:
+                pool = [t for t in ENEMY_TEMPLATES if t.get("type") != "FINAL_BOSS"]
+            CAP_B, CAP_L, CAP_S = 20, 10, 2
+            nb = sum(1 for e in state.enemies if e.get("enemy_size_class") == "basic")
+            nl = sum(1 for e in state.enemies if e.get("enemy_size_class") == "large")
+            ns = sum(1 for e in state.enemies if e.get("enemy_size_class") == "super_large")
+            candidates = [t for t in pool if (
+                (t.get("enemy_size_class") == "basic" and nb < CAP_B) or
+                (t.get("enemy_size_class") == "large" and nl < CAP_L) or
+                (t.get("enemy_size_class") == "super_large" and ns < CAP_S)
+            )]
+            if not candidates:
+                enemy["time_since_spawn"] = time_since_spawn
+                continue
+            tmpl = random.choice(candidates)
             spawned_enemy = make_enemy_from_template(tmpl, 1.0, 1.0)
             spawned_enemy["rect"] = random_spawn((spawned_enemy["rect"].w, spawned_enemy["rect"].h), state)
             spawned_enemy["spawned_by"] = enemy

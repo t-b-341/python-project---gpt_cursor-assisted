@@ -22,6 +22,7 @@ class GameState:
     grenade_explosions: list = field(default_factory=list)
     missiles: list = field(default_factory=list)
     laser_beams: list = field(default_factory=list)
+    enemy_laser_beams: list = field(default_factory=list)
     wave_beams: list = field(default_factory=list)
     damage_numbers: list = field(default_factory=list)
     weapon_pickup_messages: list = field(default_factory=list)
@@ -145,6 +146,11 @@ class GameState:
     # Screen/flow state (which UI state we're in: MENU, PLAYING, PAUSED, etc.)
     current_screen: str = "MENU"
     previous_screen: Optional[str] = None
+
+    # Title screen: show "quit?" when ESC pressed
+    title_confirm_quit: bool = False
+    # Options/menu: show "quit?" when ESC pressed (same dialog as title)
+    menu_confirm_quit: bool = False
 
     # Menu and pause UI state
     menu_section: int = 0

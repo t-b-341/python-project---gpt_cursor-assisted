@@ -23,6 +23,7 @@ def update(state: "GameState", dt: float) -> None:
 
     _handle_hazard_enemy_collisions(state, dt, ctx)
     _handle_laser_beam_collisions(state, dt, ctx)
+    _handle_enemy_laser_beam_collisions(state, dt, ctx)
     _handle_dead_enemies(state, ctx)
     _handle_player_bullet_offscreen(state, ctx)
     _handle_player_bullet_enemy_collisions(state, ctx)
@@ -98,6 +99,22 @@ def _handle_laser_beam_collisions(state, dt: float, ctx: dict) -> None:
                 enemy["hp"] -= damage
                 if enemy["hp"] <= 0:
                     kill(enemy, state)
+
+
+def _handle_enemy_laser_beam_collisions(state, dt: float, ctx: dict) -> None:
+    """Enemy laser beams damage the player."""
+    line_rect = ctx.get("line_rect_intersection")
+    player = state.player_rect
+    if not line_rect or player is None:
+        return
+    for beam in list(getattr(state, "enemy_laser_beams", [])):
+        beam["timer"] = beam.get("timer", 0.2) - dt
+        if beam["timer"] <= 0:
+            state.enemy_laser_beams.remove(beam)
+            continue
+        damage_per_sec = beam.get("damage", 80 * 60)
+        if line_rect(beam["start"], beam["end"], player):
+            _apply_player_damage(state, int(damage_per_sec * dt), ctx)
 
 
 def _handle_dead_enemies(state, ctx: dict) -> None:

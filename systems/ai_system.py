@@ -113,6 +113,58 @@ def _update_enemy_ai(state, dt: float, ctx: dict) -> None:
         if enemy.get("fires_rockets") or enemy.get("can_use_grenades_player_allies_only"):
             continue  # Super large uses only rockets + grenades, no normal projectiles
 
+        # Large laser: single beam at player
+        if enemy.get("fires_laser") and target_info and vec_toward:
+            lcd = enemy.get("laser_cooldown", 0.0) + dt
+            enemy["laser_cooldown"] = lcd
+            if lcd >= enemy.get("laser_interval", 3.0):
+                target_pos, _ = target_info
+                dx = target_pos.x - enemy["rect"].centerx
+                dy = target_pos.y - enemy["rect"].centery
+                length = enemy.get("laser_length", 600)
+                if dx * dx + dy * dy >= 1e-6:
+                    scale = length / math.sqrt(dx * dx + dy * dy)
+                    end_pos = pygame.Vector2(enemy["rect"].centerx + dx * scale, enemy["rect"].centery + dy * scale)
+                else:
+                    end_pos = pygame.Vector2(enemy["rect"].centerx + length, enemy["rect"].centery)
+                state.enemy_laser_beams.append({
+                    "start": pygame.Vector2(enemy["rect"].center),
+                    "end": end_pos,
+                    "damage": enemy.get("laser_damage", 80) * 60,  # per second in collision
+                    "timer": enemy.get("laser_duration", 0.4),
+                    "color": (180, 100, 255),
+                    "width": 4,
+                })
+                enemy["laser_cooldown"] = 0.0
+            continue
+
+        # Super large triple laser: three beams with spread
+        if enemy.get("fires_triple_laser") and target_info and vec_toward:
+            lcd = enemy.get("laser_cooldown", 0.0) + dt
+            enemy["laser_cooldown"] = lcd
+            if lcd >= enemy.get("laser_interval", 4.0):
+                target_pos, _ = target_info
+                cx, cy = enemy["rect"].centerx, enemy["rect"].centery
+                dx = target_pos.x - cx
+                dy = target_pos.y - cy
+                length = enemy.get("laser_length", 700)
+                spread_deg = enemy.get("laser_spread_deg", 15) * (3.14159265 / 180.0)
+                base_angle = math.atan2(dy, dx)
+                for off in (-spread_deg, 0, spread_deg):
+                    a = base_angle + off
+                    ex = cx + length * math.cos(a)
+                    ey = cy + length * math.sin(a)
+                    state.enemy_laser_beams.append({
+                        "start": pygame.Vector2(cx, cy),
+                        "end": pygame.Vector2(ex, ey),
+                        "damage": enemy.get("laser_damage", 120) * 60,
+                        "timer": enemy.get("laser_duration", 0.5),
+                        "color": (200, 80, 255),
+                        "width": 6,
+                    })
+                enemy["laser_cooldown"] = 0.0
+            continue
+
         # Non-reflector shooting
         if not enemy.get("has_reflective_shield") and spawn_projectile and spawn_projectile_predictive:
             enemy["shoot_cooldown"] = enemy.get("shoot_cooldown", 999.0) + dt

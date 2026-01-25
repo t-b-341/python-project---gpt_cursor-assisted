@@ -151,7 +151,7 @@ def main():
     # Use GameState() defaults; only set values that depend on display/context.
     game_state = GameState()
     game_state.player_rect = pygame.Rect((WIDTH - 28) // 2, (HEIGHT - 28) // 2, 28, 28)
-    game_state.current_screen = STATE_MENU
+    game_state.current_screen = STATE_TITLE
     game_state.run_started_at = run_started_at
 
     # Local alias for readability where the loop uses "player" frequently.
@@ -288,6 +288,7 @@ def main():
                         game_state.friendly_ai.clear()
                         game_state.grenade_explosions.clear()
                         game_state.missiles.clear()
+                        game_state.enemy_laser_beams.clear()
                         game_state.wave_number = 1
                         game_state.wave_in_level = 1
                         game_state.current_level = 1
@@ -326,9 +327,25 @@ def main():
                         game_state.player_name_input += event.text
                 
                 # Ally direction command: right-click during play sends allies toward mouse position
-                if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-                    game_state.ally_command_target = (float(event.pos[0]), float(event.pos[1]))
-                    game_state.ally_command_timer = 5.0
+                # Direct allies: default right-click, or key if rebound
+                direct_allies_binding = controls.get("direct_allies", MOUSE_BUTTON_RIGHT)
+                if state in (STATE_PLAYING, STATE_ENDURANCE):
+                    if direct_allies_binding == MOUSE_BUTTON_RIGHT and event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                        game_state.ally_command_target = (float(event.pos[0]), float(event.pos[1]))
+                        game_state.ally_command_timer = 5.0
+                    elif direct_allies_binding != MOUSE_BUTTON_RIGHT and event.type == pygame.KEYDOWN and event.key == direct_allies_binding:
+                        # Key binding: use current mouse position as target
+                        mx, my = pygame.mouse.get_pos()
+                        game_state.ally_command_target = (float(mx), float(my))
+                        game_state.ally_command_timer = 5.0
+
+                # Controls rebinding: accept right-click for direct_allies
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and state == STATE_CONTROLS and controls_rebinding:
+                    action = controls_actions[controls_selected]
+                    if action == "direct_allies":
+                        controls[action] = MOUSE_BUTTON_RIGHT
+                        save_controls(controls)
+                        controls_rebinding = False
 
                 # Handle keyboard events
                 if event.type == pygame.KEYDOWN:
@@ -366,8 +383,16 @@ def main():
                             state = STATE_PAUSED
                             game_state.pause_selected = 0
                             game_state.current_screen = STATE_PAUSED
+                        elif state == STATE_TITLE:
+                            if game_state.title_confirm_quit:
+                                game_state.title_confirm_quit = False
+                            else:
+                                game_state.title_confirm_quit = True
                         elif state == STATE_MENU:
-                            running = False
+                            if game_state.menu_confirm_quit:
+                                game_state.menu_confirm_quit = False
+                            else:
+                                game_state.menu_confirm_quit = True
                         elif state == STATE_VICTORY or state == STATE_GAME_OVER or state == STATE_HIGH_SCORES:
                             running = False
                         elif state == STATE_NAME_INPUT:
@@ -433,33 +458,44 @@ def main():
                             elif choice == "Quit":
                                 running = False
                     
-                    # Menu navigation
+                    # Title screen: Enter/Space to start; or quit confirm (Y/Enter = quit, N/ESC = stay)
+                    if state == STATE_TITLE:
+                        if game_state.title_confirm_quit:
+                            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_y):
+                                running = False
+                            elif event.key == pygame.K_n:
+                                game_state.title_confirm_quit = False
+                        else:
+                            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                                state = STATE_MENU
+                                game_state.current_screen = STATE_MENU
+                    
+                    # Menu navigation (and quit confirm when ESC was pressed in options)
                     if state == STATE_MENU:
-                        if menu_section == 0:  # Difficulty selection
+                        if game_state.menu_confirm_quit:
+                            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_y):
+                                running = False
+                            elif event.key == pygame.K_n:
+                                game_state.menu_confirm_quit = False
+                        elif menu_section == 0:  # Difficulty selection (first options screen: back arrow = return to title/main menu)
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
                                 difficulty_selected = (difficulty_selected - 1) % len(difficulty_options)
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
                                 difficulty_selected = (difficulty_selected + 1) % len(difficulty_options)
+                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                                state = STATE_TITLE
+                                game_state.current_screen = STATE_TITLE
+                                game_state.menu_confirm_quit = False
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                                 difficulty = difficulty_options[difficulty_selected]
-                                menu_section = 1  # Go to aiming mode
-                        elif menu_section == 1:  # Aiming mode
-                            if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                aiming_mode_selected = (aiming_mode_selected - 1) % 2
-                            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                aiming_mode_selected = (aiming_mode_selected + 1) % 2
-                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                menu_section = 0  # Go back
-                            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                aiming_mode = AIM_MOUSE if aiming_mode_selected == 0 else AIM_ARROWS
-                                menu_section = 1.5  # Go to character profile yes/no
+                                menu_section = 1.5  # Go to character profile yes/no (aiming mode removed, default mouse)
                         elif menu_section == 1.5:  # Character profile yes/no
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
                                 use_character_profile_selected = (use_character_profile_selected - 1) % 2
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
                                 use_character_profile_selected = (use_character_profile_selected + 1) % 2
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                menu_section = 1  # Go back
+                                menu_section = 0  # Go back to difficulty
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                                 use_character_profile = use_character_profile_selected == 1
                                 if use_character_profile:
@@ -913,104 +949,101 @@ def main():
             if state not in (STATE_PLAYING, STATE_ENDURANCE):
                 screen.fill(theme["bg_color"])
 
-            if state == STATE_MENU:
-                # Menu rendering
-                draw_centered_text(screen, font, big_font, WIDTH, "MOUSE AIM SHOOTER", HEIGHT // 4, use_big=True)
-                
-                y_offset = HEIGHT // 2
-                if menu_section == 0:
-                    # Difficulty selection
-                    draw_centered_text(screen, font, big_font, WIDTH, "Select Difficulty:", y_offset - 60)
-                    for i, diff in enumerate(difficulty_options):
-                        color = (255, 255, 0) if i == difficulty_selected else (200, 200, 200)
-                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == difficulty_selected else '  '} {diff}", y_offset + i * 40, color)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
-                
-                elif menu_section == 1:
-                    # Aiming mode selection
-                    draw_centered_text(screen, font, big_font, WIDTH, "Select Aiming Mode:", y_offset - 60)
-                    modes = ["Mouse", "Arrow Keys"]
-                    for i, mode in enumerate(modes):
-                        color = (255, 255, 0) if i == aiming_mode_selected else (200, 200, 200)
-                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == aiming_mode_selected else '  '} {mode}", y_offset + i * 40, color)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
-                
-                elif menu_section == 1.5:
-                    # Character profile yes/no
-                    draw_centered_text(screen, font, big_font, WIDTH, "Use Character Profile?", y_offset - 60)
-                    options = ["No", "Yes"]
-                    for i, opt in enumerate(options):
-                        color = (255, 255, 0) if i == use_character_profile_selected else (200, 200, 200)
-                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == use_character_profile_selected else '  '} {opt}", y_offset + i * 40, color)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
-                
-                elif menu_section == 2:
-                    # Character profile selection
-                    draw_centered_text(screen, font, big_font, WIDTH, "Character Profile:", y_offset - 60)
-                    for i, profile in enumerate(character_profile_options):
-                        color = (255, 255, 0) if i == character_profile_selected else (200, 200, 200)
-                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == character_profile_selected else '  '} {profile}", y_offset + i * 40, color)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
-                
-                elif menu_section == 3:
-                    # HUD options
-                    draw_centered_text(screen, font, big_font, WIDTH, "HUD Options:", y_offset - 60)
-                    options = ["Show Metrics", "Hide Metrics"]
-                    for i, opt in enumerate(options):
-                        color = (255, 255, 0) if i == ui_show_metrics_selected else (200, 200, 200)
-                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == ui_show_metrics_selected else '  '} {opt}", y_offset + i * 40, color)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
-                
-                elif menu_section == 3.5:
-                    # Telemetry options
-                    draw_centered_text(screen, font, big_font, WIDTH, "Telemetry:", y_offset - 60)
-                    options = ["Enabled", "Disabled"]
-                    for i, opt in enumerate(options):
-                        color = (255, 255, 0) if i == ui_telemetry_enabled_selected else (200, 200, 200)
-                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == ui_telemetry_enabled_selected else '  '} {opt}", y_offset + i * 40, color)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
-                
-                elif menu_section == 4:
-                    # Beam/weapon selection (if testing mode)
-                    if testing_mode:
-                        draw_centered_text(screen, font, big_font, WIDTH, "Select Weapon:", y_offset - 60)
-                        for i, weapon in enumerate(weapon_selection_options):
-                            color = (255, 255, 0) if i == beam_selection_selected else (200, 200, 200)
-                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == beam_selection_selected else '  '} {weapon}", y_offset + i * 30, color)
+            if state == STATE_TITLE:
+                # Title screen: same green as options menus (theme already filled above); or "Are you sure?" when ESC pressed
+                if game_state.title_confirm_quit:
+                    draw_centered_text(screen, font, big_font, WIDTH, "Are you sure you want to exit?", HEIGHT // 2 - 40, color=(220, 220, 220))
+                    draw_centered_text(screen, font, big_font, WIDTH, "ENTER or Y to quit", HEIGHT // 2 + 20, (180, 180, 180))
+                    draw_centered_text(screen, font, big_font, WIDTH, "ESC or N to stay", HEIGHT // 2 + 60, (180, 180, 180))
+                else:
+                    draw_centered_text(screen, font, big_font, WIDTH, "GAME", HEIGHT // 2 - 80, color=(220, 220, 220), use_big=True)
+                    draw_centered_text(screen, font, big_font, WIDTH, "Main Menu", HEIGHT // 2 - 30, (180, 180, 180))
+                    draw_centered_text(screen, font, big_font, WIDTH, "Press ENTER or SPACE for options", HEIGHT // 2 + 30, (180, 180, 180))
+                    draw_centered_text(screen, font, big_font, WIDTH, "ESC to quit", HEIGHT // 2 + 70, (180, 180, 180))
+            elif state == STATE_MENU:
+                # Menu rendering (or same quit-confirm dialog when ESC pressed)
+                if game_state.menu_confirm_quit:
+                    draw_centered_text(screen, font, big_font, WIDTH, "Are you sure you want to exit?", HEIGHT // 2 - 40, color=(220, 220, 220))
+                    draw_centered_text(screen, font, big_font, WIDTH, "ENTER or Y to quit", HEIGHT // 2 + 20, (180, 180, 180))
+                    draw_centered_text(screen, font, big_font, WIDTH, "ESC or N to stay", HEIGHT // 2 + 60, (180, 180, 180))
+                else:
+                    draw_centered_text(screen, font, big_font, WIDTH, "MOUSE AIM SHOOTER", HEIGHT // 4, use_big=True)
+                    y_offset = HEIGHT // 2
+                    if menu_section == 0:
+                        # Difficulty selection (options entry: LEFT = back to main menu)
+                        draw_centered_text(screen, font, big_font, WIDTH, "Options — Select Difficulty:", y_offset - 60)
+                        for i, diff in enumerate(difficulty_options):
+                            color = (255, 255, 0) if i == difficulty_selected else (200, 200, 200)
+                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == difficulty_selected else '  '} {diff}", y_offset + i * 40, color)
+                        draw_centered_text(screen, font, big_font, WIDTH, "UP/DOWN to select, RIGHT/ENTER to continue, LEFT to return to main menu", HEIGHT - 100, (150, 150, 150))
+                    elif menu_section == 1.5:
+                        # Character profile yes/no
+                        draw_centered_text(screen, font, big_font, WIDTH, "Use Character Profile?", y_offset - 60)
+                        options = ["No", "Yes"]
+                        for i, opt in enumerate(options):
+                            color = (255, 255, 0) if i == use_character_profile_selected else (200, 200, 200)
+                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == use_character_profile_selected else '  '} {opt}", y_offset + i * 40, color)
                         draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
-                    else:
-                        menu_section = 5  # Skip to start
-                
-                elif menu_section == 4.5:
-                    # Testing options (testing mode only)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Testing Options:", y_offset - 60)
-                    invuln_color = (255, 255, 0) if invulnerability_mode else (200, 200, 200)
-                    draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if invulnerability_mode else '  '} Invulnerability: {'ON' if invulnerability_mode else 'OFF'}", y_offset, invuln_color)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to toggle, LEFT to go back, RIGHT/ENTER to start", HEIGHT - 100, (150, 150, 150))
-                
-                elif menu_section == 5:
-                    # Start game
-                    draw_centered_text(screen, font, big_font, WIDTH, "Ready to Start!", y_offset)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Press ENTER or SPACE to begin", y_offset + 60, (150, 150, 150))
-                    draw_centered_text(screen, font, big_font, WIDTH, "Press LEFT to go back", y_offset + 100, (150, 150, 150))
-                
-                elif menu_section == 6:
-                    # Custom profile creator
-                    draw_centered_text(screen, font, big_font, WIDTH, "Custom Profile Creator:", y_offset - 100)
-                    for i, stat_name in enumerate(custom_profile_stats_list):
-                        stat_key = custom_profile_stats_keys[i]
-                        stat_value = custom_profile_stats[stat_key]
-                        color = (255, 255, 0) if i == custom_profile_stat_selected else (200, 200, 200)
-                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == custom_profile_stat_selected else '  '} {stat_name}: {stat_value:.1f}x", y_offset + i * 35, color)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select stat, LEFT/RIGHT to adjust, ENTER to continue", HEIGHT - 100, (150, 150, 150))
-                
-                elif menu_section == 7:
-                    # Class selection
-                    draw_centered_text(screen, font, big_font, WIDTH, "Select Class:", y_offset - 60)
-                    for i, cls in enumerate(player_class_options):
-                        color = (255, 255, 0) if i == player_class_selected else (200, 200, 200)
-                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == player_class_selected else '  '} {cls}", y_offset + i * 40, color)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                    elif menu_section == 2:
+                        # Character profile selection
+                        draw_centered_text(screen, font, big_font, WIDTH, "Character Profile:", y_offset - 60)
+                        for i, profile in enumerate(character_profile_options):
+                            color = (255, 255, 0) if i == character_profile_selected else (200, 200, 200)
+                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == character_profile_selected else '  '} {profile}", y_offset + i * 40, color)
+                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                    elif menu_section == 3:
+                        # HUD options
+                        draw_centered_text(screen, font, big_font, WIDTH, "HUD Options:", y_offset - 60)
+                        options = ["Show Metrics", "Hide Metrics"]
+                        for i, opt in enumerate(options):
+                            color = (255, 255, 0) if i == ui_show_metrics_selected else (200, 200, 200)
+                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == ui_show_metrics_selected else '  '} {opt}", y_offset + i * 40, color)
+                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                    elif menu_section == 3.5:
+                        # Telemetry options
+                        draw_centered_text(screen, font, big_font, WIDTH, "Telemetry:", y_offset - 60)
+                        options = ["Enabled", "Disabled"]
+                        for i, opt in enumerate(options):
+                            color = (255, 255, 0) if i == ui_telemetry_enabled_selected else (200, 200, 200)
+                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == ui_telemetry_enabled_selected else '  '} {opt}", y_offset + i * 40, color)
+                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                    elif menu_section == 4:
+                        # Beam/weapon selection (if testing mode)
+                        if testing_mode:
+                            draw_centered_text(screen, font, big_font, WIDTH, "Select Weapon:", y_offset - 60)
+                            for i, weapon in enumerate(weapon_selection_options):
+                                color = (255, 255, 0) if i == beam_selection_selected else (200, 200, 200)
+                                draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == beam_selection_selected else '  '} {weapon}", y_offset + i * 30, color)
+                            draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                        else:
+                            menu_section = 5  # Skip to start
+                    elif menu_section == 4.5:
+                        # Testing options (testing mode only)
+                        draw_centered_text(screen, font, big_font, WIDTH, "Testing Options:", y_offset - 60)
+                        invuln_color = (255, 255, 0) if invulnerability_mode else (200, 200, 200)
+                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if invulnerability_mode else '  '} Invulnerability: {'ON' if invulnerability_mode else 'OFF'}", y_offset, invuln_color)
+                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to toggle, LEFT to go back, RIGHT/ENTER to start", HEIGHT - 100, (150, 150, 150))
+                    elif menu_section == 5:
+                        # Start game
+                        draw_centered_text(screen, font, big_font, WIDTH, "Ready to Start!", y_offset)
+                        draw_centered_text(screen, font, big_font, WIDTH, "Press ENTER or SPACE to begin", y_offset + 60, (150, 150, 150))
+                        draw_centered_text(screen, font, big_font, WIDTH, "Press LEFT to go back", y_offset + 100, (150, 150, 150))
+                    elif menu_section == 6:
+                        # Custom profile creator
+                        draw_centered_text(screen, font, big_font, WIDTH, "Custom Profile Creator:", y_offset - 100)
+                        for i, stat_name in enumerate(custom_profile_stats_list):
+                            stat_key = custom_profile_stats_keys[i]
+                            stat_value = custom_profile_stats[stat_key]
+                            color = (255, 255, 0) if i == custom_profile_stat_selected else (200, 200, 200)
+                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == custom_profile_stat_selected else '  '} {stat_name}: {stat_value:.1f}x", y_offset + i * 35, color)
+                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select stat, LEFT/RIGHT to adjust, ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                    elif menu_section == 7:
+                        # Class selection
+                        draw_centered_text(screen, font, big_font, WIDTH, "Select Class:", y_offset - 60)
+                        for i, cls in enumerate(player_class_options):
+                            color = (255, 255, 0) if i == player_class_selected else (200, 200, 200)
+                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == player_class_selected else '  '} {cls}", y_offset + i * 40, color)
+                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
             elif state == STATE_PLAYING or state == STATE_ENDURANCE:
                 gameplay_ctx = {
                     "level_themes": level_themes,
@@ -1106,6 +1139,8 @@ def main():
 
 def _key_name_to_code(name: str) -> int:
     name = (name or "").lower().strip()
+    if name in ("right mouse", "right_mouse", "mouse right"):
+        return MOUSE_BUTTON_RIGHT
     try:
         return pygame.key.key_code(name)
     except Exception:
@@ -1129,10 +1164,13 @@ def save_controls(controls: dict[str, int]) -> None:
     # Persist as human-readable key names so players can edit the file too
     out: dict[str, str] = {}
     for action, key_code in controls.items():
-        try:
-            out[action] = pygame.key.name(key_code)
-        except Exception:
-            out[action] = "unknown"
+        if key_code == MOUSE_BUTTON_RIGHT:
+            out[action] = "right mouse"
+        else:
+            try:
+                out[action] = pygame.key.name(key_code)
+            except Exception:
+                out[action] = "unknown"
     with open(CONTROLS_PATH, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
 
@@ -3375,6 +3413,7 @@ def reset_after_death(state: GameState):
     state.is_jumping = False
     state.jump_velocity = pygame.Vector2(0, 0)
     state.laser_beams.clear()
+    state.enemy_laser_beams.clear()
     state.wave_beams.clear()
     # Keep hazard obstacles as-is on respawn (map no longer resets)
     # Reset shield

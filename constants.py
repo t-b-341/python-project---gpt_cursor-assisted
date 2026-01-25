@@ -12,6 +12,9 @@ HIGH_SCORES_DB = "high_scores.db"
 # ----------------------------
 # Default controls
 # ----------------------------
+# Sentinel for "right mouse button" in direct_allies binding (not a pygame key)
+MOUSE_BUTTON_RIGHT = -1
+
 DEFAULT_CONTROLS = {
     "move_left": "a",
     "move_right": "d",
@@ -21,11 +24,13 @@ DEFAULT_CONTROLS = {
     "slow": "left ctrl",
     "dash": "space",
     "ally_drop": "q",
+    "direct_allies": "right mouse",
 }
 
 # ----------------------------
 # Game state constants
 # ----------------------------
+STATE_TITLE = "TITLE"
 STATE_MENU = "MENU"
 STATE_PLAYING = "PLAYING"
 STATE_PAUSED = "PAUSED"
@@ -99,7 +104,7 @@ custom_profile_stats_keys = ["hp_mult", "speed_mult", "damage_mult", "firerate_m
 # UI constants
 # ----------------------------
 pause_options = ["Continue", "Restart (Wave 1)", "Exit to main menu", "Quit"]
-controls_actions = ["move_left", "move_right", "move_up", "move_down", "boost", "slow", "dash", "ally_drop"]
+controls_actions = ["move_left", "move_right", "move_up", "move_down", "boost", "slow", "dash", "ally_drop", "direct_allies"]
 
 # ----------------------------
 # Weapon constants

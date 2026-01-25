@@ -429,9 +429,14 @@ def _draw_player(screen: pygame.Surface, state) -> None:
 
 
 def _draw_beams(screen: pygame.Surface, state) -> None:
-    """Draw laser and wave beams."""
+    """Draw laser and wave beams (player and enemy)."""
     for beam in getattr(state, "laser_beams", []):
         if "start" in beam and "end" in beam:
             pygame.draw.line(
                 screen, beam.get("color", (255, 50, 50)), beam["start"], beam["end"], beam.get("width", 5)
+            )
+    for beam in getattr(state, "enemy_laser_beams", []):
+        if "start" in beam and "end" in beam:
+            pygame.draw.line(
+                screen, beam.get("color", (200, 80, 255)), beam["start"], beam["end"], beam.get("width", 4)
             )

@@ -206,9 +206,14 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> En
         hp = QUEEN_FIXED_HP
         base_speed = t.get("speed", 80)
         final_speed = base_speed * ENEMY_SPEED_SCALE_MULTIPLIER
-    elif t.get("type") == "super_large":
+    elif t.get("type") in ("super_large", "super_large_triple_laser"):
         hp = int(t["hp"] * hp_scale * 1.5)  # Scale but no normal cap
-        final_speed = t.get("speed", 20) * speed_scale * ENEMY_SPEED_SCALE_MULTIPLIER
+        base_spd = t.get("speed", 20)
+        final_speed = base_spd * speed_scale * ENEMY_SPEED_SCALE_MULTIPLIER
+    elif t.get("type") == "large_laser":
+        hp = int(t["hp"] * hp_scale * ENEMY_HP_SCALE_MULTIPLIER * 10)
+        hp = min(hp, ENEMY_HP_CAP * 10)
+        final_speed = t.get("speed", 50) * speed_scale * ENEMY_SPEED_SCALE_MULTIPLIER
     elif t.get("is_ambient"):
         hp = t["hp"]
         final_speed = 0  # Stationary
@@ -267,6 +272,21 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> En
         enemy["time_since_grenade"] = t.get("time_since_grenade", 999.0)
         enemy["grenade_damage"] = t.get("grenade_damage", 400)
         enemy["grenade_radius"] = t.get("grenade_radius", 120)
+    if t.get("fires_laser"):
+        enemy["fires_laser"] = True
+        enemy["laser_cooldown"] = t.get("laser_cooldown", 0.0)
+        enemy["laser_interval"] = t.get("laser_interval", 3.0)
+        enemy["laser_duration"] = t.get("laser_duration", 0.4)
+        enemy["laser_damage"] = t.get("laser_damage", 80)
+        enemy["laser_length"] = t.get("laser_length", 600)
+    if t.get("fires_triple_laser"):
+        enemy["fires_triple_laser"] = True
+        enemy["laser_cooldown"] = t.get("laser_cooldown", 0.0)
+        enemy["laser_interval"] = t.get("laser_interval", 4.0)
+        enemy["laser_duration"] = t.get("laser_duration", 0.5)
+        enemy["laser_damage"] = t.get("laser_damage", 120)
+        enemy["laser_length"] = t.get("laser_length", 700)
+        enemy["laser_spread_deg"] = t.get("laser_spread_deg", 15)
     
     # Add queen-specific properties
     if t.get("type") == "queen":

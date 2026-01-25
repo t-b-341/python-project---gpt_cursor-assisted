@@ -140,6 +140,23 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
                 direction = direction.normalize()
             enemy_speed = enemy.get("speed", 80) * dt
 
+            # Bait grenades: approach player then retreat from grenade range (get in, get out)
+            if target_info and not enemy.get("is_boss") and not enemy.get("is_patrol") and not enemy.get("is_ambient"):
+                target_pos_v, target_type = target_info
+                if target_type == "player":
+                    dist_to_player = enemy_pos.distance_to(pygame.Vector2(player.center))
+                    GRENADE_BAIT_INNER, GRENADE_BAIT_OUTER = 120.0, 220.0
+                    phase = enemy.get("bait_phase", "approach")
+                    if dist_to_player < GRENADE_BAIT_INNER:
+                        phase = "retreat"
+                    elif dist_to_player > GRENADE_BAIT_OUTER:
+                        phase = "approach"
+                    enemy["bait_phase"] = phase
+                    if phase == "retreat":
+                        away = vec_toward(player.centerx, player.centery, enemy_pos.x, enemy_pos.y)
+                        if away.length_squared() >= 1e-6:
+                            direction = away.normalize()
+
             if len(state.enemies) <= 5 and not player_in_main:
                 direction = vec_toward(enemy_pos.x, enemy_pos.y, player.centerx, player.centery)
                 if direction.length_squared() >= 1e-6:
@@ -172,18 +189,17 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
                     random_angle = random.uniform(0, 2 * math.pi)
                     direction = pygame.Vector2(math.cos(random_angle), math.sin(random_angle))
 
-                if len(state.enemies) > 5:
-                    dodge_threats = find_threats_in_dodge_range(
-                        enemy_pos, state.player_bullets, state.friendly_projectiles, 200.0
-                    )
-                    if dodge_threats:
-                        dodge_dir = pygame.Vector2(-direction.y, direction.x)
-                        if random.random() < 0.5:
-                            dodge_dir = -dodge_dir
-                        direction = direction + dodge_dir * 0.5
-                        if direction.length_squared() >= 1e-6:
-                            direction = direction.normalize()
-                        # else keep direction unchanged
+                # Dodge shots: always try to sidestep when bullets/projectiles are in range
+                dodge_threats = find_threats_in_dodge_range(
+                    enemy_pos, state.player_bullets, state.friendly_projectiles, 220.0
+                )
+                if dodge_threats:
+                    dodge_dir = pygame.Vector2(-direction.y, direction.x)
+                    if random.random() < 0.5:
+                        dodge_dir = -dodge_dir
+                    direction = direction + dodge_dir * 0.6
+                    if direction.length_squared() >= 1e-6:
+                        direction = direction.normalize()
 
             move_x = int(direction.x * enemy_speed)
             move_y = int(direction.y * enemy_speed)
