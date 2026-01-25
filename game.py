@@ -280,7 +280,7 @@ def main():
                     result = h["handle_events"](events, game_state, screen_ctx)
                     if result.get("quit"):
                         running = False
-                    if result.get("restart"):
+                    if result.get("restart") or result.get("restart_to_wave1") or result.get("replay"):
                         game_state.enemies.clear()
                         game_state.player_bullets.clear()
                         game_state.enemy_projectiles.clear()
@@ -300,11 +300,17 @@ def main():
                         game_state.time_to_next_wave = 0.0
                         game_state.unlocked_weapons = {"basic"}
                         game_state.current_weapon_mode = "basic"
-                        game_state.menu_section = 0
+                        if result.get("restart"):
+                            game_state.menu_section = 0
+                        if result.get("restart_to_wave1") or result.get("replay"):
+                            game_state.player_rect.center = (WIDTH // 2, HEIGHT // 2)
+                            state = STATE_PLAYING
+                            spawn_system_start_wave(1, game_state)
                     if state == STATE_PAUSED:
                         pause_selected = game_state.pause_selected
                     if result.get("screen") is not None:
                         state = result["screen"]
+                        game_state.current_screen = state
                     handled_by_screen = True
 
             for event in events:
@@ -349,12 +355,17 @@ def main():
                             previous_game_state = state
                             state = STATE_PAUSED
                             pause_selected = 0
+                            game_state.previous_screen = previous_game_state
+                            game_state.pause_selected = 0
+                            game_state.current_screen = STATE_PAUSED
                         elif state == STATE_PAUSED:
                             state = previous_game_state if previous_game_state else STATE_PLAYING
                         elif state == STATE_CONTINUE:
                             running = False
                         elif state == STATE_CONTROLS:
                             state = STATE_PAUSED
+                            game_state.pause_selected = 0
+                            game_state.current_screen = STATE_PAUSED
                         elif state == STATE_MENU:
                             running = False
                         elif state == STATE_VICTORY or state == STATE_GAME_OVER or state == STATE_HIGH_SCORES:
@@ -378,10 +389,13 @@ def main():
                             previous_game_state = state
                             state = STATE_PAUSED
                             pause_selected = 0
+                            game_state.previous_screen = previous_game_state
+                            game_state.pause_selected = 0
+                            game_state.current_screen = STATE_PAUSED
                         elif state == STATE_PAUSED:
                             state = previous_game_state if previous_game_state else STATE_PLAYING
                     
-                    # Pause menu navigation
+                    # Pause menu navigation (fallback when not using screen handler)
                     if state == STATE_PAUSED:
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
                             pause_selected = (pause_selected - 1) % len(pause_options)
@@ -391,11 +405,7 @@ def main():
                             choice = pause_options[pause_selected]
                             if choice == "Continue":
                                 state = previous_game_state if previous_game_state else STATE_PLAYING
-                            elif choice == "Restart Game":
-                                # Restart game: reset to menu
-                                state = STATE_MENU
-                                menu_section = 0
-                                # Reset game state
+                            elif choice == "Restart (Wave 1)":
                                 game_state.enemies.clear()
                                 game_state.player_bullets.clear()
                                 game_state.enemy_projectiles.clear()
@@ -415,6 +425,11 @@ def main():
                                 game_state.time_to_next_wave = 0.0
                                 game_state.unlocked_weapons = {"basic"}
                                 game_state.current_weapon_mode = "basic"
+                                game_state.player_rect.center = (WIDTH // 2, HEIGHT // 2)
+                                state = STATE_PLAYING
+                                spawn_system_start_wave(1, game_state)
+                            elif choice == "Exit to main menu":
+                                state = STATE_MENU
                             elif choice == "Quit":
                                 running = False
                     

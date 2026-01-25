@@ -1,13 +1,20 @@
 """High scores screen: handle_events and render."""
 import pygame
+from constants import STATE_PLAYING
 
 
 def handle_events(events, game_state, ctx):
-    """On ESC, signal quit. Returns {"screen": None, "quit": bool, "restart": False}."""
-    out = {"screen": None, "quit": False, "restart": False}
+    """On ESC quit; on Space/Enter replay (new run from wave 1). Returns screen, quit, replay."""
+    out = {"screen": None, "quit": False, "restart": False, "replay": False}
     for event in events:
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+        if event.type != pygame.KEYDOWN:
+            continue
+        if event.key == pygame.K_ESCAPE:
             out["quit"] = True
+            break
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+            out["replay"] = True
+            out["screen"] = STATE_PLAYING
             break
     return out
 
@@ -48,5 +55,5 @@ def render(screen, game_state, ctx):
         no_scores = font.render("No high scores yet!", True, (150, 150, 150))
         screen.blit(no_scores, (WIDTH // 2 - no_scores.get_width() // 2, y_offset))
 
-    instruction = small_font.render("Press ESC to exit", True, (100, 100, 100))
+    instruction = small_font.render("Press SPACE/ENTER to play again, ESC to exit", True, (100, 100, 100))
     screen.blit(instruction, (WIDTH // 2 - instruction.get_width() // 2, HEIGHT - 50))

@@ -1,20 +1,23 @@
 """Pause screen: handle_events and render."""
 import pygame
-from constants import STATE_PLAYING, STATE_MENU, pause_options
+from constants import STATE_PLAYING, STATE_ENDURANCE, STATE_MENU, pause_options
 from rendering import draw_centered_text
 
 
 def handle_events(events, game_state, ctx):
     """
     Process pause-screen events. Mutates game_state.pause_selected.
-    Returns dict: {"screen": str|None, "quit": bool, "restart": bool}.
+    Returns dict: {"screen": str|None, "quit": bool, "restart": bool, "restart_to_wave1": bool}.
     """
-    out = {"screen": None, "quit": False, "restart": False}
+    out = {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False}
     for event in events:
         if event.type != pygame.KEYDOWN:
             continue
         if event.key == pygame.K_ESCAPE:
-            out["screen"] = game_state.previous_screen or STATE_PLAYING
+            target = game_state.previous_screen or STATE_PLAYING
+            if target not in (STATE_PLAYING, STATE_ENDURANCE):
+                target = STATE_PLAYING
+            out["screen"] = target
             break
         if event.key == pygame.K_UP or event.key == pygame.K_w:
             game_state.pause_selected = (game_state.pause_selected - 1) % len(pause_options)
@@ -23,10 +26,15 @@ def handle_events(events, game_state, ctx):
         elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
             choice = pause_options[game_state.pause_selected]
             if choice == "Continue":
-                out["screen"] = game_state.previous_screen or STATE_PLAYING
-            elif choice == "Restart Game":
+                target = game_state.previous_screen or STATE_PLAYING
+                if target not in (STATE_PLAYING, STATE_ENDURANCE):
+                    target = STATE_PLAYING
+                out["screen"] = target
+            elif choice == "Restart (Wave 1)":
+                out["restart_to_wave1"] = True
+                out["screen"] = STATE_PLAYING
+            elif choice == "Exit to main menu":
                 out["screen"] = STATE_MENU
-                out["restart"] = True
             elif choice == "Quit":
                 out["quit"] = True
     return out
