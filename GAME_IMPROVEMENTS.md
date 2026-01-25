@@ -103,68 +103,20 @@ This document contains all improvement suggestions and TODO items for the game f
 - **VERIFIED (PARTIAL)**: Add a score counter and survival wave amount/time survived
   - ✅ Score counter displayed in HUD: `f"Score: {score}"` (line 1973)
   - ✅ Wave number displayed in HUD: `f"Wave: {wave_number} | Level: {current_level}"` (line 1972)
-  - ❌ Time survived NOT displayed in HUD (variable `survival_time` exists but not shown)
+  
 - **VERIFIED (PARTIAL)**: Add a high score board after each death, and the ability to type in a name
   - ✅ High score database functions exist: `init_high_scores_db()`, `save_high_score()`, `get_high_scores()` (lines 3411-3468)
   - ✅ `STATE_NAME_INPUT` and `STATE_HIGH_SCORES` states exist (constants.py)
   - ✅ Name input handling exists (lines 252-263)
-  - ❌ High scores screen rendering NOT implemented (line 2171: `# (High scores rendering would go here)`)
-  - ❌ Name input screen rendering NOT implemented (line 2175: `# (Name input rendering would go here)`)
 - **VERIFIED (NOT IMPLEMENTED)**: Add side quests, and goal tracking; complete wave without getting hit, get a bonus 10,000 points
   - ✅ `side_quests` dictionary exists with "no_hit_wave" quest (lines 2282-2290)
   - ✅ `wave_damage_taken` variable exists (line 2291)
+  /
+
+
+IMPLEMENT
+- ❌ Time survived NOT displayed in HUD (variable `survival_time` exists but not shown)
+  - ❌ High scores screen rendering NOT implemented (line 2171: `# (High scores rendering would go here)`)
+  - ❌ Name input screen rendering NOT implemented (line 2175: `# (Name input rendering would go here)`)
   - ❌ Side quest tracking logic NOT implemented (no code to check if wave completed without getting hit, no code to award bonus points, no code to activate/complete quests)
-
-## Boss & Final Content
-
-- Final boss, with a unique weapon that the player has to defeat (combo of all weapons), multiple phases, and a unique weapon for each phase
-- Give maroon enemy name "queen", and allow it to use grenades and shield as well as it gets damage done to it after 300-500 damage, for 5 seconds, and player gets close (grenade), and destroys destructible cover to lower ability for player to hide
-
-## Performance & Optimization
-
-- Fix game slowdown when many shots are on screen
-- Read the supporting files of game_physics, and optimize them with game.py, telemetry.py, and visualize.py, and then optimize game.py, telemetry.py, and visualize.py amongst each other, given the new updates in game.py
-- Is there a way to utilize the GPU for processing as well?
-- I have an NVIDIA GPU, a 4080 super, so CUDA cores should be available;
-- GPU acceleration status:
-  - game.py: ✅ IMPLEMENTED - Uses GPU for bullet updates (50+ bullets) via gpu_physics module
-  - telemetry.py: ✅ IMPLEMENTED - GPU support added for batch event processing (when CUDA available)
-  - visualize.py: ✅ IMPLEMENTED - GPU support added for data processing operations (when CUDA available)
-  - ✅ CUDA 12.9 CONFIGURED - GPU acceleration is active (RTX 4080 SUPER detected)
-  - Falls back to CPU JIT (2-5x speedup) if CUDA becomes unavailable.
-- I'm still encountering frame rate issues. Let's add a feature where at the beginning of the game, you ask if the user wants to run telemetry and write to game_telemetry.db.
-- Verify all code in repo is working correctly, and all features are implemented correctly, and all code is optimized for performance
-
-## Telemetry & Analytics
-
-- In telemetry.py, track the player's position and velocity, and the enemy's position and velocity, and which enemy types spawned that wave; do the wave's tracking for the enemies as its own table
-- Visualize.py: update the charts to be the most recent run
-
-## Bug Fixes & Technical Issues
-
-- Fix issue where allies do not disappear after dying - FIXED: Added cleanup checks and hazard collision handling
-- Fix issue where wave beams get stuck displayed after beam switched - FIXED: Added beam clearing when switching weapons
-- Fix endurance mode crash when game starts
-- Game; fix overshield bar and health bar overlay, and amount shown in health and overshield, show bars full, with health and overshield amounts full
-- Fix shots staying displayed in map after shot has moved past position
-
-## Miscellaneous
-
-- Movement direction overwrites to most recent move direction
-- Player path prediction
-- Different shapes for shots (circle, squares, etc., like 2hu)
-- Start game fullscreen
-- Put the health bar on the bottom of the screen
-- When game launches in command line, print "welcome to my game! :D"
-- Test mode menu: puts enemy name over the enemy health bar
-- Increase base enemy spawn amount by 3x
-- Give destructible obstacles 10x more health
-
-## Completed Items
-
-- Make player stick out more on map by making player 10% larger, and have a highlight around the player - FIXED: Increased size to 28x28 and added glowing highlight
-- Note: Player is currently drawn as a rectangle; "Make player a circle with a border" is still pending
-- Make bouncing bullets projectiles twice the size, and projectiles orange - FIXED: Added 2x size multiplier and orange color
-- In menu, set default beam selection to basic - FIXED: Changed default selection to index 6 (basic)
-- Fix issue where allies do not disappear after dying - FIXED: Added cleanup checks and hazard collision handling
-- Fix issue where wave beams get stuck displayed after beam switched - FIXED: Added beam clearing when switching weapons
+/
