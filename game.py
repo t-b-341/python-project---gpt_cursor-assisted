@@ -86,11 +86,8 @@ from rendering import (
     draw_centered_text,
 )
 from enemies import (
-    move_enemy_with_push_cached,
     find_nearest_threat,
     make_enemy_from_template,
-    log_enemy_spawns,
-    find_threats_in_dodge_range,
 )
 from allies import (
     find_nearest_enemy,
@@ -102,7 +99,6 @@ from allies import (
 from state import GameState
 from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
-from entities import Enemy
 from systems.movement_system import update as movement_update
 from systems.collision_system import update as collision_update
 from systems.spawn_system import update as spawn_update, start_wave as spawn_system_start_wave
@@ -3163,21 +3159,12 @@ def spawn_boss_projectile(boss: dict, direction: pygame.Vector2, state: GameStat
     )
 
 
-def log_enemy_spawns_for_current_wave():
-    enemies_spawned_ref = [enemies_spawned]
-    log_enemy_spawns(enemies, telemetry, run_time, enemies_spawned_ref)
-    enemies_spawned = enemies_spawned_ref[0]
-
-
 def calculate_kill_score(wave_num: int, run_time: float) -> int:
     """Calculate score for killing an enemy."""
     return SCORE_BASE_POINTS + (wave_num * SCORE_WAVE_MULTIPLIER) + int(run_time * SCORE_TIME_MULTIPLIER)
 
 
-# Enemy defeat messages
-enemy_defeat_messages: list[dict] = []  # List of {enemy_type, timer} for defeat messages
-
-def kill_enemy(enemy: dict, state: GameState):
+def kill_enemy(enemy: dict, state: GameState) -> None:
     """Handle enemy death: drop weapon, update score, remove from list, and clean up projectiles."""
     is_boss = enemy.get("is_boss", False)
     

@@ -3,13 +3,20 @@ HUD/UI rendering during gameplay.
 Draws health bars, score, metrics, cooldown bars, damage numbers, defeat/pickup messages, wave countdown.
 Reads state only; does not modify it.
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pygame
 
 from constants import STATE_PLAYING, AIM_ARROWS
 from rendering import draw_health_bar, draw_centered_text, render_hud_text
 
+if TYPE_CHECKING:
+    from state import GameState
 
-def render(state, screen: pygame.Surface, ctx: dict) -> None:
+
+def render(state: "GameState", screen: pygame.Surface, ctx: dict) -> None:
     """Draw all gameplay HUD/UI on top of the scene. ctx: font, big_font, small_font, WIDTH, HEIGHT, ui_show_hud, ui_show_metrics, ui_show_health_bars, overshield_max, grenade_cooldown, missile_cooldown, ally_drop_cooldown, overshield_recharge_cooldown, shield_duration, aiming_mode, current_state."""
     if not ctx:
         return

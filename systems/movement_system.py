@@ -1,15 +1,21 @@
 """Movement updates: player, enemies, projectiles, missiles, allies.
 All per-frame position updates are centralized here.
 """
+from __future__ import annotations
+
 import math
 import random
+from typing import TYPE_CHECKING
 
 import pygame
 
 from enemies import find_nearest_threat, find_threats_in_dodge_range
 
+if TYPE_CHECKING:
+    from state import GameState
 
-def update(state, dt: float) -> None:
+
+def update(state: "GameState", dt: float) -> None:
     """Update movement for all moving entities. Called from gameplay."""
     ctx = getattr(state, "level_context", None)
     if ctx is None:

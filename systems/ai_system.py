@@ -1,13 +1,19 @@
 """AI logic: enemy targeting, ally behavior, queen shield/missiles, suicide, reflector, shooting."""
+from __future__ import annotations
+
 import math
 import random
+from typing import TYPE_CHECKING
 
 import pygame
 
 from constants import STATE_NAME_INPUT
 
+if TYPE_CHECKING:
+    from state import GameState
 
-def update(state, dt: float) -> None:
+
+def update(state: "GameState", dt: float) -> None:
     """Run AI updates for enemies and allies. Called from gameplay screen."""
     ctx = getattr(state, "level_context", None)
     if ctx is None:

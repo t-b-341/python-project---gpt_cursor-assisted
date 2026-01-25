@@ -2,9 +2,9 @@
 Rendering helper functions - pure drawing utilities extracted from game.py.
 These functions handle drawing textures, projectiles, health bars, and text.
 """
+import math
 
 import pygame
-import math
 
 
 # Module-level caches for rendering optimization

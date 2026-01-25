@@ -1,12 +1,18 @@
 """Collision detection and damage: player bullets, enemy projectiles, pickups, hazards, beams, explosives."""
+from __future__ import annotations
+
 import math
+from typing import TYPE_CHECKING
 
 import pygame
 
 from constants import STATE_NAME_INPUT
 
+if TYPE_CHECKING:
+    from state import GameState
 
-def update(state, dt: float) -> None:
+
+def update(state: "GameState", dt: float) -> None:
     """Process all collisions and apply damage. Called from gameplay."""
     ctx = getattr(state, "level_context", None)
     if ctx is None:

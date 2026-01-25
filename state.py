@@ -1,6 +1,7 @@
 """Game state container for all mutable game state."""
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
 import pygame
 
 

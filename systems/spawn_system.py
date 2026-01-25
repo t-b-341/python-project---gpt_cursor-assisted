@@ -2,7 +2,10 @@
 
 All spawn/wave/boss logic runs here. Game passes callables and runtime data via state.level_context.
 """
+from __future__ import annotations
+
 import random
+from typing import TYPE_CHECKING
 
 import pygame
 
@@ -20,8 +23,11 @@ from enemies import log_enemy_spawns, make_enemy_from_template
 from entities import Enemy
 from telemetry.events import WaveEnemyTypeEvent, WaveEvent
 
+if TYPE_CHECKING:
+    from state import GameState
 
-def update(state, dt: float) -> None:
+
+def update(state: "GameState", dt: float) -> None:
     """Spawn enemies, advance waves, handle spawner minions. Called each gameplay frame."""
     ctx = getattr(state, "level_context", None)
     if ctx is None:
