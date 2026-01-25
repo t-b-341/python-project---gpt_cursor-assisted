@@ -131,6 +131,8 @@ def update_friendly_ai(
     move_enemy_with_push_func,
     spawn_friendly_projectile_func,
     state=None,
+    *,
+    player_rect=None,
 ):
     """Update friendly AI movement, targeting, and shooting.
     Allies follow the player around the map; move target is always player (or ally_command_target when active).
@@ -145,9 +147,11 @@ def update_friendly_ai(
         vec_toward_func: Function to calculate direction vector
         move_enemy_with_push_func: Function to move friendly with collision
         spawn_friendly_projectile_func: Function to spawn friendly projectile
-        state: Game state (for player_rect and ally_command_target); optional
+        state: Game state (for ally_command_target); optional
+        player_rect: If provided, used as follow target; otherwise state.player_rect. Pass explicitly so ally follows reliably.
     """
-    player_rect = getattr(state, "player_rect", None) if state else None
+    if player_rect is None and state is not None:
+        player_rect = getattr(state, "player_rect", None)
     ally_cmd = getattr(state, "ally_command_target", None) if state else None
     ally_cmd_time = getattr(state, "ally_command_timer", 0.0) if state else 0.0
 

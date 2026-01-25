@@ -30,6 +30,7 @@ def update(state: "GameState", dt: float) -> None:
     _handle_enemy_projectile_lifetime_offscreen(state, ctx)
     _handle_enemy_projectile_block_collisions(state, ctx)
     _handle_enemy_projectile_player_collisions(state, ctx)
+    _handle_enemy_projectile_friendly_collisions(state, ctx)
     _handle_pickup_player_collisions(state, ctx)
     _handle_health_zone_player_dt(state, dt, ctx)
     _handle_friendly_projectile_offscreen_blocks_enemies(state, ctx)
@@ -321,6 +322,23 @@ def _handle_enemy_projectile_player_collisions(state, ctx: dict) -> None:
         _apply_player_damage(state, damage, ctx)
         if proj in state.enemy_projectiles:
             state.enemy_projectiles.remove(proj)
+
+
+def _handle_enemy_projectile_friendly_collisions(state, ctx: dict) -> None:
+    """Apply enemy projectile damage to friendlies; remove hit projectiles and dead friendlies."""
+    for proj in state.enemy_projectiles[:]:
+        for friendly in state.friendly_ai[:]:
+            if friendly.get("hp", 1) <= 0:
+                continue
+            if not proj["rect"].colliderect(friendly["rect"]):
+                continue
+            damage = proj.get("damage", 10)
+            friendly["hp"] = friendly.get("hp", friendly.get("max_hp", 100)) - damage
+            if proj in state.enemy_projectiles:
+                state.enemy_projectiles.remove(proj)
+            if friendly["hp"] <= 0 and friendly in state.friendly_ai:
+                state.friendly_ai.remove(friendly)
+            break
 
 
 def _handle_pickup_player_collisions(state, ctx: dict) -> None:

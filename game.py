@@ -192,6 +192,7 @@ def main():
                 lambda rect, mx, my, bl: move_enemy_with_push(rect, mx, my, bl, s),
                 lambda f, t: spawn_friendly_projectile(f, t, s.friendly_projectiles, vec_toward, telemetry, s.run_time),
                 state=s,
+                player_rect=getattr(s, "player_rect", None),
             ),
             # Collision system
             "kill_enemy": kill_enemy,
@@ -684,6 +685,9 @@ def main():
                                 
                                 spawn_pos = player_center + spawn_dir * 60  # Spawn 60 pixels behind player
                                 friendly = make_friendly_from_template(tank_template, 1.0, 1.0)
+                                ally_hp = max(1, game_state.player_max_hp // 2)
+                                friendly["hp"] = ally_hp
+                                friendly["max_hp"] = ally_hp
                                 friendly["rect"].center = (int(spawn_pos.x), int(spawn_pos.y))
                                 friendly["is_dropped_ally"] = True  # Mark so enemies can prioritise it; still updated by same update_friendly_ai
                                 game_state.friendly_ai.append(friendly)
@@ -2101,9 +2105,11 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
             if enemy_rect.colliderect(state.player_rect):
                 collision = True
 
-        # Check friendly AI
+        # Check friendly AI (skip self when rect is a friendly's own rect so allies can move)
         if not collision:
             for f in state.friendly_ai:
+                if f["rect"] is enemy_rect:
+                    continue
                 if f.get("hp", 1) > 0 and enemy_rect.colliderect(f["rect"]):
                     collision = True
                     break
