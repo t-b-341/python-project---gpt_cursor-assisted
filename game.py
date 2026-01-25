@@ -106,6 +106,7 @@ from screens import SCREEN_HANDLERS
 from entities import Enemy
 from systems.movement_system import update as movement_update
 from systems.collision_system import update as collision_update
+from systems.spawn_system import update as spawn_update, start_wave as spawn_system_start_wave
 
 # Placeholder WIDTH/HEIGHT for module-level initialization
 # Will be updated in main() after pygame.display.init()
@@ -226,6 +227,13 @@ def main():
             "enemy_projectiles_color": enemy_projectiles_color,
             "wave_beam_width": wave_beam_width,
             "missile_damage": missile_damage,
+            # Spawn system
+            "difficulty": difficulty,
+            "random_spawn_position": random_spawn_position,
+            "telemetry": telemetry,
+            "telemetry_enabled": telemetry_enabled,
+            "overshield_recharge_cooldown": overshield_recharge_cooldown,
+            "ally_drop_cooldown": ally_drop_cooldown,
         }
     game_state.level_context = _make_level_context()
 
@@ -578,9 +586,14 @@ def main():
                                     previous_game_state = STATE_PLAYING
                                 game_state.current_screen = state
                                 game_state.previous_screen = previous_game_state
+                                # So spawn_system sees current telemetry and difficulty
+                                if game_state.level_context:
+                                    game_state.level_context["telemetry"] = telemetry
+                                    game_state.level_context["telemetry_enabled"] = telemetry_enabled
+                                    game_state.level_context["difficulty"] = difficulty
 
                                 game_state.run_id = telemetry.start_run(game_state.run_started_at, game_state.player_max_hp) if telemetry_enabled else None
-                                start_wave(game_state.wave_number, game_state)
+                                spawn_system_start_wave(game_state.wave_number, game_state)
                     
                     # Controls rebinding
                     if state == STATE_CONTROLS and controls_rebinding:
@@ -838,7 +851,8 @@ def main():
                 game_state.move_input_y = move_y
                 movement_update(game_state, dt)
                 collision_update(game_state, dt)
-                state = game_state.current_screen  # pick up transitions (e.g. game over -> name input)
+                spawn_update(game_state, dt)
+                state = game_state.current_screen  # pick up transitions (e.g. game over -> name input, victory)
 
                 # Apply fire rate buff
                 effective_fire_rate = game_state.player_shoot_cooldown
@@ -1036,34 +1050,7 @@ def main():
                             kill_enemy(enemy, game_state)
                             continue
                     
-                    # Spawner enemy: spawn enemies during round
-                    if enemy.get("is_spawner"):
-                        time_since_spawn = enemy.get("time_since_spawn", 0.0) + dt
-                        spawn_cooldown = enemy.get("spawn_cooldown", 5.0)
-                        spawn_count = enemy.get("spawn_count", 0)
-                        max_spawns = enemy.get("max_spawns", 3)
-                        
-                        if time_since_spawn >= spawn_cooldown and spawn_count < max_spawns:
-                            # Spawn a new enemy
-                            tmpl = random.choice(enemy_templates)
-                            # Don't spawn another spawner or boss
-                            while tmpl.get("type") in ["spawner", "FINAL_BOSS"]:
-                                tmpl = random.choice(enemy_templates)
-                            
-                            spawned_enemy = make_enemy_from_template(tmpl, 1.0, 1.0)
-                            spawned_enemy["rect"] = random_spawn_position((spawned_enemy["rect"].w, spawned_enemy["rect"].h), game_state)
-                            spawned_enemy["spawned_by"] = enemy  # Track parent spawner
-                            game_state.enemies.append(spawned_enemy)
-                            enemy["spawn_count"] = spawn_count + 1
-                            enemy["time_since_spawn"] = 0.0
-                            
-                            # Log spawn
-                            if telemetry_enabled and telemetry:
-                                enemies_spawned_ref = [game_state.enemies_spawned]
-                                log_enemy_spawns([spawned_enemy], telemetry, game_state.run_time, enemies_spawned_ref)
-                                game_state.enemies_spawned = enemies_spawned_ref[0]
-                        else:
-                            enemy["time_since_spawn"] = time_since_spawn
+                    # Spawner enemy minion spawning is in spawn_system.update()
                     
                     # Reflector enemy: turn shield towards player (slow turn speed)
                     if enemy.get("has_reflective_shield"):
@@ -1106,37 +1093,7 @@ def main():
                             enemy["shoot_cooldown"] = 0.0
                 
                 # Bullet/projectile, pickups, health zone, friendly projs, grenades, missiles: collision_system
-                
-                # Wave management
-                if game_state.wave_active and len(game_state.enemies) == 0:
-                    game_state.time_to_next_wave += dt
-                    if game_state.time_to_next_wave >= 3.0:  # 3 second countdown between waves
-                        # Check side quest: Perfect Wave (no damage taken)
-                        if game_state.wave_damage_taken == 0 and game_state.side_quests["no_hit_wave"]["active"]:
-                            # Award bonus points
-                            bonus = game_state.side_quests["no_hit_wave"]["bonus_points"]
-                            game_state.score += bonus
-                            game_state.side_quests["no_hit_wave"]["completed"] = True
-                            # Show bonus message
-                            game_state.damage_numbers.append({
-                                "x": WIDTH // 2,
-                                "y": HEIGHT // 2,
-                                "value": f"PERFECT WAVE! +{bonus}",
-                                "timer": 3.0,
-                                "color": (255, 215, 0)  # Gold color
-                            })
-                        
-                        game_state.wave_number += 1
-                        game_state.wave_in_level += 1
-                        if game_state.wave_in_level > 3:
-                            game_state.wave_in_level = 1
-                            game_state.current_level += 1
-                            if game_state.current_level > game_state.max_level:
-                                state = STATE_VICTORY
-                                game_state.wave_active = False
-                        if state != STATE_VICTORY:
-                            start_wave(game_state.wave_number, game_state)
-                            game_state.time_to_next_wave = 0.0
+                # Wave timers and next-wave start (including victory) are in spawn_system.update()
             
             # Rendering
             # Clear screen with background color based on level theme
@@ -2761,148 +2718,7 @@ def random_spawn_position(size: tuple[int, int], state: GameState, max_attempts:
     return pygame.Rect(max(0, WIDTH // 2 - w), max(0, HEIGHT // 2 - h), w, h)
 
 
-def start_wave(wave_num: int, state: GameState):
-    """Spawn a new wave with scaling. Each level has 3 waves, boss on wave 3."""
-    state.enemies = []
-    state.boss_active = False
-    # Reset wave damage tracking and activate side quest
-    state.wave_damage_taken = 0
-    state.side_quests["no_hit_wave"]["active"] = True
-    state.side_quests["no_hit_wave"]["completed"] = False
-    # Reset lives to 3 at the beginning of each wave (unless in endurance mode)
-    # In endurance mode, lives is set to 999 and should not be reset
-    if state.lives != 999:
-        state.lives = 3  # Reset to 3 lives at the beginning of each wave
-    
-    # Calculate level and wave within level (1-based)
-    state.current_level = min(state.max_level, (wave_num - 1) // 3 + 1)
-    state.wave_in_level = ((wave_num - 1) % 3) + 1
-    
-    # Boss appears on wave 3 of each level
-    if state.wave_in_level == 3:
-        # Spawn boss (create a copy from template)
-        boss = BOSS_TEMPLATE.copy()  # Create a copy to modify
-        # Set rect position at runtime (WIDTH/HEIGHT are now available)
-        boss["rect"] = pygame.Rect(WIDTH // 2 - 50, HEIGHT // 2 - 50, 100, 100)
-        boss["rect"] = pygame.Rect(WIDTH // 2 - 50, HEIGHT // 2 - 50, 100, 100)
-        diff_mult = difficulty_multipliers[difficulty]
-        
-        # Boss HP is capped at 300 (same as all enemies)
-        # Scale boss HP for different levels, but cap at 300
-        # Apply 110% multiplier (1.1x) to all boss stats
-        boss_hp_scale = 1.0 + (state.current_level - 1) * 0.3
-        boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"] * 1.1), 300)  # 110% health
-        boss["max_hp"] = boss["hp"]
-        boss["shoot_cooldown"] = boss_template["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER  # Apply fire rate multiplier
-        boss["speed"] = boss_template["speed"] * ENEMY_SPEED_SCALE_MULTIPLIER  # Apply speed multiplier
-        
-        boss["phase"] = 1
-        boss["time_since_shot"] = 0.0
-        state.enemies.append(Enemy(boss))
-        state.boss_active = True
-        enemies_spawned_ref = [state.enemies_spawned]
-        log_enemy_spawns([state.enemies[-1]], telemetry, state.run_time, enemies_spawned_ref)
-        state.enemies_spawned = enemies_spawned_ref[0]
-        # Log boss as enemy type for this wave
-        if telemetry_enabled and telemetry:
-            telemetry.log_wave_enemy_types(
-                WaveEnemyTypeEvent(
-                    t=state.run_time,
-                    wave_number=wave_num,
-                    enemy_type=boss["type"],
-                    count=1,
-                )
-            )
-        state.wave_active = True
-        
-        # Charge overshield at wave start (boss wave)
-        state.overshield_recharge_timer = overshield_recharge_cooldown  # Set to full charge
-        
-        return
-    
-    # Normal wave spawning (waves 1 and 2 of each level)
-    # Apply difficulty multipliers
-    diff_mult = difficulty_multipliers[difficulty]
-    # Level-based scaling - increase difficulty with level and wave in level
-    level_mult = 1.0 + (state.current_level - 1) * 0.3
-    wave_in_level_mult = 1.0 + (state.wave_in_level - 1) * 0.15  # Wave 2 is harder than wave 1
-    hp_scale = (1.0 + 0.15 * (wave_num - 1)) * diff_mult["enemy_hp"] * level_mult * wave_in_level_mult
-    speed_scale = (1.0 + 0.05 * (wave_num - 1)) * diff_mult["enemy_speed"] * level_mult * wave_in_level_mult
-    # Apply difficulty to enemy count
-    base_count = base_enemies_per_wave + 2 * (wave_num - 1)  # Removed enemy_spawn_boost_level
-    count = min(int(base_count * diff_mult["enemy_spawn"] * ENEMY_SPAWN_MULTIPLIER), max_enemies_per_wave)
-
-    spawned: list[dict] = []
-    # Track enemy types for this wave
-    enemy_type_counts: dict[str, int] = {}
-    queen_count = 0  # Track queen spawns (max 3 per wave)
-    max_queens_per_wave = 3
-    
-    for _ in range(count):
-        tmpl = random.choice(enemy_templates)
-        # Limit queen spawns to max 3 per wave
-        if tmpl.get("type") == "queen" and queen_count >= max_queens_per_wave:
-            # Reselect a different enemy type if we've hit the queen limit
-            non_queen_templates = [t for t in enemy_templates if t.get("type") != "queen"]
-            if non_queen_templates:
-                tmpl = random.choice(non_queen_templates)
-            else:
-                continue  # Skip if no other templates available
-        
-        enemy = make_enemy_from_template(tmpl, hp_scale, speed_scale)
-        enemy["rect"] = random_spawn_position((enemy["rect"].w, enemy["rect"].h), state)
-        spawned.append(enemy)
-        # Count enemy types
-        enemy_type = enemy["type"]
-        enemy_type_counts[enemy_type] = enemy_type_counts.get(enemy_type, 0) + 1
-        if enemy_type == "queen":
-            queen_count += 1
-
-    state.enemies.extend(spawned)
-    enemies_spawned_ref = [state.enemies_spawned]
-    if telemetry_enabled and telemetry:
-        log_enemy_spawns(spawned, telemetry, state.run_time, enemies_spawned_ref)
-    state.enemies_spawned = enemies_spawned_ref[0]
-    
-    # Log enemy types for this wave
-    if telemetry_enabled and telemetry:
-        for enemy_type, type_count in enemy_type_counts.items():
-            telemetry.log_wave_enemy_types(
-                WaveEnemyTypeEvent(
-                    t=state.run_time,
-                    wave_number=wave_num,
-                    enemy_type=enemy_type,
-                    count=type_count,
-                )
-            )
-    
-    # Spawn friendly AI: 2-4 per wave (increased from 1-2)
-    # Calculate friendly AI count based on enemy count - more friendly AI
-    # REMOVED: No longer spawn friendly AI at wave start - only dropped ally is used
-    # friendly_count = max(2, min(4, (count + 1) // 2))  # 2-4 friendly per wave
-    # spawn_friendly_ai(friendly_count, hp_scale, speed_scale, friendly_ai_templates, friendly_ai, random_spawn_position, telemetry, run_time)
-    
-    state.wave_active = True
-    
-    # Charge overshield at wave start
-    state.overshield_recharge_timer = overshield_recharge_cooldown  # Set to full charge
-    state.ally_drop_timer = ally_drop_cooldown  # Charge ally drop at wave start
-    # Charge shield at wave start
-    state.shield_recharge_timer = state.shield_recharge_cooldown  # Set to full charge
-    state.shield_cooldown_remaining = 0.0  # Shield ready to use
-    
-    # Log wave start event
-    if telemetry_enabled and telemetry:
-        telemetry.log_wave(
-            WaveEvent(
-                t=state.run_time,
-                wave_number=wave_num,
-                event_type="start",
-                enemies_spawned=count,
-                hp_scale=hp_scale,
-                speed_scale=speed_scale,
-            )
-        )
+# Wave start and wave/boss/difficulty logic live in systems.spawn_system (start_wave, update)
 
 
 def init_high_scores_db():
@@ -4076,7 +3892,7 @@ def reset_after_death(state: GameState):
 
     state.wave_number = 1
     state.time_to_next_wave = 0.0
-    start_wave(state.wave_number, state)
+    spawn_system_start_wave(state.wave_number, state)
 
 
 if __name__ == "__main__":
