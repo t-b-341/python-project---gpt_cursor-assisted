@@ -118,44 +118,23 @@ _cached_triangle_surfaces = {}
 
 
 def main():
-    """Main entry point for the game."""
+    """Main entry point for the game. All mutable game state lives in the GameState instance."""
     global screen, clock, font, big_font, small_font, WIDTH, HEIGHT
-    global running, state, player, enemies, player_bullets, enemy_projectiles
-    global telemetry, telemetry_enabled, run_id, run_time, survival_time
-    global player_hp, player_max_hp, player_speed, player_bullet_damage, random_damage_multiplier
-    global player_time_since_shot, shots_fired, hits, damage_taken, damage_dealt
-    global enemies_spawned, enemies_killed, deaths, wave_number, time_to_next_wave
-    global wave_active, score, lives, current_level, max_level, wave_in_level
-    global wave_damage_taken, side_quests
-    global current_weapon_mode, previous_weapon_mode, unlocked_weapons
-    global overshield, overshield_recharge_timer, shield_active, shield_duration_remaining
-    global shield_cooldown_remaining, shield_recharge_timer, shield_recharge_cooldown, grenade_time_since_used
-    global missile_time_since_used, jump_cooldown_timer, jump_timer, is_jumping
-    global jump_velocity, laser_beams, wave_beams, laser_time_since_shot
-    global player_current_zones, previous_boost_state, previous_slow_state
-    global ally_drop_timer, dropped_ally, friendly_ai, friendly_projectiles
-    global fire_rate_buff_t, pos_timer
-    global run_started_at, run_ended_at, continue_blink_t, player_name_input
-    global name_input_active, final_score_for_high_score
-    global survival_time, wave_beam_time_since_shot, wave_active
-    global menu_section, difficulty_selected, aiming_mode_selected, use_character_profile_selected
-    global character_profile_selected, custom_profile_stat_selected, player_class_selected
-    global ui_show_metrics_selected, beam_selection_selected, endurance_mode_selected
-    global ui_telemetry_enabled_selected
-    global previous_game_state, pause_selected, difficulty, aiming_mode, use_character_profile
-    global player_class, custom_profile_stats, custom_profile_stats_keys, testing_mode, invulnerability_mode
-    global ui_telemetry_enabled_selected
-    global weapon_selection_options, current_weapon_mode, unlocked_weapons, wave_beam_pattern_index
-    global beam_selection_pattern, ui_show_metrics, ui_show_hud, player_shoot_cooldown
-    global pickups, damage_numbers, weapon_pickup_messages, trapezoid_blocks, triangle_blocks
-    global destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks
-    global hazard_obstacles, moving_health_zone, ui_show_health_bars, ui_show_player_health_bar
+    global telemetry, telemetry_enabled
+    global difficulty, aiming_mode, use_character_profile, player_class, custom_profile_stats, custom_profile_stats_keys
+    global testing_mode, invulnerability_mode, beam_selection_pattern
+    global difficulty_selected, aiming_mode_selected, use_character_profile_selected, character_profile_selected
+    global custom_profile_stat_selected, player_class_selected, ui_show_metrics_selected, beam_selection_selected
+    global endurance_mode_selected, ui_telemetry_enabled_selected
+    global ui_show_metrics, ui_show_hud, ui_show_health_bars, ui_show_player_health_bar
+    global weapon_selection_options
+    global trapezoid_blocks, triangle_blocks, destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks
+    global hazard_obstacles, moving_health_zone
     global _cached_trapezoid_surfaces, _cached_triangle_surfaces
-    global last_horizontal_key, last_vertical_key, last_move_velocity, boost_meter, boost_meter_max
-    global boost_drain_per_s, boost_regen_per_s, boost_speed_mult, player_bullet_shape_index
-    global blocks, player_bullets, enemy_projectiles, friendly_ai, friendly_projectiles
-    global grenade_explosions, missiles, friendly_ai_templates, overshield_max, grenade_cooldown, missile_cooldown, ally_drop_cooldown
-    
+    global boost_meter_max, boost_drain_per_s, boost_regen_per_s, boost_speed_mult
+    global friendly_ai_templates, overshield_max, grenade_cooldown, missile_cooldown, ally_drop_cooldown
+    global run_started_at
+
     pygame.init()
 
     # Welcome message when game launches
@@ -176,101 +155,17 @@ def main():
     big_font = pygame.font.SysFont(None, 56)
     small_font = pygame.font.SysFont(None, 20)
 
-    # Initialize player and other game state variables that depend on WIDTH/HEIGHT
-    player = pygame.Rect((WIDTH - 28) // 2, (HEIGHT - 28) // 2, 28, 28)
-    
-    # Create GameState instance to hold all mutable game state
-    # Initialize with all current global state values
+    # Create GameState as the single source of truth for all mutable game state.
+    # Use GameState() defaults; only set values that depend on display/context.
     game_state = GameState()
-    # Initialize lists from globals
-    game_state.enemies = enemies
-    game_state.player_bullets = player_bullets
-    game_state.enemy_projectiles = enemy_projectiles
-    game_state.friendly_projectiles = friendly_projectiles
-    game_state.friendly_ai = friendly_ai
-    game_state.pickups = pickups
-    game_state.grenade_explosions = grenade_explosions
-    game_state.missiles = missiles
-    game_state.laser_beams = laser_beams
-    game_state.wave_beams = wave_beams
-    game_state.damage_numbers = damage_numbers
-    game_state.weapon_pickup_messages = weapon_pickup_messages
-    game_state.pickup_particles = pickup_particles
-    game_state.collection_effects = collection_effects
-    # Initialize player state
-    game_state.player_hp = player_hp
-    game_state.player_max_hp = player_max_hp
-    game_state.player_speed = player_speed
-    game_state.player_bullet_damage = player_bullet_damage
-    game_state.player_shoot_cooldown = player_shoot_cooldown
-    game_state.player_time_since_shot = player_time_since_shot
-    game_state.player_bullet_shape_index = player_bullet_shape_index
-    game_state.overshield = overshield
-    game_state.overshield_recharge_timer = overshield_recharge_timer
-    game_state.shield_active = shield_active
-    game_state.shield_duration_remaining = shield_duration_remaining
-    game_state.shield_cooldown = shield_cooldown
-    game_state.shield_cooldown_remaining = shield_cooldown_remaining
-    game_state.shield_recharge_timer = shield_recharge_timer
-    game_state.shield_recharge_cooldown = shield_recharge_cooldown
-    game_state.lives = lives
-    game_state.player_health_regen_rate = player_health_regen_rate
-    game_state.player_current_zones = player_current_zones.copy()
-    # Initialize movement/abilities
-    game_state.last_horizontal_key = last_horizontal_key
-    game_state.last_vertical_key = last_vertical_key
-    game_state.last_move_velocity = last_move_velocity.copy()
-    game_state.jump_cooldown_timer = jump_cooldown_timer
-    game_state.jump_velocity = jump_velocity.copy()
-    game_state.jump_timer = jump_timer
-    game_state.is_jumping = is_jumping
-    game_state.previous_boost_state = previous_boost_state
-    game_state.previous_slow_state = previous_slow_state
-    game_state.boost_meter = boost_meter
-    # Initialize weapon state
-    game_state.current_weapon_mode = current_weapon_mode
-    game_state.previous_weapon_mode = previous_weapon_mode
-    game_state.unlocked_weapons = unlocked_weapons.copy()
-    game_state.laser_time_since_shot = laser_time_since_shot
-    game_state.wave_beam_time_since_shot = wave_beam_time_since_shot
-    game_state.wave_beam_pattern_index = wave_beam_pattern_index
-    game_state.grenade_time_since_used = grenade_time_since_used
-    game_state.missile_time_since_used = missile_time_since_used
-    game_state.ally_drop_timer = ally_drop_timer
-    game_state.dropped_ally = dropped_ally
-    # Initialize stat multipliers
-    game_state.player_stat_multipliers = player_stat_multipliers.copy()
-    game_state.random_damage_multiplier = random_damage_multiplier
-    game_state.fire_rate_buff_t = fire_rate_buff_t
-    # Initialize progression/scoring
-    game_state.score = score
-    game_state.wave_number = wave_number
-    game_state.wave_in_level = wave_in_level
-    game_state.current_level = current_level
-    game_state.max_level = max_level
-    game_state.wave_active = wave_active
-    game_state.time_to_next_wave = time_to_next_wave
-    game_state.boss_active = boss_active
-    game_state.pickup_spawn_timer = pickup_spawn_timer
-    # Initialize run statistics
-    game_state.run_time = run_time
-    game_state.survival_time = survival_time
-    game_state.shots_fired = shots_fired
-    game_state.hits = hits
-    game_state.damage_taken = damage_taken
-    game_state.damage_dealt = damage_dealt
-    game_state.enemies_spawned = enemies_spawned
-    game_state.enemies_killed = enemies_killed
-    game_state.deaths = deaths
-    game_state.pos_timer = pos_timer
-    # Initialize side quests
-    game_state.side_quests = side_quests.copy()
-    game_state.wave_damage_taken = wave_damage_taken
-    # Initialize high score system
-    game_state.player_name_input = player_name_input
-    game_state.name_input_active = name_input_active
-    game_state.final_score_for_high_score = final_score_for_high_score
-    
+    game_state.player_rect = pygame.Rect((WIDTH - 28) // 2, (HEIGHT - 28) // 2, 28, 28)
+    game_state.current_screen = STATE_MENU
+    game_state.run_started_at = run_started_at
+
+    # Local alias for readability where the loop uses "player" frequently.
+    # Must stay in sync: player is game_state.player_rect.
+    player = game_state.player_rect
+
     # Initialize pygame mouse visibility
     pygame.mouse.set_visible(True)
     
@@ -282,15 +177,15 @@ def main():
     
     # Filter blocks to prevent overlaps (moved from module level)
     global destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks
-    destructible_blocks = filter_blocks_no_overlap(destructible_blocks, [moveable_destructible_blocks, giant_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], player)
-    moveable_destructible_blocks = filter_blocks_no_overlap(moveable_destructible_blocks, [destructible_blocks, giant_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], player)
-    giant_blocks = filter_blocks_no_overlap(giant_blocks, [destructible_blocks, moveable_destructible_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], player)
-    super_giant_blocks = filter_blocks_no_overlap(super_giant_blocks, [destructible_blocks, moveable_destructible_blocks, giant_blocks, trapezoid_blocks, triangle_blocks], player)
+    destructible_blocks = filter_blocks_no_overlap(destructible_blocks, [moveable_destructible_blocks, giant_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
+    moveable_destructible_blocks = filter_blocks_no_overlap(moveable_destructible_blocks, [destructible_blocks, giant_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
+    giant_blocks = filter_blocks_no_overlap(giant_blocks, [destructible_blocks, moveable_destructible_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
+    super_giant_blocks = filter_blocks_no_overlap(super_giant_blocks, [destructible_blocks, moveable_destructible_blocks, giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
 
     # ----------------------------
     # Start run + log initial spawns
     # ----------------------------
-    run_id = None  # Will be set when game starts
+    game_state.run_id = None  # Will be set when game starts
     # Don't start wave automatically - wait for menu selection
 
     # ----------------------------
@@ -310,7 +205,16 @@ def main():
             dt = clock.tick(FPS) / 1000.0  # Delta time in seconds
             game_state.run_time += dt
             game_state.survival_time += dt
-            
+
+            # Sync flow state from GameState for use in this iteration (single source of truth is game_state)
+            state = game_state.current_screen
+            previous_game_state = game_state.previous_screen
+            menu_section = game_state.menu_section
+            pause_selected = game_state.pause_selected
+            continue_blink_t = game_state.continue_blink_t
+            controls_selected = game_state.controls_selected
+            controls_rebinding = game_state.controls_rebinding
+
             # Event handling
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -584,7 +488,7 @@ def main():
                                     state = STATE_PLAYING
                                     previous_game_state = STATE_PLAYING
                                 
-                                run_id = telemetry.start_run(run_started_at, game_state.player_max_hp) if telemetry_enabled else None
+                                game_state.run_id = telemetry.start_run(game_state.run_started_at, game_state.player_max_hp) if telemetry_enabled else None
                                 start_wave(game_state.wave_number, game_state)
                     
                     # Controls rebinding
@@ -2411,7 +2315,16 @@ def main():
                 pass
             
             pygame.display.flip()
-    
+
+            # Write flow state back to GameState after this iteration
+            game_state.current_screen = state
+            game_state.previous_screen = previous_game_state
+            game_state.menu_section = menu_section
+            game_state.pause_selected = pause_selected
+            game_state.continue_blink_t = continue_blink_t
+            game_state.controls_selected = controls_selected
+            game_state.controls_rebinding = controls_rebinding
+
     except KeyboardInterrupt:
         print("Interrupted by user (Ctrl+C). Saving run...")
     
@@ -2436,7 +2349,7 @@ def main():
                 max_wave=game_state.wave_number,
             )
             telemetry.close()
-            print(f"Saved run_id={run_id} to game_telemetry.db")
+            print(f"Saved run_id={game_state.run_id} to game_telemetry.db")
         pygame.quit()
 
 
@@ -3416,10 +3329,10 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
                 collision = True
         
         # Check player
-        if not collision:
-            if enemy_rect.colliderect(player):
+        if not collision and state.player_rect is not None:
+            if enemy_rect.colliderect(state.player_rect):
                 collision = True
-        
+
         # Check friendly AI
         if not collision:
             for f in state.friendly_ai:
@@ -3461,22 +3374,26 @@ def filter_blocks_too_close_to_player(block_list: list[dict], player_center: pyg
 def random_spawn_position(size: tuple[int, int], state: GameState, max_attempts: int = 25) -> pygame.Rect:
     """Find a spawn position not overlapping player or blocks. Player spawn takes priority."""
     w, h = size
-    player_center = pygame.Vector2(player.center)
-    player_size = max(player.w, player.h)  # Use larger dimension for player size
+    if state.player_rect is None:
+        player_center = pygame.Vector2(WIDTH // 2, HEIGHT // 2)
+        player_size = 28
+    else:
+        player_center = pygame.Vector2(state.player_rect.center)
+        player_size = max(state.player_rect.w, state.player_rect.h)  # Use larger dimension for player size
     min_distance = player_size * 10  # 10x player size radius
-    
+
     for _ in range(max_attempts):
         x = random.randint(0, WIDTH - w)
         y = random.randint(0, HEIGHT - h)
         candidate = pygame.Rect(x, y, w, h)
         candidate_center = pygame.Vector2(candidate.center)
-        
+
         # Check if too close to player (10x player size radius)
         if candidate_center.distance_to(player_center) < min_distance:
             continue
-        
+
         # Player spawn takes priority - don't spawn blocks on player
-        if candidate.colliderect(player):
+        if state.player_rect is not None and candidate.colliderect(state.player_rect):
             continue
         if any(candidate.colliderect(b["rect"]) for b in blocks):
             continue
@@ -4338,16 +4255,18 @@ def spawn_player_bullet_and_log(state: GameState):
 
 def spawn_enemy_projectile(enemy: dict, state: GameState):
     """Spawn projectile from enemy targeting nearest threat (player or friendly AI)."""
+    if state.player_rect is None:
+        return
     e_pos = pygame.Vector2(enemy["rect"].center)
-    threat_result = find_nearest_threat(e_pos, player, state.friendly_ai)
-    
+    threat_result = find_nearest_threat(e_pos, state.player_rect, state.friendly_ai)
+
     # Calculate direction
     if threat_result:
         threat_pos, threat_type = threat_result
         d = vec_toward(e_pos.x, e_pos.y, threat_pos.x, threat_pos.y)
     else:
         # Fallback to player if no threats
-        d = vec_toward(enemy["rect"].centerx, enemy["rect"].centery, player.centerx, player.centery)
+        d = vec_toward(enemy["rect"].centerx, enemy["rect"].centery, state.player_rect.centerx, state.player_rect.centery)
     
     # Create projectile rect and properties (used regardless of threat result)
     r = pygame.Rect(

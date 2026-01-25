@@ -147,15 +147,20 @@ def move_enemy_with_push_cached(
 
 def find_nearest_threat(
     enemy_pos: pygame.Vector2,
-    player: pygame.Rect,
+    player: pygame.Rect | None,
     friendly_ai: list[dict],
 ) -> tuple[pygame.Vector2, str] | None:
     """Find the nearest threat (player or friendly AI) to an enemy.
     Prioritizes dropped ally if within radius, otherwise prioritizes player."""
-    player_pos = pygame.Vector2(player.center)
-    player_dist_sq = (player_pos - enemy_pos).length_squared()
-    player_dist = math.sqrt(player_dist_sq)
-    
+    if player is None:
+        player_pos = None
+        player_dist_sq = float("inf")
+        player_dist = float("inf")
+    else:
+        player_pos = pygame.Vector2(player.center)
+        player_dist_sq = (player_pos - enemy_pos).length_squared()
+        player_dist = math.sqrt(player_dist_sq)
+
     # Collect friendly AI threats
     dropped_ally_threats = []
     other_friendly_threats = []
@@ -181,9 +186,15 @@ def find_nearest_threat(
         if nearest_ally[1] <= ALLY_FOCUS_RADIUS_SQ:
             # Focus on dropped ally if within radius
             return (nearest_ally[0], nearest_ally[2])
-    
-    # Otherwise, prioritize player
-    return (player_pos, "player")
+
+    # Otherwise, prioritize player (if present)
+    if player_pos is not None:
+        return (player_pos, "player")
+    # No player; return nearest friendly if any
+    if other_friendly_threats:
+        other_friendly_threats.sort(key=lambda x: x[1])
+        return (other_friendly_threats[0][0], other_friendly_threats[0][2])
+    return None
 
 
 def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:

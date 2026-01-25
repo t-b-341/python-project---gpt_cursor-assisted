@@ -1,6 +1,6 @@
 """Game state container for all mutable game state."""
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 import pygame
 
 
@@ -125,3 +125,21 @@ class GameState:
     player_name_input: str = ""
     name_input_active: bool = False
     final_score_for_high_score: int = 0
+
+    # Player rect (position/size on screen; created in main() after display init)
+    player_rect: Optional[pygame.Rect] = None
+
+    # Screen/flow state (which UI state we're in: MENU, PLAYING, PAUSED, etc.)
+    current_screen: str = "MENU"
+    previous_screen: Optional[str] = None
+
+    # Menu and pause UI state
+    menu_section: int = 0
+    pause_selected: int = 0
+    continue_blink_t: float = 0.0
+    controls_selected: int = 0
+    controls_rebinding: bool = False
+
+    # Telemetry run tracking
+    run_id: Any = None
+    run_started_at: str = ""
