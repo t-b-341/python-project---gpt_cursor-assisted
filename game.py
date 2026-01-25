@@ -35,6 +35,7 @@ except ImportError:
 
 from telemetry import (
     Telemetry,
+    NoOpTelemetry,
     EnemySpawnEvent,
     PlayerPosEvent,
     ShotEvent,
@@ -511,9 +512,6 @@ def main():
                                 if telemetry_enabled:
                                     telemetry = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
                                 else:
-                                    class NoOpTelemetry:
-                                        def __getattr__(self, name):
-                                            return lambda *args, **kwargs: None
                                     telemetry = NoOpTelemetry()
                                 
                                 # Apply class stats
@@ -4459,12 +4457,12 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
         state.current_weapon_mode = "giant"
         # Log weapon switch from pickup
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry:
+            if telemetry_enabled and telemetry and state.player_rect:
                 telemetry.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
-                    x=player.centerx,
-                    y=player.centery,
+                    x=state.player_rect.centerx,
+                    y=state.player_rect.centery,
                     duration=None,
                     success=True
                 ))
@@ -4484,12 +4482,12 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "color": WEAPON_DISPLAY_COLORS.get("triple", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry:
+            if telemetry_enabled and telemetry and state.player_rect:
                 telemetry.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
-                    x=player.centerx,
-                    y=player.centery,
+                    x=state.player_rect.centerx,
+                    y=state.player_rect.centery,
                     duration=None,
                     success=True
                 ))
@@ -4509,12 +4507,12 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "color": WEAPON_DISPLAY_COLORS.get("bouncing", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry:
+            if telemetry_enabled and telemetry and state.player_rect:
                 telemetry.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
-                    x=player.centerx,
-                    y=player.centery,
+                    x=state.player_rect.centerx,
+                    y=state.player_rect.centery,
                     duration=None,
                     success=True
                 ))
@@ -4534,12 +4532,12 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "color": WEAPON_DISPLAY_COLORS.get("rocket", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry:
+            if telemetry_enabled and telemetry and state.player_rect:
                 telemetry.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
-                    x=player.centerx,
-                    y=player.centery,
+                    x=state.player_rect.centerx,
+                    y=state.player_rect.centery,
                     duration=None,
                     success=True
                 ))
@@ -4557,12 +4555,12 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "color": WEAPON_DISPLAY_COLORS.get("laser", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry:
+            if telemetry_enabled and telemetry and state.player_rect:
                 telemetry.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
-                    x=player.centerx,
-                    y=player.centery,
+                    x=state.player_rect.centerx,
+                    y=state.player_rect.centery,
                     duration=None,
                     success=True
                 ))
@@ -4582,12 +4580,12 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "color": WEAPON_DISPLAY_COLORS.get("basic", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry:
+            if telemetry_enabled and telemetry and state.player_rect:
                 telemetry.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
-                    x=player.centerx,
-                    y=player.centery,
+                    x=state.player_rect.centerx,
+                    y=state.player_rect.centery,
                     duration=None,
                     success=True
                 ))
@@ -4622,12 +4620,12 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "color": weapon_colors.get("wave_beam", (50, 255, 50))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry:
+            if telemetry_enabled and telemetry and state.player_rect:
                 telemetry.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
-                    x=player.centerx,
-                    y=player.centery,
+                    x=state.player_rect.centerx,
+                    y=state.player_rect.centery,
                     duration=None,
                     success=True
                 ))
