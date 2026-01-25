@@ -68,8 +68,23 @@ def _update_player(state, dt: float, ctx: dict) -> None:
             clamp(player)
 
 
+def _nearest_point_on_perimeter(pos: pygame.Vector2, rect: pygame.Rect) -> pygame.Vector2:
+    """Nearest point on the perimeter of rect to pos."""
+    x, y = pos.x, pos.y
+    cx = max(rect.left, min(rect.right, x))
+    cy = max(rect.top, min(rect.bottom, y))
+    candidates = [
+        (cx, rect.top),
+        (cx, rect.bottom),
+        (rect.left, cy),
+        (rect.right, cy),
+    ]
+    best = min(candidates, key=lambda p: (p[0] - x) ** 2 + (p[1] - y) ** 2)
+    return pygame.Vector2(best[0], best[1])
+
+
 def _update_enemies(state, dt: float, ctx: dict) -> None:
-    """Enemy position: chase target, patrol, stuck/wander/dodge."""
+    """Enemy position: chase target, patrol outer until player leaves main area, stuck/wander/dodge."""
     player = state.player_rect
     if player is None:
         return
@@ -79,9 +94,14 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
     width = ctx.get("width", 1920)
     height = ctx.get("height", 1080)
     blocks = ctx.get("blocks", [])
+    main_area = ctx.get("main_area_rect")
+    outer_margin = 80
+    outer_rect = pygame.Rect(outer_margin, outer_margin, width - 2 * outer_margin, height - 2 * outer_margin) if (width > 2 * outer_margin and height > 2 * outer_margin) else None
 
     if not move_enemy or not vec_toward:
         return
+
+    player_in_main = main_area and main_area.collidepoint(player.centerx, player.centery) if main_area else False
 
     for enemy in state.enemies:
         if enemy.get("hp", 1) <= 0:
@@ -103,19 +123,37 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
         enemy_pos = pygame.Vector2(enemy["rect"].center)
         target_info = find_nearest_threat(enemy_pos, player, state.friendly_ai)
 
-        if target_info:
+        # When player is in main area, non-boss non-patrol enemies patrol the outer area
+        if target_info and player_in_main and outer_rect and not enemy.get("is_boss") and not enemy.get("is_patrol"):
+            patrol_target = _nearest_point_on_perimeter(enemy_pos, outer_rect)
+            target_pos = patrol_target
+        elif target_info:
             target_pos, _ = target_info
+        else:
+            target_pos = None
+
+        if target_pos is not None:
             direction = vec_toward(enemy_pos.x, enemy_pos.y, target_pos.x, target_pos.y)
+            if direction.length_squared() < 1e-6:
+                direction = pygame.Vector2(1, 0)  # already at target, avoid normalizing zero
+            else:
+                direction = direction.normalize()
             enemy_speed = enemy.get("speed", 80) * dt
 
-            if len(state.enemies) <= 5:
+            if len(state.enemies) <= 5 and not player_in_main:
                 direction = vec_toward(enemy_pos.x, enemy_pos.y, player.centerx, player.centery)
+                if direction.length_squared() >= 1e-6:
+                    direction = direction.normalize()
             else:
                 if stuck_timer >= 5.0:
                     direction = -direction
                     random_angle = random.uniform(0, 2 * math.pi)
                     escape_dir = pygame.Vector2(math.cos(random_angle), math.sin(random_angle))
-                    direction = (direction + escape_dir * 0.5).normalize()
+                    direction = direction + escape_dir * 0.5
+                    if direction.length_squared() >= 1e-6:
+                        direction = direction.normalize()
+                    else:
+                        direction = escape_dir
                     enemy["stuck_timer"] = 0.0
 
                 if random.random() < 0.25:
@@ -125,7 +163,10 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
                     direction = pygame.Vector2(
                         direction.x * cos_a - direction.y * sin_a,
                         direction.x * sin_a + direction.y * cos_a,
-                    ).normalize()
+                    )
+                    if direction.length_squared() >= 1e-6:
+                        direction = direction.normalize()
+                    # else keep previous direction
 
                 if random.random() < 0.05:
                     random_angle = random.uniform(0, 2 * math.pi)
@@ -139,7 +180,10 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
                         dodge_dir = pygame.Vector2(-direction.y, direction.x)
                         if random.random() < 0.5:
                             dodge_dir = -dodge_dir
-                        direction = (direction + dodge_dir * 0.5).normalize()
+                        direction = direction + dodge_dir * 0.5
+                        if direction.length_squared() >= 1e-6:
+                            direction = direction.normalize()
+                        # else keep direction unchanged
 
             move_x = int(direction.x * enemy_speed)
             move_y = int(direction.y * enemy_speed)

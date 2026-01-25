@@ -129,6 +129,36 @@ def _handle_player_bullet_enemy_collisions(state, ctx: dict) -> None:
         for enemy in state.enemies[:]:
             if not bullet["rect"].colliderect(enemy["rect"]):
                 continue
+            if enemy.get("has_shield") and not enemy.get("has_reflective_shield"):
+                # Shield enemy: reflect with extra damage unless player flanks (hits from side/behind)
+                center = pygame.Vector2(enemy["rect"].center)
+                bcenter = pygame.Vector2(bullet["rect"].center)
+                to_bullet = (bcenter - center)
+                if to_bullet.length_squared() > 0:
+                    to_bullet = to_bullet.normalize()
+                sh_angle = enemy.get("shield_angle", 0.0)
+                sh_dir = pygame.Vector2(math.cos(sh_angle), math.sin(sh_angle))
+                from_front = to_bullet.dot(-sh_dir) > 0.0  # Bullet came from shield-facing side
+                if from_front:
+                    dmg = int((bullet.get("damage", player_damage)) * enemy.get("reflect_damage_mult", 1.5))
+                    ref = pygame.Rect(
+                        enemy["rect"].centerx - size[0] // 2,
+                        enemy["rect"].centery - size[1] // 2,
+                        size[0], size[1],
+                    )
+                    state.enemy_projectiles.append({
+                        "rect": ref,
+                        "vel": to_bullet * enemy.get("projectile_speed", 300),
+                        "enemy_type": enemy["type"],
+                        "color": enemy.get("projectile_color", color),
+                        "shape": enemy.get("projectile_shape", "circle"),
+                        "bounces": 0,
+                        "damage": dmg,
+                    })
+                    if bullet in state.player_bullets:
+                        state.player_bullets.remove(bullet)
+                    break
+                # else flanked: fall through to normal damage below
             if enemy.get("has_reflective_shield"):
                 center = pygame.Vector2(enemy["rect"].center)
                 bcenter = pygame.Vector2(bullet["rect"].center)

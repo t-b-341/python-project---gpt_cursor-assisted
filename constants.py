@@ -141,12 +141,12 @@ slow_speed_mult = 0.45
 fire_rate_buff_duration = 10.0
 fire_rate_mult = 0.55
 
-# Shield constants
+# Shield constants (half alt-r shield cooldown)
 shield_duration = 5.0
-shield_recharge_cooldown = 10.0
+shield_recharge_cooldown = 5.0  # 0.5 * 10.0
 
-# Overshield constants
-overshield_max = 50
+# Overshield constants (armor 0.75x)
+overshield_max = 37  # 50 * 0.75
 overshield_recharge_cooldown = 45.0
 
 # Grenade constants
@@ -158,7 +158,7 @@ missile_cooldown = 3.0
 missile_damage = 800
 
 # Ally drop constants
-ally_drop_cooldown = 30.0
+ally_drop_cooldown = 3.0
 
 # ----------------------------
 # Scoring constants

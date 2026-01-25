@@ -410,8 +410,8 @@ def _draw_effects(screen: pygame.Surface, state) -> None:
         pygame.draw.circle(screen, (255, 100, 0), (explosion["x"], explosion["y"]), explosion["radius"], 3)
         pygame.draw.circle(screen, (255, 200, 0), (explosion["x"], explosion["y"]), explosion["radius"] // 2)
     for missile in getattr(state, "missiles", []):
-        pygame.draw.rect(screen, (255, 200, 0), missile["rect"])
-        pygame.draw.rect(screen, (255, 100, 0), missile["rect"], 2)
+        pygame.draw.rect(screen, (160, 80, 220), missile["rect"])  # Purple
+        pygame.draw.rect(screen, (100, 40, 160), missile["rect"], 2)  # Darker purple border
 
 
 def _draw_player(screen: pygame.Surface, state) -> None:

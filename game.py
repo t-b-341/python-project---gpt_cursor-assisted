@@ -184,6 +184,7 @@ def main():
             "blocks": blocks,
             "width": w,
             "height": h,
+            "main_area_rect": pygame.Rect(int(w * 0.25), int(h * 0.25), int(w * 0.5), int(h * 0.5)),
             "rect_offscreen": lambda r: r.right < 0 or r.left > w or r.bottom < 0 or r.top > h,
             "vec_toward": vec_toward,
             "update_friendly_ai": lambda s, dt: update_friendly_ai(
@@ -605,7 +606,7 @@ def main():
                         if game_state.shield_recharge_timer >= game_state.shield_recharge_cooldown and not game_state.shield_active:
                             game_state.shield_active = True
                             game_state.shield_duration_remaining = shield_duration
-                            game_state.shield_cooldown = 10.0  # Fixed 10 second cooldown
+                            game_state.shield_cooldown = shield_recharge_cooldown  # From constants (halved for alt-r)
                             game_state.shield_recharge_cooldown = game_state.shield_cooldown
                             game_state.shield_recharge_timer = 0.0  # Reset recharge timer when shield activates
                             game_state.shield_cooldown_remaining = 0.0
@@ -1262,7 +1263,7 @@ fire_rate_mult = 0.55  # reduces cooldown while active
 # Shield system (Left Alt key) - constants imported from constants.py
 shield_active = False
 shield_duration_remaining = 0.0
-shield_cooldown = 10.0  # Fixed 10 second cooldown
+shield_cooldown = shield_recharge_cooldown  # From constants (5.0, half of original 10)
 shield_cooldown_remaining = 0.0
 shield_recharge_cooldown = shield_recharge_cooldown  # Imported from constants.py (default 10.0), will be set when shield is activated
 shield_recharge_timer = 0.0
@@ -1785,7 +1786,7 @@ friendly_ai: list[dict] = []
 
 # Dropped ally system (distracts enemies)
 dropped_ally: dict | None = None  # Single dropped ally that distracts enemies
-ally_drop_cooldown = 5.0  # Cooldown between ally drops (seconds)
+ally_drop_cooldown = 3.0  # Cooldown between ally drops (seconds)
 ally_drop_timer = 0.0  # Time since last ally drop
 friendly_projectiles: list[dict] = []
 
@@ -2988,13 +2989,15 @@ def spawn_enemy_projectile(enemy: dict, state: GameState):
     proj_shape = enemy.get("projectile_shape", "circle")
     bounces = enemy.get("bouncing_projectiles", False)
     
+    proj_damage = enemy.get("flame_damage", enemy.get("damage", 10))
     state.enemy_projectiles.append({
         "rect": r,
         "vel": d * enemy["projectile_speed"],
-        "enemy_type": enemy["type"],  # attribute damage source
+        "enemy_type": enemy["type"],
         "color": proj_color,
         "shape": proj_shape,
-        "bounces": 10 if bounces else 0,  # max bounces for bouncing enemy type
+        "bounces": 10 if bounces else 0,
+        "damage": proj_damage,
     })
     
     # Log enemy projectile metadata

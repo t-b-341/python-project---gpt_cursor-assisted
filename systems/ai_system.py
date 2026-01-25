@@ -64,8 +64,8 @@ def _update_enemy_ai(state, dt: float, ctx: dict) -> None:
             if _try_suicide_detonate(enemy, player, state, ctx, kill_enemy, reset_after_death, testing_mode, invulnerability_mode):
                 continue
 
-        # Reflector: turn shield toward target
-        if enemy.get("has_reflective_shield") and target_info:
+        # Reflector / shield enemy: turn shield toward target (shield enemies reflect unless flanked)
+        if target_info and (enemy.get("has_reflective_shield") or (enemy.get("has_shield") and not enemy.get("has_reflective_shield"))):
             _update_reflector_shield_angle(enemy, target_info, dt)
 
         # Ambient: stationary, fires one rocket at player every 6s (dodgeable)

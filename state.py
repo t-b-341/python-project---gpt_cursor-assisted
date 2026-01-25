@@ -31,7 +31,7 @@ class GameState:
     
     # Player state
     player_hp: int = 7500
-    player_max_hp: int = 7500
+    player_max_hp: int = 5625  # 7500 * 0.75
     player_speed: int = 450
     player_bullet_damage: int = 20
     player_shoot_cooldown: float = 0.12

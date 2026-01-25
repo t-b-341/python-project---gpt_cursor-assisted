@@ -252,6 +252,11 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> En
         enemy["rocket_cooldown"] = t.get("rocket_cooldown", 0.0)
     if t.get("enemy_size_class"):
         enemy["enemy_size_class"] = t["enemy_size_class"]
+    if t.get("is_flamethrower"):
+        enemy["is_flamethrower"] = True
+        enemy["flame_damage"] = t.get("flame_damage", 8)
+    if t.get("reflect_damage_mult") is not None:
+        enemy["reflect_damage_mult"] = t["reflect_damage_mult"]
     if t.get("fires_rockets"):
         enemy["fires_rockets"] = True
         enemy["rocket_cooldown"] = t.get("rocket_cooldown", 0.0)

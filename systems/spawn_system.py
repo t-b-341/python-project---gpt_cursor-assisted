@@ -173,7 +173,7 @@ def _spawn_boss_wave(
     boss["color"] = ENEMY_COLOR  # All enemies same color
     boss["rect"] = pygame.Rect(w // 2 - 50, h // 2 - 50, 100, 100)
     boss_hp_scale = 1.0 + (state.current_level - 1) * 0.3
-    boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"] * 1.1 * 10), 3000)
+    boss["hp"] = min(int(boss["max_hp"] * boss_hp_scale * diff_mult["enemy_hp"] * 1.1 * 10 * 5), 15000)  # 5x health, cap 15k
     boss["max_hp"] = boss["hp"]
     boss["shoot_cooldown"] = BOSS_TEMPLATE["shoot_cooldown"] / ENEMY_FIRE_RATE_MULTIPLIER
     boss["speed"] = BOSS_TEMPLATE["speed"] * ENEMY_SPEED_SCALE_MULTIPLIER

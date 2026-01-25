@@ -19,7 +19,7 @@ ENEMY_TEMPLATES: list[dict] = [
     {
         "type": "ambient",
         "rect": pygame.Rect(0, 0, 26, 26),
-        "color": (120, 120, 140),
+        "color": (150, 80, 200),  # Purple
         "hp": 40,
         "max_hp": 40,
         "shoot_cooldown": 6.0,  # Fires one rocket at player every 6s (dodgeable)
@@ -163,9 +163,10 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (150, 200, 255),
         "projectile_shape": "circle",
         "speed": 60,
-        "has_shield": True,  # Has directional shield
-        "shield_angle": 0.0,  # Direction shield is facing (radians)
+        "has_shield": True,  # Reflects shots with extra damage unless flanked
+        "shield_angle": 0.0,
         "shield_length": 50,
+        "reflect_damage_mult": 1.5,  # Extra damage when reflecting
         "enemy_size_class": "large",
     },
     {
@@ -252,6 +253,21 @@ ENEMY_TEMPLATES: list[dict] = [
         "patrol_side": 0,
         "patrol_progress": 0.0,
         "enemy_size_class": "large",
+    },
+    {
+        "type": "flamethrower",
+        "rect": pygame.Rect(0, 0, 30, 30),
+        "color": (220, 100, 40),
+        "hp": 55,
+        "max_hp": 55,
+        "shoot_cooldown": 0.15,
+        "projectile_speed": 380,
+        "projectile_color": (255, 120, 40),
+        "projectile_shape": "circle",
+        "speed": 70,
+        "enemy_size_class": "basic",
+        "is_flamethrower": True,
+        "flame_damage": 8,
     },
     {
         "type": "super_large",
