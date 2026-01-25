@@ -4132,6 +4132,8 @@ def update_pickup_effects(dt: float, state: GameState):
 
 
 def spawn_player_bullet_and_log(state: GameState):
+    if state.player_rect is None:
+        return
     # Determine aiming direction based on aiming mode
     if aiming_mode == AIM_ARROWS:
         # Arrow key aiming
@@ -4158,12 +4160,12 @@ def spawn_player_bullet_and_log(state: GameState):
         
         # Calculate target position for telemetry (extend direction from player)
         target_dist = 100  # Distance to calculate target point
-        mx = int(player.centerx + base_dir.x * target_dist)
-        my = int(player.centery + base_dir.y * target_dist)
+        mx = int(state.player_rect.centerx + base_dir.x * target_dist)
+        my = int(state.player_rect.centery + base_dir.y * target_dist)
     else:
         # Mouse aiming (default)
         mx, my = pygame.mouse.get_pos()
-        base_dir = vec_toward(player.centerx, player.centery, mx, my)
+        base_dir = vec_toward(state.player_rect.centerx, state.player_rect.centery, mx, my)
 
     shape = player_bullet_shapes[state.player_bullet_shape_index % len(player_bullet_shapes)]
     state.player_bullet_shape_index = (state.player_bullet_shape_index + 1) % len(player_bullet_shapes)
@@ -4208,8 +4210,8 @@ def spawn_player_bullet_and_log(state: GameState):
             rocket_explosion = max(weapon_config["explosion_radius"], state.player_stat_multipliers["bullet_explosion_radius"])
 
         r = pygame.Rect(
-            player.centerx - effective_size[0] // 2,
-            player.centery - effective_size[1] // 2,
+            state.player_rect.centerx - effective_size[0] // 2,
+            state.player_rect.centery - effective_size[1] // 2,
             effective_size[0],
             effective_size[1],
         )
@@ -4231,15 +4233,15 @@ def spawn_player_bullet_and_log(state: GameState):
         telemetry.log_shot(
             ShotEvent(
                 t=state.run_time,
-                origin_x=player.centerx,
-                origin_y=player.centery,
+                origin_x=state.player_rect.centerx,
+                origin_y=state.player_rect.centery,
                 target_x=mx,
                 target_y=my,
                 dir_x=float(d.x),
                 dir_y=float(d.y),
             )
         )
-        
+
         # Log bullet metadata
         telemetry.log_bullet_metadata(
             BulletMetadataEvent(
