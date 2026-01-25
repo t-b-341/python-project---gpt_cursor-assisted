@@ -1,6 +1,7 @@
 """Ally and friendly AI behavior and helper functions."""
 import random
 import pygame
+from entities import Friendly
 from telemetry import FriendlyAISpawnEvent, FriendlyAIShotEvent
 
 
@@ -18,12 +19,12 @@ def find_nearest_enemy(friendly_pos: pygame.Vector2, enemies: list[dict]) -> dic
     return nearest
 
 
-def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
+def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) -> Friendly:
     """Create a friendly AI unit from a template."""
     # Randomize health between 50-100, full health at wave start (green bar)
     max_hp = random.randint(50, 100)
     hp = max_hp  # Always start with full health at wave start (green bar)
-    return {
+    data = {
         "type": t["type"],
         "rect": pygame.Rect(t["rect"].x, t["rect"].y, t["rect"].w, t["rect"].h),
         "color": t["color"],
@@ -39,6 +40,7 @@ def make_friendly_from_template(t: dict, hp_scale: float, speed_scale: float) ->
         "damage": int(t["damage"] * 1.1),  # 110% damage
         "target": None,  # Current target enemy
     }
+    return Friendly(data)
 
 
 def spawn_friendly_ai(

@@ -103,6 +103,7 @@ from allies import (
 )
 from state import GameState
 from screens import SCREEN_HANDLERS
+from entities import Enemy
 
 # Placeholder WIDTH/HEIGHT for module-level initialization
 # Will be updated in main() after pygame.display.init()
@@ -735,6 +736,14 @@ def main():
                 
                 # Update hazard obstacles
                 update_hazard_obstacles(dt)
+                
+                # Unified entity update (Enemy/Friendly call no-op update by default; hook for future logic)
+                for entity in game_state.enemies:
+                    if hasattr(entity, "update"):
+                        entity.update(dt, game_state)
+                for entity in game_state.friendly_ai:
+                    if hasattr(entity, "update"):
+                        entity.update(dt, game_state)
                 
                 # Check paraboloid/trapezoid hazards for enemy collision and damage
                 for hazard in hazard_obstacles:
@@ -2022,16 +2031,21 @@ def main():
                 for proj in game_state.friendly_projectiles:
                     draw_projectile(screen, proj["rect"], proj["color"], proj.get("shape", "circle"))
                 
-                # Draw friendly AI (only dropped allies from Q key, not regular spawns)
+                # Draw friendly AI (unified entity.draw)
                 for friendly in game_state.friendly_ai:
-                    pygame.draw.rect(screen, friendly.get("color", (100, 200, 100)), friendly["rect"])
+                    if hasattr(friendly, "draw"):
+                        friendly.draw(screen)
+                    else:
+                        pygame.draw.rect(screen, friendly.get("color", (100, 200, 100)), friendly["rect"])
                     if friendly.get("hp", 0) > 0 and ui_show_health_bars:
                         draw_health_bar(screen, friendly["rect"].x, friendly["rect"].y - 10, friendly["rect"].w, 5, friendly["hp"], friendly.get("max_hp", friendly["hp"]))
                 
-                # Draw enemies
+                # Draw enemies (unified entity.draw)
                 for enemy in game_state.enemies:
-                    enemy_color = enemy.get("color", (200, 50, 50))
-                    pygame.draw.rect(screen, enemy_color, enemy["rect"])
+                    if hasattr(enemy, "draw"):
+                        enemy.draw(screen)
+                    else:
+                        pygame.draw.rect(screen, enemy.get("color", (200, 50, 50)), enemy["rect"])
                     if enemy.get("hp", 0) > 0 and ui_show_health_bars:
                         draw_health_bar(screen, enemy["rect"].x, enemy["rect"].y - 10, enemy["rect"].w, 5, enemy["hp"], enemy.get("max_hp", enemy["hp"]))
                 
@@ -3431,10 +3445,10 @@ def start_wave(wave_num: int, state: GameState):
         
         boss["phase"] = 1
         boss["time_since_shot"] = 0.0
-        state.enemies.append(boss)
+        state.enemies.append(Enemy(boss))
         state.boss_active = True
         enemies_spawned_ref = [state.enemies_spawned]
-        log_enemy_spawns([boss], telemetry, state.run_time, enemies_spawned_ref)
+        log_enemy_spawns([state.enemies[-1]], telemetry, state.run_time, enemies_spawned_ref)
         state.enemies_spawned = enemies_spawned_ref[0]
         # Log boss as enemy type for this wave
         if telemetry_enabled and telemetry:

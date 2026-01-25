@@ -2,6 +2,7 @@
 import math
 import random
 import pygame
+from entities import Enemy
 from config_enemies import (
     ENEMY_HP_SCALE_MULTIPLIER,
     ENEMY_SPEED_SCALE_MULTIPLIER,
@@ -197,7 +198,7 @@ def find_nearest_threat(
     return None
 
 
-def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> dict:
+def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> Enemy:
     """Create an enemy from a template with scaling applied."""
     # Apply scaling multipliers from config
     # Exception: Queen (player clone) has fixed HP and special speed multiplier
@@ -251,7 +252,7 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> di
         # rage_damage_threshold is set in template (randomized at module load time)
         enemy["rage_damage_threshold"] = t.get("rage_damage_threshold", random.randint(300, 500))
         enemy["predicts_player"] = t.get("predicts_player", False)
-    return enemy
+    return Enemy(enemy)
 
 
 def log_enemy_spawns(
