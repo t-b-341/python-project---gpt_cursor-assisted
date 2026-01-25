@@ -128,7 +128,7 @@ def main():
     global wave_active, score, lives, current_level, max_level, wave_in_level
     global current_weapon_mode, previous_weapon_mode, unlocked_weapons
     global overshield, overshield_recharge_timer, shield_active, shield_duration_remaining
-    global shield_cooldown_remaining, shield_recharge_timer, grenade_time_since_used
+    global shield_cooldown_remaining, shield_recharge_timer, shield_recharge_cooldown, grenade_time_since_used
     global missile_time_since_used, jump_cooldown_timer, jump_timer, is_jumping
     global jump_velocity, laser_beams, wave_beams, laser_time_since_shot
     global player_current_zones, previous_boost_state, previous_slow_state
@@ -490,14 +490,15 @@ def main():
                         else:
                             controls_rebinding = False
                     
-                    # Shield activation (Left Alt)
+                    # Shield activation (Left Alt) - only activates when recharge bar is full
                     if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == pygame.K_LALT:
-                        if shield_cooldown_remaining <= 0.0 and not shield_active:
+                        # Shield can only be activated when recharge bar is full (shield_recharge_timer >= shield_recharge_cooldown)
+                        if shield_recharge_timer >= shield_recharge_cooldown and not shield_active:
                             shield_active = True
                             shield_duration_remaining = shield_duration
-                            shield_cooldown = random.uniform(10.0, 15.0)
+                            shield_cooldown = 10.0  # Fixed 10 second cooldown
                             shield_recharge_cooldown = shield_cooldown
-                            shield_recharge_timer = 0.0
+                            shield_recharge_timer = 0.0  # Reset recharge timer when shield activates
                             shield_cooldown_remaining = 0.0
                     
                     # Overshield activation (Tab)
@@ -642,7 +643,9 @@ def main():
                 jump_cooldown_timer += dt
                 jump_timer += dt
                 overshield_recharge_timer += dt
-                shield_duration_remaining -= dt
+                # Only decrement shield duration when shield is active
+                if shield_active:
+                    shield_duration_remaining -= dt
                 shield_cooldown_remaining -= dt
                 shield_recharge_timer += dt
                 ally_drop_timer += dt
@@ -1022,9 +1025,21 @@ def main():
                             })
                             # Damage player if in range
                             if dist_to_player <= explosion_range:
-                                if not shield_active and not (testing_mode and invulnerability_mode):
+                                # Shield blocks all damage - check shield first
+                                if shield_active:
+                                    # Shield is active - block damage
+                                    pass
+                                elif not (testing_mode and invulnerability_mode):
+                                    # No shield - apply damage (overshield takes damage first, then player health)
                                     damage = 500
-                                    player_hp -= damage
+                                    if overshield > 0:
+                                        damage_to_overshield = min(damage, overshield)
+                                        overshield = max(0, overshield - damage)
+                                        remaining_damage = damage - damage_to_overshield
+                                    else:
+                                        remaining_damage = damage
+                                    if remaining_damage > 0:
+                                        player_hp -= remaining_damage
                                     damage_taken += damage
                                     if player_hp <= 0:
                                         if lives > 0:
@@ -1352,9 +1367,22 @@ def main():
                     
                     # Check collision with player (only if not already removed)
                     if not proj_removed and proj["rect"].colliderect(player):
-                        if not shield_active and not (testing_mode and invulnerability_mode):
+                        # Shield blocks all damage - check shield first
+                        if shield_active:
+                            # Shield is active - block damage, remove projectile
+                            if proj in game_state.enemy_projectiles:
+                                game_state.enemy_projectiles.remove(proj)
+                        elif not (testing_mode and invulnerability_mode):
+                            # No shield - apply damage (overshield takes damage first, then player health)
                             damage = proj.get("damage", 10)
-                            player_hp -= damage
+                            if overshield > 0:
+                                damage_to_overshield = min(damage, overshield)
+                                overshield = max(0, overshield - damage)
+                                remaining_damage = damage - damage_to_overshield
+                            else:
+                                remaining_damage = damage
+                            if remaining_damage > 0:
+                                player_hp -= remaining_damage
                             damage_taken += damage
                             if player_hp <= 0:
                                 if lives > 0:
@@ -1362,8 +1390,12 @@ def main():
                                     reset_after_death(game_state)
                                 else:
                                     state = STATE_GAME_OVER
-                        if proj in game_state.enemy_projectiles:
-                            game_state.enemy_projectiles.remove(proj)
+                            if proj in game_state.enemy_projectiles:
+                                game_state.enemy_projectiles.remove(proj)
+                        else:
+                            # Testing mode with invulnerability - block damage
+                            if proj in game_state.enemy_projectiles:
+                                game_state.enemy_projectiles.remove(proj)
                 
                 # Pickup collection
                 for pickup in pickups[:]:
@@ -1464,9 +1496,21 @@ def main():
                         # Player is immune to their own grenade/bomb damage
                         # Only damage player if explosion is from enemy (not player grenade)
                         if explosion.get("source") != "player":
-                            if not shield_active and not (testing_mode and invulnerability_mode):
+                            # Shield blocks all damage - check shield first
+                            if shield_active:
+                                # Shield is active - block damage
+                                pass
+                            elif not (testing_mode and invulnerability_mode):
+                                # No shield - apply damage (overshield takes damage first, then player health)
                                 damage = explosion.get("damage", 500)
-                                player_hp -= damage
+                                if overshield > 0:
+                                    damage_to_overshield = min(damage, overshield)
+                                    overshield = max(0, overshield - damage)
+                                    remaining_damage = damage - damage_to_overshield
+                                else:
+                                    remaining_damage = damage
+                                if remaining_damage > 0:
+                                    player_hp -= remaining_damage
                                 damage_taken += damage
                                 if player_hp <= 0:
                                     if lives > 0:
@@ -1529,9 +1573,21 @@ def main():
                     if missile.get("target_player") and missile["rect"].colliderect(player):
                         # Queen missile hit player
                         hit_target = True
-                        if not shield_active and not (testing_mode and invulnerability_mode):
+                        # Shield blocks all damage - check shield first
+                        if shield_active:
+                            # Shield is active - block damage
+                            pass
+                        elif not (testing_mode and invulnerability_mode):
+                            # No shield - apply damage (overshield takes damage first, then player health)
                             damage = missile.get("damage", missile_damage)
-                            player_hp -= damage
+                            if overshield > 0:
+                                damage_to_overshield = min(damage, overshield)
+                                overshield = max(0, overshield - damage)
+                                remaining_damage = damage - damage_to_overshield
+                            else:
+                                remaining_damage = damage
+                            if remaining_damage > 0:
+                                player_hp -= remaining_damage
                             damage_taken += damage
                             if player_hp <= 0:
                                 if lives > 0:
@@ -1571,9 +1627,21 @@ def main():
                             player_pos = pygame.Vector2(player.center)
                             dist = (player_pos - explosion_pos).length()
                             if dist <= missile["explosion_radius"]:
-                                if not shield_active and not (testing_mode and invulnerability_mode):
+                                # Shield blocks all damage - check shield first
+                                if shield_active:
+                                    # Shield is active - block damage
+                                    pass
+                                elif not (testing_mode and invulnerability_mode):
+                                    # No shield - apply damage (overshield takes damage first, then player health)
                                     damage = missile.get("damage", missile_damage)
-                                    player_hp -= damage
+                                    if overshield > 0:
+                                        damage_to_overshield = min(damage, overshield)
+                                        overshield = max(0, overshield - damage)
+                                        remaining_damage = damage - damage_to_overshield
+                                    else:
+                                        remaining_damage = damage
+                                    if remaining_damage > 0:
+                                        player_hp -= remaining_damage
                                     damage_taken += damage
                                     if player_hp <= 0:
                                         if lives > 0:
@@ -1983,6 +2051,35 @@ def main():
                         small_font_surf = small_font.render("OVERSHIELD (TAB)", True, (255, 255, 255))
                         screen.blit(small_font_surf, (overshield_x + 5, bar_y + 2))
                         
+                        # Shield recharge cooldown
+                        # Calculate progress: if shield is active, show duration remaining; if on cooldown, show recharge progress
+                        if shield_active:
+                            # Shield is active - show duration remaining (inverse progress)
+                            shield_progress = min(1.0, shield_duration_remaining / shield_duration)
+                            shield_ready = False
+                        else:
+                            # Shield is on cooldown - show recharge progress
+                            if shield_recharge_cooldown > 0:
+                                shield_progress = min(1.0, shield_recharge_timer / shield_recharge_cooldown)
+                            else:
+                                shield_progress = 1.0  # Ready if no cooldown set
+                            shield_ready = shield_progress >= 1.0
+                        
+                        shield_x = overshield_x + bar_width + 10
+                        pygame.draw.rect(screen, (60, 60, 60), (shield_x, bar_y, bar_width, bar_height))
+                        # Blue/cyan when ready, red when not ready, yellow when active
+                        if shield_active:
+                            shield_color = (255, 255, 100)  # Yellow when active
+                        elif shield_ready:
+                            shield_color = (100, 200, 255)  # Blue/cyan when ready
+                        else:
+                            shield_color = (255, 50, 50)  # Red when recharging
+                        pygame.draw.rect(screen, shield_color, 
+                                        (shield_x, bar_y, int(bar_width * shield_progress), bar_height))
+                        pygame.draw.rect(screen, (255, 255, 255), (shield_x, bar_y, bar_width, bar_height), 2)
+                        small_font_surf = small_font.render("SHIELD (LALT)", True, (255, 255, 255))
+                        screen.blit(small_font_surf, (shield_x + 5, bar_y + 2))
+                        
                         # Draw controls at bottom of screen
                         controls_y = HEIGHT - 10
                         controls_text = ""
@@ -2286,8 +2383,10 @@ fire_rate_mult = 0.55  # reduces cooldown while active
 # Shield system (Left Alt key) - constants imported from constants.py
 shield_active = False
 shield_duration_remaining = 0.0
-shield_cooldown = random.uniform(10.0, 15.0)  # 10-15 seconds cooldown (random, not a constant)
+shield_cooldown = 10.0  # Fixed 10 second cooldown
 shield_cooldown_remaining = 0.0
+shield_recharge_cooldown = shield_recharge_cooldown  # Imported from constants.py (default 10.0), will be set when shield is activated
+shield_recharge_timer = 0.0
 
 # Permanent player stat multipliers (from pickups)
 player_stat_multipliers = {

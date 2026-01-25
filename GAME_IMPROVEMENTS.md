@@ -82,36 +82,21 @@ This document contains all improvement suggestions and TODO items for the game f
 ### Geometry & Blocks
 
 - Make the map bigger, and add in more geometry, with areas of health recovery, and overshields (extra health bar that can be used to block damage)
-- Add in more squares and rectangles that can be moved around, but have health bars that enemies can shoot at to destroy them
-- Add in more moveable blocks
-- Add in moveable blocks that can be destroyed by the player's, and enemy's bullets
 - Add in more geometry (moveable blocks, unmovable blocks, destructible blocks, indestructible blocks) to fill up the map more
-- Add in trapezoids that hang off the top, bottom, and sides of the screen, that are unmovable, and indestructible
-- Make all blocks moveable, and indestructible, and the player can push them around
-- Add destructible, moveable blocks back in. Make blocks 50% of all blocks, and the other 50% be indestructible, moveable blocks
-- Add another block size - giant, super giant, which cannot be moved
-- Lower blocks amount, and make them bigger
-- Make it so that player spawn and block spawn cannot overlap, player spawn takes priority
-- Prevent blocks from spawning within a radius of 10x the player size, from the player
-- Prevent enemies and allies from spawning where blocks are
-- Prevent allies or enemies from spawning in health block
-- Prevent boxes from overlapping with allies, on other boxes, or player, on spawn
-- Make it so that the health box and other objects do not overlap with each other
-- Make it so that the health box does not overlap with other objects
-- Prevent any blocks from overlapping with each other
-- Let the enemies move the blocks out of the way as well, to chase the player
-- Take the moveable, indestructible geometry, and leave only the destructible, movable geometry, and the unmovable, destructible, and unmovable, destructible geometry.
-- Outside/border: create spaces between trapezoids, creating 3 total on left side, 2 on right, next to each other, with 5 trapezoids with 2 triangles each on top of them on top, and then a line of triangles across the bottom
+- VERIFIED: Make it so that player spawn and block spawn cannot overlap, player spawn takes priority - Implemented in `filter_blocks_no_overlap()` (line 2677-2678) and `random_spawn_position()` (line 3148-3150)
+- VERIFIED: Prevent blocks from spawning within a radius of 10x the player size, from the player - Implemented in `filter_blocks_no_overlap()` (line 2666, 2673) and `random_spawn_position()` (line 3136, 3145)
+- VERIFIED: Prevent enemies and allies from spawning where blocks are - Implemented in `random_spawn_position()` (lines 3151-3164) which checks all block types before spawning
+- VERIFIED: Prevent allies or enemies from spawning in health block - Implemented in `random_spawn_position()` (line 3167-3169) which checks collision with `moving_health_zone`
+- VERIFIED: Prevent boxes from overlapping with allies, on other boxes, or player, on spawn - Implemented in `random_spawn_position()` (lines 3148-3165) which checks player, blocks, and pickups
+- VERIFIED: Make it so that the health box and other objects do not overlap with each other - Implemented in health zone overlap prevention code (lines 2710-2727)
+- VERIFIED: Make it so that the health box does not overlap with other objects - Same as above (lines 2710-2727)
+- VERIFIED: Prevent any blocks from overlapping with each other - Implemented in `filter_blocks_no_overlap()` (lines 2680-2695) which checks collisions with other blocks
+- VERIFIED: Let the enemies move the blocks out of the way as well, to chase the player - Implemented in `move_enemy_with_push()` (line 3016+) which allows enemies to push moveable blocks
+/
 
 ### Hazards
-- Add a rotating paraboloid that slowly rotates around the stage, that is 500 pixels wide, and 500 pixels tall, and is a hazard that does damage to the player, and the player has to avoid it
-- Add in two more paraboloids with collision physics, so that they'll bounce off each other, and that do damage to the player at 10 damage/second
-- Make the paraboloids half size, add another one, and have them start at the corners of the map
-- On the second level, turn the paraboloids into trapezoids that do the same function as the paraboloid
-- Make it so that the player can "bully" the obstacles by shooting them and they move in response to being shot, and make the obstacles kill the enemies when they collide with the hazard
-- Make it so that the player cannot fly through the hazards (paraboloid, trapezoids, and all future hazards)
-- Make shots from players move the hazards
-- Make hazards move 3x faster
+- VERIFIED: Make it so that the player can shoot and move the obstacles by shooting them and they move in response to being shot - Implemented in player bullet update loop (lines 1302-1317). When bullets hit hazards, they push the hazard in the direction of bullet velocity with a force of 200.0 * dt
+/
 
 ### Health & Healing
 - Add a health bar for the player

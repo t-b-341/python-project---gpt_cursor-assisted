@@ -149,7 +149,7 @@ fire_rate_buff_duration = 10.0
 fire_rate_mult = 0.55
 
 # Shield constants
-shield_duration = 2.0
+shield_duration = 5.0
 shield_recharge_cooldown = 10.0
 
 # Overshield constants
