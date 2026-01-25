@@ -98,60 +98,22 @@ This document contains all improvement suggestions and TODO items for the game f
 - VERIFIED: Make it so that the player can shoot and move the obstacles by shooting them and they move in response to being shot - Implemented in player bullet update loop (lines 1302-1317). When bullets hit hazards, they push the hazard in the direction of bullet velocity with a force of 200.0 * dt
 /
 
-### Health & Healing
-- Add a health bar for the player
-- Make only one health area, and have it move around the map, and the player has to move to it to heal
-- Make health block be in a different spot from the boss spawn point
-- Make it so that the health box and other objects do not overlap with each other
-- Make it so that the health box does not overlap with other objects
-
-## UI & Menu Improvements
-
-- Make the metrics optional in the menu
-- Make the default telemetry selection to be disabled, but still able to be enabled
-- Select telemetry, and select metrics, as two different options in the menu that can be selected independently, with disabled as the default for both
-- Metrics menu: show and hide, independent from telemetry
-- Telemetry menu: enable and disable, independent from metrics
-- Change hud and telemetry to two different pages, rather than sharing the same page
-- Delete second HUD menu on options menu
-- When metrics are disabled, disable all hud information; when selecting options (HUD: enable, disable)
-- Set to show HUD by default
-- Fix text overlap in "ready to start" menu with weapon basic, and other text
-- Fix text overlap in "select player class" menu
-- Add restart game to menu in-game
-- Game; Make a placeholder text for each drop saying whether it's health, or which weapon it is
-- Game; Change shape of healing pattern with each stage between triangles and rectangles
-- Game; add controls at bottom of screen (wasd to move, mouse + click to aim and shoot) or (wasd to move, arrow keys to aim and shoot), grenade, and which weapon is mapped to which weapon slot with first letter of weapon name
-- Fix overshield bar and health bar overlay, and amount shown in health and overshield, show bars full, with health and overshield amounts full
-
-## Controls & Settings
-
-- Add a control mapping system, so the player can map the keys to the actions
-- Game; controls; add in arrows for shooting, and an option to choose between mouse and arrow keys
-- Arrow keys: Add it as an option in the menu to use either mouse or arrow aiming
-- Game.py; change aiming mechanic
-- Update controls.json with new controls
-- Jump = spacebar, add to json file controls listing
-
-## Character Profiles
-
-- Create custom character profile creator
-- Character profile premade and custom character profile do not allow for right to continue to next menu
-- Make character profile option yes or no, and if yes, allow player to select premade, or make a profile, prior to start of game
-- Make custom stats able to be updated
-- Make custom stats able to select to next menu by enter, and right arrow
-
-## Classes & Mods
-
-- Game; classes to play as, custom mod setting to change enemy spawn amount, custom wave builder
-- Game; Make a placeholder text for each drop saying whether it's health, or which weapon it is
-
 ## Difficulty & Scoring
 
-- Add a difficulty selector, so the player can choose the difficulty of the game, which impacts enemy spawns (more, harder enemies, fewer pickups?)
-- Add a score counter and survival wave amount/time survived
-- Add a high score board after each death, and the ability to type in a name
-- Add side quests, and goal tracking; complete wave without getting hit, get a bonus 10,000 points
+- **VERIFIED (PARTIAL)**: Add a score counter and survival wave amount/time survived
+  - ✅ Score counter displayed in HUD: `f"Score: {score}"` (line 1973)
+  - ✅ Wave number displayed in HUD: `f"Wave: {wave_number} | Level: {current_level}"` (line 1972)
+  - ❌ Time survived NOT displayed in HUD (variable `survival_time` exists but not shown)
+- **VERIFIED (PARTIAL)**: Add a high score board after each death, and the ability to type in a name
+  - ✅ High score database functions exist: `init_high_scores_db()`, `save_high_score()`, `get_high_scores()` (lines 3411-3468)
+  - ✅ `STATE_NAME_INPUT` and `STATE_HIGH_SCORES` states exist (constants.py)
+  - ✅ Name input handling exists (lines 252-263)
+  - ❌ High scores screen rendering NOT implemented (line 2171: `# (High scores rendering would go here)`)
+  - ❌ Name input screen rendering NOT implemented (line 2175: `# (Name input rendering would go here)`)
+- **VERIFIED (NOT IMPLEMENTED)**: Add side quests, and goal tracking; complete wave without getting hit, get a bonus 10,000 points
+  - ✅ `side_quests` dictionary exists with "no_hit_wave" quest (lines 2282-2290)
+  - ✅ `wave_damage_taken` variable exists (line 2291)
+  - ❌ Side quest tracking logic NOT implemented (no code to check if wave completed without getting hit, no code to award bonus points, no code to activate/complete quests)
 
 ## Boss & Final Content
 

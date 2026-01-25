@@ -126,6 +126,7 @@ def main():
     global player_time_since_shot, shots_fired, hits, damage_taken, damage_dealt
     global enemies_spawned, enemies_killed, deaths, wave_number, time_to_next_wave
     global wave_active, score, lives, current_level, max_level, wave_in_level
+    global wave_damage_taken, side_quests
     global current_weapon_mode, previous_weapon_mode, unlocked_weapons
     global overshield, overshield_recharge_timer, shield_active, shield_duration_remaining
     global shield_cooldown_remaining, shield_recharge_timer, shield_recharge_cooldown, grenade_time_since_used
@@ -231,8 +232,30 @@ def main():
                 if event.type == pygame.QUIT:
                     running = False
                 
+                # Handle text input for name input screen
+                if state == STATE_NAME_INPUT and event.type == pygame.TEXTINPUT:
+                    if len(player_name_input) < 20:  # Limit name length
+                        player_name_input += event.text
+                
                 # Handle keyboard events
                 if event.type == pygame.KEYDOWN:
+                    # Handle name input
+                    if state == STATE_NAME_INPUT:
+                        if event.key == pygame.K_BACKSPACE:
+                            player_name_input = player_name_input[:-1]
+                        elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+                            if player_name_input.strip():
+                                save_high_score(
+                                    player_name_input.strip(),
+                                    final_score_for_high_score,
+                                    wave_number - 1,
+                                    survival_time,
+                                    enemies_killed,
+                                    difficulty
+                                )
+                            state = STATE_HIGH_SCORES
+                            name_input_active = False
+                    
                     # ESC key handling
                     if event.key == pygame.K_ESCAPE:
                         if state == STATE_PLAYING or state == STATE_ENDURANCE:
@@ -1041,12 +1064,17 @@ def main():
                                     if remaining_damage > 0:
                                         player_hp -= remaining_damage
                                     damage_taken += damage
+                                    wave_damage_taken += damage  # Track damage for side quest
                                     if player_hp <= 0:
                                         if lives > 0:
                                             lives -= 1
                                             reset_after_death(game_state)
                                         else:
-                                            state = STATE_GAME_OVER
+                                            # Game over - transition to name input
+                                            final_score_for_high_score = score
+                                            player_name_input = ""
+                                            name_input_active = True
+                                            state = STATE_NAME_INPUT
                             # Remove suicide enemy (despawns after detonation)
                             kill_enemy(enemy, game_state)
                             continue
@@ -1389,7 +1417,11 @@ def main():
                                     lives -= 1
                                     reset_after_death(game_state)
                                 else:
-                                    state = STATE_GAME_OVER
+                                    # Game over - transition to name input
+                                    final_score_for_high_score = score
+                                    player_name_input = ""
+                                    name_input_active = True
+                                    state = STATE_NAME_INPUT
                             if proj in game_state.enemy_projectiles:
                                 game_state.enemy_projectiles.remove(proj)
                         else:
@@ -1512,12 +1544,17 @@ def main():
                                 if remaining_damage > 0:
                                     player_hp -= remaining_damage
                                 damage_taken += damage
+                                wave_damage_taken += damage  # Track damage for side quest
                                 if player_hp <= 0:
                                     if lives > 0:
                                         lives -= 1
                                         reset_after_death(game_state)
                                     else:
-                                        state = STATE_GAME_OVER
+                                        # Game over - transition to name input
+                                        final_score_for_high_score = score
+                                        player_name_input = ""
+                                        name_input_active = True
+                                        state = STATE_NAME_INPUT
                     
                     # Damage destructible blocks
                     for block in destructible_blocks[:] + moveable_destructible_blocks[:]:
@@ -1594,7 +1631,11 @@ def main():
                                     lives -= 1
                                     reset_after_death(game_state)
                                 else:
-                                    state = STATE_GAME_OVER
+                                    # Game over - transition to name input
+                                    final_score_for_high_score = score
+                                    player_name_input = ""
+                                    name_input_active = True
+                                    state = STATE_NAME_INPUT
                     elif missile.get("target_enemy") and missile["rect"].colliderect(missile["target_enemy"]["rect"]):
                         # Player missile hit enemy
                         hit_target = True
@@ -1643,12 +1684,17 @@ def main():
                                     if remaining_damage > 0:
                                         player_hp -= remaining_damage
                                     damage_taken += damage
+                                    wave_damage_taken += damage  # Track damage for side quest
                                     if player_hp <= 0:
                                         if lives > 0:
                                             lives -= 1
                                             reset_after_death(game_state)
                                         else:
-                                            state = STATE_GAME_OVER
+                                            # Game over - transition to name input
+                                            final_score_for_high_score = score
+                                            player_name_input = ""
+                                            name_input_active = True
+                                            state = STATE_NAME_INPUT
                         
                         missiles.remove(missile)
                 
@@ -1656,6 +1702,21 @@ def main():
                 if wave_active and len(game_state.enemies) == 0:
                     time_to_next_wave += dt
                     if time_to_next_wave >= 3.0:  # 3 second countdown between waves
+                        # Check side quest: Perfect Wave (no damage taken)
+                        if wave_damage_taken == 0 and side_quests["no_hit_wave"]["active"]:
+                            # Award bonus points
+                            bonus = side_quests["no_hit_wave"]["bonus_points"]
+                            score += bonus
+                            side_quests["no_hit_wave"]["completed"] = True
+                            # Show bonus message
+                            damage_numbers.append({
+                                "x": WIDTH // 2,
+                                "y": HEIGHT // 2,
+                                "value": f"PERFECT WAVE! +{bonus}",
+                                "timer": 3.0,
+                                "color": (255, 215, 0)  # Gold color
+                            })
+                        
                         wave_number += 1
                         wave_in_level += 1
                         if wave_in_level > 3:
@@ -1964,13 +2025,29 @@ def main():
                 
                 # Draw HUD
                 if ui_show_hud:
+                    # Draw prominent score at center top with yellow text and black outline
+                    score_text = f"Score: {score}"
+                    score_surface = big_font.render(score_text, True, (255, 255, 0))  # Yellow text
+                    # Create outline by rendering black text at offsets
+                    outline_surface = big_font.render(score_text, True, (0, 0, 0))  # Black outline
+                    score_x = WIDTH // 2 - score_surface.get_width() // 2
+                    score_y = 10
+                    # Draw outline (8 directions)
+                    for dx, dy in [(-2, -2), (-2, 0), (-2, 2), (0, -2), (0, 2), (2, -2), (2, 0), (2, 2)]:
+                        screen.blit(outline_surface, (score_x + dx, score_y + dy))
+                    # Draw yellow text on top
+                    screen.blit(score_surface, (score_x, score_y))
+                    
                     y_pos = 10
                     if ui_show_metrics:
                         y_pos = render_hud_text(screen, font, f"HP: {player_hp}/{player_max_hp}", y_pos)
                         if overshield > 0:
                             y_pos = render_hud_text(screen, font, f"Overshield: {overshield}/{overshield_max}", y_pos)
                         y_pos = render_hud_text(screen, font, f"Wave: {wave_number} | Level: {current_level}", y_pos)
-                        y_pos = render_hud_text(screen, font, f"Score: {score}", y_pos)
+                        # Display time survived (format as MM:SS)
+                        minutes = int(survival_time // 60)
+                        seconds = int(survival_time % 60)
+                        y_pos = render_hud_text(screen, font, f"Time: {minutes:02d}:{seconds:02d}", y_pos)
                         if state == STATE_PLAYING:
                             y_pos = render_hud_text(screen, font, f"Lives: {lives}", y_pos)
                         y_pos = render_hud_text(screen, font, f"Enemies: {len(game_state.enemies)}", y_pos)
@@ -2097,7 +2174,14 @@ def main():
                     if dmg_num["timer"] > 0:
                         alpha = int(255 * (dmg_num["timer"] / 2.0))  # Fade over 2 seconds
                         color = (*dmg_num["color"][:3], alpha) if len(dmg_num["color"]) > 3 else dmg_num["color"]
-                        text_surf = small_font.render(str(int(dmg_num["damage"])), True, color[:3])  # Ensure integer display
+                        # Handle both "damage" (numeric) and "value" (text) keys
+                        if "value" in dmg_num:
+                            text = dmg_num["value"]
+                            # Use bigger font for text messages like "PERFECT WAVE!"
+                            text_surf = font.render(text, True, color[:3])
+                        else:
+                            text = str(int(dmg_num.get("damage", 0)))  # Ensure integer display
+                            text_surf = small_font.render(text, True, color[:3])
                         screen.blit(text_surf, (dmg_num["x"], dmg_num["y"]))
                     else:
                         damage_numbers.remove(dmg_num)
@@ -2168,12 +2252,59 @@ def main():
                 pass
             elif state == STATE_HIGH_SCORES:
                 # High scores screen
-                # (High scores rendering would go here)
-                pass
+                screen.fill((20, 20, 40))
+                title = big_font.render("HIGH SCORES", True, (255, 255, 255))
+                screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 50))
+                
+                scores = get_high_scores(10)
+                y_offset = 150
+                if scores:
+                    # Header
+                    header = font.render("Rank  Name          Score    Waves  Time    Kills   Difficulty", True, (200, 200, 200))
+                    screen.blit(header, (WIDTH // 2 - header.get_width() // 2, y_offset))
+                    y_offset += 40
+                    
+                    for i, score_data in enumerate(scores, 1):
+                        name = score_data["name"][:12]  # Limit name length
+                        score_val = score_data["score"]
+                        waves = score_data["waves"]
+                        time_val = score_data["time"]
+                        minutes = int(time_val // 60)
+                        seconds = int(time_val % 60)
+                        kills = score_data["kills"]
+                        diff = score_data["difficulty"]
+                        
+                        rank_color = (255, 215, 0) if i == 1 else (255, 255, 255) if i <= 3 else (200, 200, 200)
+                        text = font.render(f"{i:2d}.  {name:12s}  {score_val:8d}  {waves:3d}  {minutes:02d}:{seconds:02d}  {kills:5d}  {diff:8s}", True, rank_color)
+                        screen.blit(text, (WIDTH // 2 - text.get_width() // 2, y_offset))
+                        y_offset += 35
+                else:
+                    no_scores = font.render("No high scores yet!", True, (150, 150, 150))
+                    screen.blit(no_scores, (WIDTH // 2 - no_scores.get_width() // 2, y_offset))
+                
+                # Instructions
+                instruction = small_font.render("Press ESC to exit", True, (100, 100, 100))
+                screen.blit(instruction, (WIDTH // 2 - instruction.get_width() // 2, HEIGHT - 50))
             elif state == STATE_NAME_INPUT:
                 # Name input screen
-                # (Name input rendering would go here)
-                pass
+                screen.fill((20, 20, 40))
+                title = big_font.render("ENTER YOUR NAME", True, (255, 255, 255))
+                screen.blit(title, (WIDTH // 2 - title.get_width() // 2, HEIGHT // 2 - 100))
+                
+                # Display current input with cursor
+                display_text = player_name_input + ("_" if int(run_time * 2) % 2 == 0 else " ")
+                input_surface = font.render(display_text, True, (255, 255, 255))
+                screen.blit(input_surface, (WIDTH // 2 - input_surface.get_width() // 2, HEIGHT // 2))
+                
+                # Display score
+                score_text = font.render(f"Score: {final_score_for_high_score}", True, (200, 200, 200))
+                screen.blit(score_text, (WIDTH // 2 - score_text.get_width() // 2, HEIGHT // 2 + 50))
+                
+                # Instructions
+                instruction1 = small_font.render("Type your name and press ENTER to save", True, (150, 150, 150))
+                instruction2 = small_font.render("Press ESC to skip", True, (150, 150, 150))
+                screen.blit(instruction1, (WIDTH // 2 - instruction1.get_width() // 2, HEIGHT // 2 + 100))
+                screen.blit(instruction2, (WIDTH // 2 - instruction2.get_width() // 2, HEIGHT // 2 + 125))
             elif state == STATE_CONTROLS:
                 # Controls menu
                 # (Controls menu rendering would go here)
@@ -3274,8 +3405,13 @@ def random_spawn_position(size: tuple[int, int], max_attempts: int = 25) -> pyga
 def start_wave(wave_num: int, state: GameState):
     """Spawn a new wave with scaling. Each level has 3 waves, boss on wave 3."""
     global wave_active, boss_active, wave_in_level, current_level, lives, overshield_recharge_timer, ally_drop_timer, shield_recharge_timer, shield_cooldown_remaining, enemies_spawned
+    global wave_damage_taken, side_quests
     state.enemies = []
     boss_active = False
+    # Reset wave damage tracking and activate side quest
+    wave_damage_taken = 0
+    side_quests["no_hit_wave"]["active"] = True
+    side_quests["no_hit_wave"]["completed"] = False
     # Reset lives to 3 at the beginning of each wave (unless in endurance mode)
     # In endurance mode, lives is set to 999 and should not be reset
     if lives != 999:
