@@ -79,12 +79,7 @@ from config_weapons import (
     WEAPON_DISPLAY_COLORS,
     WEAPON_UNLOCK_ORDER,
 )
-from rendering import (
-    draw_silver_wall_texture,
-    draw_cracked_brick_wall_texture,
-    draw_projectile,
-    draw_centered_text,
-)
+from rendering import draw_centered_text
 from enemies import (
     find_nearest_threat,
     make_enemy_from_template,
@@ -112,10 +107,7 @@ HEIGHT = 1080  # Default placeholder
 # ----------------------------
 # Rendering cache for performance optimization
 # ----------------------------
-# Note: Wall texture, HUD text, and health bar caches are now in rendering.py
-# Cache for pre-rendered static block surfaces
-_cached_trapezoid_surfaces = {}
-_cached_triangle_surfaces = {}
+# Wall texture, HUD text, health bar, and trapezoid/triangle caches are in rendering.py
 
 
 def main():
@@ -131,7 +123,6 @@ def main():
     global weapon_selection_options
     global trapezoid_blocks, triangle_blocks, destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks
     global hazard_obstacles, moving_health_zone
-    global _cached_trapezoid_surfaces, _cached_triangle_surfaces
     global boost_meter_max, boost_drain_per_s, boost_regen_per_s, boost_speed_mult
     global friendly_ai_templates, overshield_max, grenade_cooldown, missile_cooldown, ally_drop_cooldown
     global run_started_at
@@ -939,11 +930,10 @@ def main():
                 # Wave timers and next-wave start (including victory) are in spawn_system.update()
             
             # Rendering
-            # Clear screen with background color based on level theme
             theme = level_themes.get(game_state.current_level, level_themes[1])
-            screen.fill(theme["bg_color"])
-            
-            # Draw game elements based on state
+            if state not in (STATE_PLAYING, STATE_ENDURANCE):
+                screen.fill(theme["bg_color"])
+
             if state == STATE_MENU:
                 # Menu rendering
                 draw_centered_text(screen, font, big_font, WIDTH, "MOUSE AIM SHOOTER", HEIGHT // 4, use_big=True)
@@ -1043,205 +1033,35 @@ def main():
                         draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == player_class_selected else '  '} {cls}", y_offset + i * 40, color)
                     draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
             elif state == STATE_PLAYING or state == STATE_ENDURANCE:
-                # Draw all game elements
-                
-                # Draw trapezoid blocks (cached surfaces)
-                for tr in trapezoid_blocks:
-                    block_id = f"trap_{id(tr)}"
-                    if block_id not in _cached_trapezoid_surfaces:
-                        # Create cached surface for this trapezoid
-                        points = tr.get("points", [])
-                        if points:
-                            min_x = min(p[0] for p in points)
-                            max_x = max(p[0] for p in points)
-                            min_y = min(p[1] for p in points)
-                            max_y = max(p[1] for p in points)
-                            cached_surf = pygame.Surface((max_x - min_x + 10, max_y - min_y + 10), pygame.SRCALPHA)
-                            offset_points = [(p[0] - min_x + 5, p[1] - min_y + 5) for p in points]
-                            pygame.draw.polygon(cached_surf, tr["color"], offset_points)
-                            pygame.draw.polygon(cached_surf, (255, 255, 255), offset_points, 2)
-                            _cached_trapezoid_surfaces[block_id] = (cached_surf, (min_x - 5, min_y - 5))
-                    
-                    if block_id in _cached_trapezoid_surfaces:
-                        cached_surf, offset = _cached_trapezoid_surfaces[block_id]
-                        screen.blit(cached_surf, offset)
-                
-                # Draw triangle blocks (cached surfaces)
-                for tr in triangle_blocks:
-                    block_id = f"tri_{id(tr)}"
-                    if block_id not in _cached_triangle_surfaces:
-                        points = tr.get("points", [])
-                        if points:
-                            min_x = min(p[0] for p in points)
-                            max_x = max(p[0] for p in points)
-                            min_y = min(p[1] for p in points)
-                            max_y = max(p[1] for p in points)
-                            cached_surf = pygame.Surface((max_x - min_x + 10, max_y - min_y + 10), pygame.SRCALPHA)
-                            offset_points = [(p[0] - min_x + 5, p[1] - min_y + 5) for p in points]
-                            pygame.draw.polygon(cached_surf, tr["color"], offset_points)
-                            pygame.draw.polygon(cached_surf, (255, 255, 255), offset_points, 2)
-                            _cached_triangle_surfaces[block_id] = (cached_surf, (min_x - 5, min_y - 5))
-                    
-                    if block_id in _cached_triangle_surfaces:
-                        cached_surf, offset = _cached_triangle_surfaces[block_id]
-                        screen.blit(cached_surf, offset)
-                
-                # Draw destructible blocks
-                for block in destructible_blocks:
-                    if block.get("is_destructible") and block.get("hp", 0) > 0:
-                        draw_cracked_brick_wall_texture(screen, block["rect"], block.get("crack_level", 0))
-                    else:
-                        draw_silver_wall_texture(screen, block["rect"])
-                
-                # Draw moveable destructible blocks
-                for block in moveable_destructible_blocks:
-                    if block.get("is_destructible") and block.get("hp", 0) > 0:
-                        draw_cracked_brick_wall_texture(screen, block["rect"], block.get("crack_level", 0))
-                    else:
-                        draw_silver_wall_texture(screen, block["rect"])
-                
-                # Draw giant blocks
-                for block in giant_blocks:
-                    draw_silver_wall_texture(screen, block["rect"])
-                
-                # Draw super giant blocks
-                for block in super_giant_blocks:
-                    draw_silver_wall_texture(screen, block["rect"])
-                
-                # Draw hazard obstacles (paraboloids/trapezoids)
-                for hazard in hazard_obstacles:
-                    points = hazard.get("points", [])
-                    if len(points) >= 3:
-                        pygame.draw.polygon(screen, hazard["color"], points)
-                        pygame.draw.polygon(screen, (255, 255, 255), points, 2)
-                
-                # Draw moving health recovery zone
-                zone = moving_health_zone
-                zone_center = (zone["rect"].centerx, zone["rect"].centery)
-                zone_width = zone["rect"].w
-                zone_height = zone["rect"].h
-                use_triangle = (game_state.wave_in_level % 2 == 0)
-                
-                zone_surf = pygame.Surface((zone["rect"].w + 20, zone["rect"].h + 20), pygame.SRCALPHA)
-                
-                if use_triangle:
-                    triangle_points = [
-                        (zone_width // 2, 10),
-                        (10, zone_height + 10),
-                        (zone_width + 10, zone_height + 10)
-                    ]
-                    pygame.draw.polygon(zone_surf, zone["color"], triangle_points)
-                    screen.blit(zone_surf, (zone["rect"].x - 10, zone["rect"].y - 10))
-                    pulse = 0.5 + 0.5 * math.sin(game_state.run_time * 3.0)
-                    border_alpha = int(150 + 100 * pulse)
-                    border_color = (50, 255, 50)
-                    pygame.draw.polygon(screen, border_color, [
-                        (zone_center[0], zone["rect"].y),
-                        (zone["rect"].x, zone["rect"].bottom),
-                        (zone["rect"].right, zone["rect"].bottom)
-                    ], 3)
-                else:
-                    pygame.draw.rect(zone_surf, zone["color"], (10, 10, zone["rect"].w, zone["rect"].h))
-                    screen.blit(zone_surf, (zone["rect"].x - 10, zone["rect"].y - 10))
-                    pulse = 0.5 + 0.5 * math.sin(game_state.run_time * 3.0)
-                    border_alpha = int(150 + 100 * pulse)
-                    border_color = (50, 255, 50)
-                    pygame.draw.rect(screen, border_color, zone["rect"], 3)
-                
-                # Draw pickups
-                for pickup in game_state.pickups:
-                    pygame.draw.circle(screen, pickup["color"], pickup["rect"].center, pickup["rect"].w // 2)
-                    pygame.draw.circle(screen, (255, 255, 255), pickup["rect"].center, pickup["rect"].w // 2, 2)
-                    
-                    # Draw pickup name above pickup
-                    if pickup.get("is_weapon_drop", False):
-                        # Weapon pickup - use weapon name
-                        weapon_type = pickup.get("type", "")
-                        pickup_name = WEAPON_NAMES.get(weapon_type, weapon_type.upper())
-                    else:
-                        # Regular pickup - use type name
-                        pickup_type = pickup.get("type", "")
-                        pickup_name = pickup_type.upper().replace("_", " ")
-                    
-                    # Render pickup name text above the pickup
-                    name_surf = small_font.render(pickup_name, True, (255, 255, 255))
-                    name_rect = name_surf.get_rect(center=(pickup["rect"].centerx, pickup["rect"].y - 20))
-                    # Draw text with black outline for visibility
-                    outline_surf = small_font.render(pickup_name, True, (0, 0, 0))
-                    for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
-                        screen.blit(outline_surf, (name_rect.x + dx, name_rect.y + dy))
-                    screen.blit(name_surf, name_rect)
-                
-                # Draw enemy projectiles
-                for proj in game_state.enemy_projectiles:
-                    draw_projectile(screen, proj["rect"], proj["color"], proj.get("shape", "circle"))
-                
-                # Draw player bullets
-                for bullet in game_state.player_bullets:
-                    draw_projectile(screen, bullet["rect"], bullet["color"], bullet.get("shape", "circle"))
-                
-                # Draw friendly projectiles
-                for proj in game_state.friendly_projectiles:
-                    draw_projectile(screen, proj["rect"], proj["color"], proj.get("shape", "circle"))
-                
-                # Draw friendly AI (unified entity.draw); entity health bars drawn by ui_system
-                for friendly in game_state.friendly_ai:
-                    if hasattr(friendly, "draw"):
-                        friendly.draw(screen)
-                    else:
-                        pygame.draw.rect(screen, friendly.get("color", (100, 200, 100)), friendly["rect"])
-                
-                # Draw enemies (unified entity.draw); entity health bars drawn by ui_system
-                for enemy in game_state.enemies:
-                    if hasattr(enemy, "draw"):
-                        enemy.draw(screen)
-                    else:
-                        pygame.draw.rect(screen, enemy.get("color", (200, 50, 50)), enemy["rect"])
-                
-                # Draw grenade explosions
-                for explosion in game_state.grenade_explosions:
-                    alpha = int(255 * (explosion["timer"] / 0.3))
-                    color = (255, 100, 0, alpha)
-                    pygame.draw.circle(screen, (255, 100, 0), (explosion["x"], explosion["y"]), explosion["radius"], 3)
-                    pygame.draw.circle(screen, (255, 200, 0), (explosion["x"], explosion["y"]), explosion["radius"] // 2)
-                
-                # Draw missiles
-                for missile in game_state.missiles:
-                    pygame.draw.rect(screen, (255, 200, 0), missile["rect"])
-                    pygame.draw.rect(screen, (255, 100, 0), missile["rect"], 2)
-                
-                # Draw player (circle with border)
-                player_color = (255, 255, 255)
-                border_color = (200, 200, 200)
-                if game_state.shield_active:
-                    player_color = (255, 100, 100)  # Red when shield is active
-                    border_color = (255, 150, 150)  # Lighter red border when shield active
-                # Draw border circle (slightly larger)
-                pygame.draw.circle(screen, border_color, player.center, player.w // 2 + 2, 2)
-                # Draw player circle
-                pygame.draw.circle(screen, player_color, player.center, player.w // 2)
-                # Health bar and overshield bar moved to bottom of screen (drawn later in HUD section)
-                
-                # Draw laser beams
-                for beam in game_state.laser_beams:
-                    if "start" in beam and "end" in beam:
-                        pygame.draw.line(screen, beam.get("color", (255, 50, 50)), beam["start"], beam["end"], beam.get("width", 5))
-                
-                # Draw wave beams
-                for beam in game_state.wave_beams:
-                    points = beam.get("points", [])
-                    if len(points) >= 2:
-                        pygame.draw.lines(screen, beam.get("color", (50, 255, 50)), False, points, beam.get("width", 10))
-                
-                # Draw HUD/UI (delegated to ui_system via gameplay.render)
-                hud_ctx = {
-                    "WIDTH": WIDTH, "HEIGHT": HEIGHT, "font": font, "big_font": big_font, "small_font": small_font,
-                    "ui_show_hud": ui_show_hud, "ui_show_metrics": ui_show_metrics, "ui_show_health_bars": ui_show_health_bars,
-                    "overshield_max": overshield_max, "grenade_cooldown": grenade_cooldown, "missile_cooldown": missile_cooldown,
-                    "ally_drop_cooldown": ally_drop_cooldown, "overshield_recharge_cooldown": overshield_recharge_cooldown,
-                    "shield_duration": shield_duration, "aiming_mode": aiming_mode, "current_state": state,
+                gameplay_ctx = {
+                    "level_themes": level_themes,
+                    "trapezoid_blocks": trapezoid_blocks,
+                    "triangle_blocks": triangle_blocks,
+                    "destructible_blocks": destructible_blocks,
+                    "moveable_destructible_blocks": moveable_destructible_blocks,
+                    "giant_blocks": giant_blocks,
+                    "super_giant_blocks": super_giant_blocks,
+                    "hazard_obstacles": hazard_obstacles,
+                    "moving_health_zone": moving_health_zone,
+                    "small_font": small_font,
+                    "weapon_names": WEAPON_NAMES,
+                    "WIDTH": WIDTH,
+                    "HEIGHT": HEIGHT,
+                    "font": font,
+                    "big_font": big_font,
+                    "ui_show_hud": ui_show_hud,
+                    "ui_show_metrics": ui_show_metrics,
+                    "ui_show_health_bars": ui_show_health_bars,
+                    "overshield_max": overshield_max,
+                    "grenade_cooldown": grenade_cooldown,
+                    "missile_cooldown": missile_cooldown,
+                    "ally_drop_cooldown": ally_drop_cooldown,
+                    "overshield_recharge_cooldown": overshield_recharge_cooldown,
+                    "shield_duration": shield_duration,
+                    "aiming_mode": aiming_mode,
+                    "current_state": state,
                 }
-                gameplay_render(screen, game_state, hud_ctx)
+                gameplay_render(screen, game_state, gameplay_ctx)
                 
                 # Clean up expired UI tokens (state updates; timers decremented in update loop)
                 for dmg_num in game_state.damage_numbers[:]:
