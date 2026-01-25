@@ -39,6 +39,7 @@ class GameState:
     player_bullet_shape_index: int = 0
     overshield: int = 0
     overshield_recharge_timer: float = 0.0
+    armor_drain_timer: float = 0.0  # Accumulates dt; every 0.5s drains 50 armor until armor is 0
     shield_active: bool = False
     shield_duration_remaining: float = 0.0
     shield_cooldown: float = 10.0

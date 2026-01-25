@@ -611,6 +611,7 @@ def main():
                     if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == pygame.K_TAB:
                         if game_state.overshield_recharge_timer >= overshield_recharge_cooldown:
                             game_state.overshield = game_state.player_max_hp
+                            game_state.armor_drain_timer = 0.0  # First 50 HP drains after 0.5s
                             overshield_max = max(overshield_max, game_state.player_max_hp)
                             game_state.overshield_recharge_timer = 0.0
                     
@@ -730,8 +731,14 @@ def main():
                 game_state.jump_cooldown_timer += dt
                 game_state.jump_timer += dt
                 game_state.overshield_recharge_timer += dt
-                # Armor drains at 10 HP per second
-                game_state.overshield = max(0, game_state.overshield - int(10 * dt))
+                # Armor drains 50 HP every 0.5s; drain stops when armor hits zero; bar hidden when 0
+                if game_state.overshield > 0:
+                    game_state.armor_drain_timer = getattr(game_state, "armor_drain_timer", 0.0) + dt
+                    while game_state.armor_drain_timer >= 0.5 and game_state.overshield > 0:
+                        game_state.overshield = max(0, game_state.overshield - 50)
+                        game_state.armor_drain_timer -= 0.5
+                else:
+                    game_state.armor_drain_timer = 0.0
                 # Only decrement shield duration when shield is active
                 if game_state.shield_active:
                     game_state.shield_duration_remaining -= dt
@@ -3255,6 +3262,7 @@ def reset_after_death(state: GameState):
     state.ally_drop_timer = 0.0  # Reset ally drop timer on death
     # Keep map as-is on respawn: do not reposition moving_health_zone or hazard_obstacles
     state.overshield = 0  # Reset overshield
+    state.armor_drain_timer = 0.0
     state.player_time_since_shot = 999.0
     state.laser_time_since_shot = 999.0
     state.wave_beam_time_since_shot = 999.0
