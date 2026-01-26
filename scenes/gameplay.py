@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from constants import STATE_PLAYING
+from rendering import render_debug_overlay
 from screens import gameplay as gameplay_screen
 
 
@@ -30,6 +31,9 @@ class GameplayScene:
         gameplay_ctx = ctx.get("gameplay_ctx")
         if app_ctx is not None and gameplay_ctx is not None:
             gameplay_screen.render(app_ctx, game_state, gameplay_ctx)
+        config = getattr(app_ctx, "config", None) if app_ctx is not None else None
+        if config and getattr(config, "debug_draw_overlay", False):
+            render_debug_overlay(render_ctx, game_state)
 
     def on_enter(self, game_state, ctx: dict) -> None:
         pass

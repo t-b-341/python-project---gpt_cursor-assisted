@@ -8,6 +8,7 @@ Tuning guide (which values to tweak for feel):
 - Faster vs slower weapons: player_base_shoot_cooldown, per-weapon cooldown_multiplier in config_weapons.
 - Easier vs harder early waves: base_enemies_per_wave, enemy_spawn_multiplier, difficulty multiplers in constants.
 - Feel profiles: use FEEL_PROFILE_CASUAL / FEEL_PROFILE_ARCADE to apply preset overrides (see apply_feel_profile).
+- On-screen debug info (wave, enemy count, player HP): set debug_draw_overlay=True to enable the debug HUD in gameplay.
 """
 from __future__ import annotations
 
@@ -60,6 +61,7 @@ class GameConfig:
     testing_mode: bool = False
     invulnerability_mode: bool = False
     default_weapon_mode: str = "giant"
+    debug_draw_overlay: bool = False  # When True, gameplay shows a small debug HUD (wave, enemies, HP, lives).
     # Audio (used by systems.audio_system)
     sfx_volume: float = 1.0
     music_volume: float = 1.0
