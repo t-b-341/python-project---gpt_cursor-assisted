@@ -1,0 +1,52 @@
+"""Shared collision helpers: enemy damage flash, player damage application."""
+from __future__ import annotations
+
+from constants import STATE_NAME_INPUT
+
+
+def set_enemy_damage_flash(enemy: dict, ctx: dict) -> None:
+    """Set enemy damage flash timer when config enables it (juice)."""
+    if ctx.get("enable_damage_flash", True):
+        enemy["damage_flash_timer"] = ctx.get("damage_flash_duration", 0.12)
+
+
+def apply_player_damage(state, damage: int, ctx: dict) -> None:
+    """Apply damage to player (overshield then HP); trigger death/game-over if needed."""
+    if damage <= 0:
+        return
+    if ctx.get("testing_mode") and ctx.get("invulnerability_mode"):
+        return
+    if state.overshield > 0:
+        damage_to_overshield = min(damage, state.overshield)
+        state.overshield = max(0, state.overshield - damage)
+        damage = damage - damage_to_overshield
+    if damage > 0:
+        state.player_hp -= damage
+        if ctx.get("enable_screen_flash", True):
+            state.screen_damage_flash_timer = ctx.get("screen_flash_duration", 0.25)
+        pf = ctx.get("play_sfx")
+        if callable(pf):
+            pf("player_hit")
+    state.damage_taken += damage
+    state.wave_damage_taken += damage
+    if state.player_hp <= 0:
+        reset = ctx.get("reset_after_death")
+        player = state.player_rect
+        lives_left = (state.lives - 1) if (state.lives > 0 and reset) else 0
+        log_death = ctx.get("log_player_death")
+        if callable(log_death) and player is not None:
+            log_death(
+                getattr(state, "run_time", 0.0),
+                player.centerx,
+                player.centery,
+                lives_left,
+                getattr(state, "wave_number", 0),
+            )
+        if state.lives > 0 and reset:
+            state.lives -= 1
+            reset(state)
+        else:
+            state.final_score_for_high_score = state.score
+            state.player_name_input = ""
+            state.name_input_active = True
+            state.current_screen = STATE_NAME_INPUT
