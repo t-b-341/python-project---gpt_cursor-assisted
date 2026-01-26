@@ -523,25 +523,26 @@ def main():
                 else:
                     h = SCREEN_HANDLERS.get(state)
                     result = h["handle_events"](events, game_state, screen_ctx) if h and h.get("handle_events") else {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False, "replay": False}
-                    if result.get("quit"):
-                        running = False
-                    if result.get("restart") or result.get("restart_to_wave1") or result.get("replay"):
-                        game_state.reset_run(ctx, center_player=bool(result.get("restart_to_wave1") or result.get("replay")))
-                        if result.get("restart"):
-                            game_state.menu_section = 0
-                        if result.get("restart_to_wave1") or result.get("replay"):
-                            state = STATE_PLAYING
-                            spawn_system_start_wave(1, game_state)
-                            scene_stack.clear()
-                            scene_stack.push(GameplayScene(STATE_PLAYING))
-                    if state == STATE_PAUSED:
-                        pause_selected = game_state.pause_selected
-                    if result.get("screen") is not None:
-                        state = result["screen"]
-                        game_state.current_screen = state
-                        if state == STATE_MENU:
-                            scene_stack.clear()
-                    handled_by_screen = True
+                # Apply result for both scene and fallback paths
+                if result.get("quit"):
+                    running = False
+                if result.get("restart") or result.get("restart_to_wave1") or result.get("replay"):
+                    game_state.reset_run(ctx, center_player=bool(result.get("restart_to_wave1") or result.get("replay")))
+                    if result.get("restart"):
+                        game_state.menu_section = 0
+                    if result.get("restart_to_wave1") or result.get("replay"):
+                        state = STATE_PLAYING
+                        spawn_system_start_wave(1, game_state)
+                        scene_stack.clear()
+                        scene_stack.push(GameplayScene(STATE_PLAYING))
+                if state == STATE_PAUSED:
+                    pause_selected = game_state.pause_selected
+                if result.get("screen") is not None:
+                    state = result["screen"]
+                    game_state.current_screen = state
+                    if state == STATE_MENU:
+                        scene_stack.clear()
+                handled_by_screen = True
 
             for event in events:
                 if handled_by_screen:
