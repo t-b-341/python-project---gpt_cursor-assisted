@@ -100,10 +100,9 @@ from systems.collision_system import update as collision_update
 from systems.spawn_system import update as spawn_update, start_wave as spawn_system_start_wave
 from systems.ai_system import update as ai_update
 
-# Placeholder WIDTH/HEIGHT for module-level initialization
-# Will be updated in main() after pygame.display.init()
-WIDTH = 1920  # Default placeholder
-HEIGHT = 1080  # Default placeholder
+# Placeholder WIDTH/HEIGHT for module-level geometry (trapezoids, etc.). Runtime dimensions live in AppContext (ctx.width, ctx.height).
+WIDTH = 1920
+HEIGHT = 1080
 
 # ----------------------------
 # Rendering cache for performance optimization
@@ -1243,16 +1242,9 @@ max_level = 3
 wave_in_level = 1  # Track which wave within current level (1, 2, or 3)
 # level_themes is now imported from constants.py
 
-# Difficulty settings (constants imported from constants.py)
-difficulty = DIFFICULTY_NORMAL
+# Difficulty / aiming / class: applied values live in AppContext (ctx); only menu selection indices here.
 difficulty_selected = 1  # 0 = Easy, 1 = Normal, 2 = Hard
-
-# Aiming mode selection (constants imported from constants.py)
-aiming_mode = AIM_MOUSE
 aiming_mode_selected = 0  # 0 = Mouse, 1 = Arrows
-
-# Player classes (constants imported from constants.py)
-player_class = PLAYER_CLASS_BALANCED
 player_class_selected = 0  # 0 = Balanced, 1 = Tank, 2 = Speedster, 3 = Sniper
 
 # Mod settings
