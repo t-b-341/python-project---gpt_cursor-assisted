@@ -75,6 +75,7 @@ from config_weapons import (
     WEAPON_UNLOCK_ORDER,
 )
 from rendering import RenderContext, draw_centered_text
+from asset_manager import get_font
 from enemies import (
     find_nearest_threat,
     make_enemy_from_template,
@@ -152,9 +153,9 @@ def main():
     pygame.display.set_caption("Mouse Aim Shooter + Telemetry (SQLite)")
 
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont(None, 28)
-    big_font = pygame.font.SysFont(None, 56)
-    small_font = pygame.font.SysFont(None, 20)
+    font = get_font("main", 28)
+    big_font = get_font("main", 56)
+    small_font = get_font("main", 20)
 
     # Load controls from file (now that pygame is initialized)
     global controls

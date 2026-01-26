@@ -4,9 +4,9 @@ These are extracted from game.py for better organization.
 """
 
 # ----------------------------
-# File paths
+# File paths (relative to project root; controls live under assets/data/)
 # ----------------------------
-CONTROLS_PATH = "controls.json"
+CONTROLS_PATH = "assets/data/controls.json"
 HIGH_SCORES_DB = "high_scores.db"
 
 # ----------------------------

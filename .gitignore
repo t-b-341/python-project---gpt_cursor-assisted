@@ -44,3 +44,6 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated DBs under assets/data/ (if used later)
+assets/data/*.db

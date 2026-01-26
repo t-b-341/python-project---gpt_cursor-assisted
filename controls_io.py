@@ -1,10 +1,18 @@
 """Load/save control bindings to disk. Used by game.py to initialize and persist key bindings."""
+from __future__ import annotations
+
 import json
 import os
+from pathlib import Path
 
 import pygame
 
 from constants import CONTROLS_PATH, DEFAULT_CONTROLS, MOUSE_BUTTON_RIGHT
+
+# Resolve paths from project root so loading works regardless of cwd
+_PROJECT_ROOT = Path(__file__).resolve().parent
+_CONTROLS_PATH = _PROJECT_ROOT / CONTROLS_PATH
+_LEGACY_CONTROLS = _PROJECT_ROOT / "controls.json"
 
 
 def _key_name_to_code(name: str) -> int:
@@ -19,9 +27,10 @@ def _key_name_to_code(name: str) -> int:
 
 def load_controls() -> dict[str, int]:
     data = {}
-    if os.path.exists(CONTROLS_PATH):
+    path = _CONTROLS_PATH if _CONTROLS_PATH.exists() else (_LEGACY_CONTROLS if _LEGACY_CONTROLS.exists() else None)
+    if path is not None:
         try:
-            with open(CONTROLS_PATH, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f) or {}
         except Exception:
             data = {}
@@ -41,5 +50,6 @@ def save_controls(controls: dict[str, int]) -> None:
                 out[action] = pygame.key.name(key_code)
             except Exception:
                 out[action] = "unknown"
-    with open(CONTROLS_PATH, "w", encoding="utf-8") as f:
+    _CONTROLS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(_CONTROLS_PATH, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)

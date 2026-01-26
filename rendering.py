@@ -13,6 +13,13 @@ from typing import Any
 
 import pygame
 
+from asset_manager import get_font
+
+
+def _default_font(size: int) -> pygame.font.Font:
+    """Fallback font when ctx has no font; uses centralized asset_manager."""
+    return get_font("main", size)
+
 
 @dataclass
 class RenderContext:
@@ -41,9 +48,9 @@ class RenderContext:
         """Build from (screen, ctx) when app_ctx is not available. ctx must have font, big_font, small_font, WIDTH, HEIGHT."""
         return cls(
             screen=screen,
-            font=ctx.get("font") or pygame.font.SysFont(None, 28),
-            big_font=ctx.get("big_font") or pygame.font.SysFont(None, 56),
-            small_font=ctx.get("small_font") or pygame.font.SysFont(None, 20),
+            font=ctx.get("font") or _default_font(28),
+            big_font=ctx.get("big_font") or _default_font(56),
+            small_font=ctx.get("small_font") or _default_font(20),
             width=ctx.get("WIDTH", 1920),
             height=ctx.get("HEIGHT", 1080),
         )
