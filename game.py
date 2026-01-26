@@ -198,8 +198,8 @@ HEIGHT = 1080
 # Wall texture, HUD text, health bar, and trapezoid/triangle caches are in rendering.py
 
 
-def main():
-    """Main entry point for the game. All mutable game state lives in the GameState instance."""
+def _create_app():
+    """Build ctx, game_state, scene_stack and loop invariants. Used by GameApp."""
     global teleporter_pads
     global difficulty_selected, aiming_mode_selected, use_character_profile_selected, character_profile_selected
     global custom_profile_stat_selected, player_class_selected, ui_show_metrics_selected, beam_selection_selected
@@ -535,8 +535,43 @@ def main():
             if not stk.current() or stk.current().state_id() != STATE_HIGH_SCORES:
                 stk.push(HighScoreScene())
 
-    running = True
     scene_stack = SceneStack()
+    class _AppRes:
+        pass
+    r = _AppRes()
+    r.ctx = ctx
+    r.game_state = game_state
+    r.scene_stack = scene_stack
+    r.fps = FPS
+    r.fixed_dt = FIXED_DT
+    r.max_sim_steps = MAX_SIMULATION_STEPS
+    r.update_simulation = _update_simulation
+    r.sync_scene_stack = _sync_scene_stack
+    r.simulation_accumulator = 0.0
+    r.last_telemetry_sample_t = -1.0
+    return r
+
+
+def _run_loop(app):
+    """Run the main loop. app holds .ctx, .game_state, .scene_stack and loop params."""
+    global difficulty_selected, aiming_mode_selected, use_character_profile_selected, character_profile_selected
+    global custom_profile_stat_selected, player_class_selected, ui_show_metrics_selected, beam_selection_selected
+    global endurance_mode_selected, ui_telemetry_enabled_selected
+    global weapon_selection_options
+    global boost_meter_max, boost_drain_per_s, boost_regen_per_s, boost_speed_mult
+    global friendly_ai_templates, overshield_max, grenade_cooldown, missile_cooldown, ally_drop_cooldown
+    global custom_profile_stats, beam_selection_pattern
+    ctx = app.ctx
+    game_state = app.game_state
+    scene_stack = app.scene_stack
+    FPS = app.fps
+    FIXED_DT = app.fixed_dt
+    MAX_SIMULATION_STEPS = app.max_sim_steps
+    _update_simulation = app.update_simulation
+    _sync_scene_stack = app.sync_scene_stack
+    simulation_accumulator = app.simulation_accumulator
+    last_telemetry_sample_t = app.last_telemetry_sample_t
+    running = True
     try:
         while running:
             dt = ctx.clock.tick(FPS) / 1000.0  # Wall-clock delta for this frame
@@ -1178,6 +1213,8 @@ def main():
             game_state.continue_blink_t = continue_blink_t
             game_state.controls_selected = controls_selected
             game_state.controls_rebinding = controls_rebinding
+            app.simulation_accumulator = simulation_accumulator
+            app.last_telemetry_sample_t = last_telemetry_sample_t
 
     except KeyboardInterrupt:
         print("Interrupted by user (Ctrl+C). Saving run...")
@@ -1207,7 +1244,13 @@ def main():
         pygame.quit()
 
 
-# Controls will be initialized in main() after pygame.init()
+def main():
+    """Thin entrypoint: create GameApp and run the main loop."""
+    from game_app import GameApp
+    GameApp().run()
+
+
+# Controls will be initialized in _create_app() after pygame.init()
 # Using a placeholder dict to avoid calling pygame.key.key_code() before pygame.init()
 controls = {}
 
