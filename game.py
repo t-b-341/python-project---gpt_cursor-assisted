@@ -163,7 +163,7 @@ from config import GameConfig
 from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
 from rendering_shaders import render_gameplay_with_optional_shaders
-from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene, ShaderTestScene
+from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene, ShaderTestScene, TitleScene, OptionsScene
 from scenes.gameplay import cycle_shader_profile
 from systems.registry import SIMULATION_SYSTEMS
 from systems.spawn_system import start_wave as spawn_system_start_wave
@@ -482,13 +482,31 @@ def _create_app():
             if isinstance(e, dict) and "damage_flash_timer" in e:
                 e["damage_flash_timer"] = max(0.0, e["damage_flash_timer"] - sim_dt)
 
-    SCENE_STATES = (STATE_PLAYING, STATE_ENDURANCE, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT)
+    SCENE_STATES = (STATE_PLAYING, STATE_ENDURANCE, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, STATE_TITLE, STATE_MENU)
 
     def _sync_scene_stack(stk: SceneStack, s: str, gs: GameState) -> None:
-        """Keep scene stack in sync with current_screen when in gameplay/pause/high-scores/name-input."""
+        """Keep scene stack in sync with current_screen (gameplay, pause, high-scores, name-input, title, options)."""
         if s not in SCENE_STATES:
             return
         cur = stk.current()
+        if s == STATE_TITLE:
+            while cur and cur.state_id() != STATE_TITLE:
+                stk.pop()
+                cur = stk.current()
+            if not cur:
+                stk.push(TitleScene())
+            return
+        if s == STATE_MENU:
+            if not cur or cur.state_id() == STATE_TITLE:
+                if not cur:
+                    stk.push(TitleScene())
+                if not stk.current() or stk.current().state_id() != STATE_MENU:
+                    stk.push(OptionsScene())
+            else:
+                stk.clear()
+                stk.push(TitleScene())
+                stk.push(OptionsScene())
+            return
         if s in (STATE_PLAYING, STATE_ENDURANCE):
             if cur is None:
                 stk.push(GameplayScene(s))
@@ -582,7 +600,7 @@ def _run_loop(app):
                     running = False
 
             handled_by_screen = False
-            if running and state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
+            if running and state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE, STATE_MENU):
                 current_scene = scene_stack.current()
                 if current_scene:
                     result = current_scene.handle_input(events, game_state, screen_ctx)
@@ -606,15 +624,52 @@ def _run_loop(app):
                         scene_stack.clear()
                         scene_stack.push(GameplayScene(STATE_PLAYING))
                         play_music("in-game", loop=True)
+                if result.get("start_game") and result.get("screen") == STATE_PLAYING:
+                    stop_music()
+                    play_music("in-game", loop=True)
+                    if ctx.config.enable_telemetry:
+                        ctx.telemetry_client = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
+                    else:
+                        ctx.telemetry_client = NoOpTelemetry()
+                    stats = player_class_stats[ctx.config.player_class]
+                    game_state.player_max_hp = int(1000 * stats["hp_mult"] * 0.75)
+                    game_state.player_hp = game_state.player_max_hp
+                    game_state.player_speed = int(ctx.config.player_base_speed * stats["speed_mult"])
+                    game_state.player_bullet_damage = int(ctx.config.player_base_damage * stats["damage_mult"])
+                    game_state.player_shoot_cooldown = ctx.config.player_base_shoot_cooldown / stats["firerate_mult"]
+                    if game_state.endurance_mode_selected == 1:
+                        state = STATE_ENDURANCE
+                        previous_game_state = STATE_ENDURANCE
+                        game_state.lives = 999
+                    else:
+                        state = STATE_PLAYING
+                        previous_game_state = STATE_PLAYING
+                    game_state.current_screen = state
+                    game_state.previous_screen = previous_game_state
+                    scene_stack.clear()
+                    scene_stack.push(GameplayScene(state))
+                    if game_state.level_context:
+                        game_state.level_context["telemetry"] = ctx.telemetry_client
+                        game_state.level_context["telemetry_enabled"] = ctx.config.enable_telemetry
+                        game_state.level_context["difficulty"] = ctx.config.difficulty
+                        game_state.level_context["testing_mode"] = ctx.config.testing_mode
+                        game_state.level_context["invulnerability_mode"] = ctx.config.invulnerability_mode
+                    game_state.run_id = ctx.telemetry_client.start_run(game_state.run_started_at, game_state.player_max_hp) if ctx.config.enable_telemetry else None
+                    last_telemetry_sample_t = -1.0
+                    game_state.wave_reset_log.clear()
+                    game_state.wave_start_reason = "menu_start"
+                    spawn_system_start_wave(game_state.wave_number, game_state)
                 if state == STATE_PAUSED:
                     pause_selected = game_state.pause_selected
-                if result.get("screen") is not None:
+                if result.get("screen") is not None and not result.get("start_game"):
                     state = result["screen"]
                     game_state.current_screen = state
                     if state == STATE_MENU:
                         play_music("ambient2", loop=True)
                         scene_stack.clear()
                 handled_by_screen = True
+                if state == STATE_MENU:
+                    menu_section = game_state.menu_section
 
             for event in events:
                 if handled_by_screen:
@@ -672,16 +727,6 @@ def _run_loop(app):
                             state = STATE_PAUSED
                             game_state.pause_selected = 0
                             game_state.current_screen = STATE_PAUSED
-                        elif state == STATE_TITLE:
-                            if game_state.title_confirm_quit:
-                                game_state.title_confirm_quit = False
-                            else:
-                                game_state.title_confirm_quit = True
-                        elif state == STATE_MENU:
-                            if game_state.menu_confirm_quit:
-                                game_state.menu_confirm_quit = False
-                            else:
-                                game_state.menu_confirm_quit = True
                         elif state == STATE_VICTORY or state == STATE_GAME_OVER or state == STATE_HIGH_SCORES:
                             running = False
                         elif state == STATE_NAME_INPUT:
@@ -733,196 +778,6 @@ def _run_loop(app):
                                 scene_stack.clear()
                             elif choice == "Quit":
                                 running = False
-                    
-                    # Title screen: Enter/Space to start; or quit confirm (Y/Enter = quit, N/ESC = stay)
-                    if state == STATE_TITLE:
-                        if game_state.title_confirm_quit:
-                            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_y):
-                                running = False
-                            elif event.key == pygame.K_n:
-                                game_state.title_confirm_quit = False
-                        else:
-                            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
-                                state = STATE_MENU
-                                game_state.current_screen = STATE_MENU
-                    
-                    # Menu navigation (and quit confirm when ESC was pressed in options)
-                    if state == STATE_MENU:
-                        if game_state.menu_confirm_quit:
-                            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_y):
-                                running = False
-                            elif event.key == pygame.K_n:
-                                game_state.menu_confirm_quit = False
-                        elif menu_section == 0:  # Difficulty selection (first options screen: back arrow = return to title/main menu)
-                            if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                game_state.difficulty_selected = (game_state.difficulty_selected - 1) % len(difficulty_options)
-                            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                game_state.difficulty_selected = (game_state.difficulty_selected + 1) % len(difficulty_options)
-                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                state = STATE_TITLE
-                                game_state.current_screen = STATE_TITLE
-                                game_state.menu_confirm_quit = False
-                            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.config.difficulty = difficulty_options[game_state.difficulty_selected]
-                                menu_section = 1.5  # Go to character profile yes/no (aiming mode removed, default mouse)
-                        elif menu_section == 1.5:  # Character profile yes/no
-                            if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                game_state.use_character_profile_selected = (game_state.use_character_profile_selected - 1) % 2
-                            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                game_state.use_character_profile_selected = (game_state.use_character_profile_selected + 1) % 2
-                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                menu_section = 0  # Go back to difficulty
-                            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.config.profile_enabled = game_state.use_character_profile_selected == 1
-                                if ctx.config.profile_enabled:
-                                    menu_section = 2  # Go to profile selection
-                                else:
-                                    menu_section = 3  # Skip to options
-                        elif menu_section == 2:  # Character profile selection
-                            if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                game_state.character_profile_selected = (game_state.character_profile_selected - 1) % len(character_profile_options)
-                            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                game_state.character_profile_selected = (game_state.character_profile_selected + 1) % len(character_profile_options)
-                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                menu_section = 1.5  # Go back
-                            elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                if game_state.character_profile_selected == 0:
-                                    menu_section = 7  # Go to class selection
-                                elif game_state.character_profile_selected == 1:
-                                    menu_section = 6  # Go to custom profile creator
-                            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
-                                if game_state.character_profile_selected == 0:
-                                    menu_section = 7  # Go to class selection
-                                elif game_state.character_profile_selected == 1:
-                                    menu_section = 6  # Go to custom profile creator
-                        elif menu_section == 6:  # Custom profile creator
-                            if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                game_state.custom_profile_stat_selected = (game_state.custom_profile_stat_selected - 1) % len(custom_profile_stats_list)
-                            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                game_state.custom_profile_stat_selected = (game_state.custom_profile_stat_selected + 1) % len(custom_profile_stats_list)
-                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                stat_key = custom_profile_stats_keys[game_state.custom_profile_stat_selected]
-                                game_state.custom_profile_stats[stat_key] = max(0.5, game_state.custom_profile_stats[stat_key] - 0.1)
-                            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
-                                menu_section = 3  # Continue to options
-                            elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
-                                stat_key = custom_profile_stats_keys[game_state.custom_profile_stat_selected]
-                                game_state.custom_profile_stats[stat_key] = min(3.0, game_state.custom_profile_stats[stat_key] + 0.1)
-                            elif event.key == pygame.K_MINUS:
-                                stat_key = custom_profile_stats_keys[game_state.custom_profile_stat_selected]
-                                game_state.custom_profile_stats[stat_key] = max(0.5, game_state.custom_profile_stats[stat_key] - 0.1)
-                        elif menu_section == 7:  # Class selection
-                            if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                game_state.player_class_selected = (game_state.player_class_selected - 1) % len(player_class_options)
-                            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                game_state.player_class_selected = (game_state.player_class_selected + 1) % len(player_class_options)
-                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                menu_section = 2  # Go back
-                            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.config.player_class = player_class_options[game_state.player_class_selected]
-                                menu_section = 3  # Go to options
-                        elif menu_section == 3:  # HUD options
-                            if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                game_state.ui_show_metrics_selected = (game_state.ui_show_metrics_selected - 1) % 2
-                            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                game_state.ui_show_metrics_selected = (game_state.ui_show_metrics_selected + 1) % 2
-                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                if ctx.config.profile_enabled:
-                                    menu_section = 7 if game_state.character_profile_selected == 0 else 6
-                                else:
-                                    menu_section = 1.5
-                            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.config.show_metrics = game_state.ui_show_metrics_selected == 0
-                                ctx.config.show_hud = ctx.config.show_metrics
-                                menu_section = 3.5  # Go to telemetry options
-                        elif menu_section == 3.5:  # Telemetry options
-                            if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                game_state.ui_telemetry_enabled_selected = (game_state.ui_telemetry_enabled_selected - 1) % 2
-                            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                game_state.ui_telemetry_enabled_selected = (game_state.ui_telemetry_enabled_selected + 1) % 2
-                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                menu_section = 3  # Go back to HUD options
-                            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.config.enable_telemetry = game_state.ui_telemetry_enabled_selected == 0
-                                if ctx.config.testing_mode:
-                                    menu_section = 4  # Go to weapon selection
-                                else:
-                                    menu_section = 5  # Go to start
-                        elif menu_section == 4:  # Weapon selection (testing mode)
-                            if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                game_state.beam_selection_selected = (game_state.beam_selection_selected - 1) % len(weapon_selection_options)
-                            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                game_state.beam_selection_selected = (game_state.beam_selection_selected + 1) % len(weapon_selection_options)
-                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                menu_section = 3  # Go back
-                            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                selected_weapon = weapon_selection_options[game_state.beam_selection_selected]
-                                game_state.unlocked_weapons.add(selected_weapon)
-                                if game_state.current_weapon_mode == "laser" and selected_weapon != "laser":
-                                    game_state.laser_beams.clear()
-                                game_state.current_weapon_mode = selected_weapon
-                                game_state.beam_selection_pattern = selected_weapon
-                                if ctx.config.testing_mode:
-                                    menu_section = 4.5  # Go to testing options
-                                else:
-                                    menu_section = 5  # Go to start
-                        elif menu_section == 4.5:  # Testing options (testing mode only)
-                            if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                ctx.config.invulnerability_mode = not ctx.config.invulnerability_mode
-                            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                ctx.config.invulnerability_mode = not ctx.config.invulnerability_mode
-                            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                menu_section = 4  # Go back to weapon selection
-                            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                menu_section = 5  # Go to start
-                        elif menu_section == 5:  # Start game
-                            if event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                if ctx.config.testing_mode:
-                                    menu_section = 4.5
-                                else:
-                                    menu_section = 3.5  # Go back to telemetry options
-                            elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                # Initialize game: stop menu music, start in-game music
-                                stop_music()
-                                play_music("in-game", loop=True)
-                                if ctx.config.enable_telemetry:
-                                    ctx.telemetry_client = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
-                                else:
-                                    ctx.telemetry_client = NoOpTelemetry()
-                                
-                                # Apply class stats from config base values
-                                stats = player_class_stats[ctx.config.player_class]
-                                game_state.player_max_hp = int(1000 * stats["hp_mult"] * 0.75)  # Reduced by 0.75x
-                                game_state.player_hp = game_state.player_max_hp
-                                game_state.player_speed = int(ctx.config.player_base_speed * stats["speed_mult"])
-                                game_state.player_bullet_damage = int(ctx.config.player_base_damage * stats["damage_mult"])
-                                game_state.player_shoot_cooldown = ctx.config.player_base_shoot_cooldown / stats["firerate_mult"]
-                                
-                                # Set state and persist to game_state so "state = game_state.current_screen" in the play block doesn't overwrite with MENU
-                                if game_state.endurance_mode_selected == 1:
-                                    state = STATE_ENDURANCE
-                                    previous_game_state = STATE_ENDURANCE
-                                    game_state.lives = 999
-                                else:
-                                    state = STATE_PLAYING
-                                    previous_game_state = STATE_PLAYING
-                                game_state.current_screen = state
-                                game_state.previous_screen = previous_game_state
-                                scene_stack.clear()
-                                scene_stack.push(GameplayScene(state))
-                                # So spawn_system and others see current app config
-                                if game_state.level_context:
-                                    game_state.level_context["telemetry"] = ctx.telemetry_client
-                                    game_state.level_context["telemetry_enabled"] = ctx.config.enable_telemetry
-                                    game_state.level_context["difficulty"] = ctx.config.difficulty
-                                    game_state.level_context["testing_mode"] = ctx.config.testing_mode
-                                    game_state.level_context["invulnerability_mode"] = ctx.config.invulnerability_mode
-
-                                game_state.run_id = ctx.telemetry_client.start_run(game_state.run_started_at, game_state.player_max_hp) if ctx.config.enable_telemetry else None
-                                last_telemetry_sample_t = -1.0
-                                game_state.wave_reset_log.clear()
-                                game_state.wave_start_reason = "menu_start"
-                                spawn_system_start_wave(game_state.wave_number, game_state)
                     
                     # Controls rebinding
                     if state == STATE_CONTROLS and controls_rebinding:
@@ -1026,102 +881,7 @@ def _run_loop(app):
             if state not in (STATE_PLAYING, STATE_ENDURANCE):
                 ctx.screen.fill(theme["bg_color"])
 
-            if state == STATE_TITLE:
-                # Title screen: same green as options menus (theme already filled above); or "Are you sure?" when ESC pressed
-                if game_state.title_confirm_quit:
-                    draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Are you sure you want to exit?", ctx.height // 2 - 40, color=(220, 220, 220))
-                    draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "ENTER or Y to quit", ctx.height // 2 + 20, (180, 180, 180))
-                    draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "ESC or N to stay", ctx.height // 2 + 60, (180, 180, 180))
-                else:
-                    draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "GAME", ctx.height // 2 - 80, color=(220, 220, 220), use_big=True)
-                    draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Main Menu", ctx.height // 2 - 30, (180, 180, 180))
-                    draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Press ENTER or SPACE for options", ctx.height // 2 + 30, (180, 180, 180))
-                    draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "ESC to quit", ctx.height // 2 + 70, (180, 180, 180))
-            elif state == STATE_MENU:
-                # Menu rendering (or same quit-confirm dialog when ESC pressed)
-                if game_state.menu_confirm_quit:
-                    draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Are you sure you want to exit?", ctx.height // 2 - 40, color=(220, 220, 220))
-                    draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "ENTER or Y to quit", ctx.height // 2 + 20, (180, 180, 180))
-                    draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "ESC or N to stay", ctx.height // 2 + 60, (180, 180, 180))
-                else:
-                    draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "MOUSE AIM SHOOTER", ctx.height // 4, use_big=True)
-                    y_offset = ctx.height // 2
-                    if menu_section == 0:
-                        # Difficulty selection (options entry: LEFT = back to main menu)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Options — Select Difficulty:", y_offset - 60)
-                        for i, diff in enumerate(difficulty_options):
-                            color = (255, 255, 0) if i == game_state.difficulty_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.difficulty_selected else '  '} {diff}", y_offset + i * 40, color)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "UP/DOWN to select, RIGHT/ENTER to continue, LEFT to return to main menu", ctx.height - 100, (150, 150, 150))
-                    elif menu_section == 1.5:
-                        # Character profile yes/no
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use Character Profile?", y_offset - 60)
-                        options = ["No", "Yes"]
-                        for i, opt in enumerate(options):
-                            color = (255, 255, 0) if i == game_state.use_character_profile_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.use_character_profile_selected else '  '} {opt}", y_offset + i * 40, color)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
-                    elif menu_section == 2:
-                        # Character profile selection
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Character Profile:", y_offset - 60)
-                        for i, profile in enumerate(character_profile_options):
-                            color = (255, 255, 0) if i == game_state.character_profile_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.character_profile_selected else '  '} {profile}", y_offset + i * 40, color)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
-                    elif menu_section == 3:
-                        # HUD options
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "HUD Options:", y_offset - 60)
-                        options = ["Show Metrics", "Hide Metrics"]
-                        for i, opt in enumerate(options):
-                            color = (255, 255, 0) if i == game_state.ui_show_metrics_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.ui_show_metrics_selected else '  '} {opt}", y_offset + i * 40, color)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
-                    elif menu_section == 3.5:
-                        # Telemetry options
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Telemetry:", y_offset - 60)
-                        options = ["Enabled", "Disabled"]
-                        for i, opt in enumerate(options):
-                            color = (255, 255, 0) if i == game_state.ui_telemetry_enabled_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.ui_telemetry_enabled_selected else '  '} {opt}", y_offset + i * 40, color)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
-                    elif menu_section == 4:
-                        # Beam/weapon selection (if testing mode)
-                        if ctx.config.testing_mode:
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Select Weapon:", y_offset - 60)
-                            for i, weapon in enumerate(weapon_selection_options):
-                                color = (255, 255, 0) if i == game_state.beam_selection_selected else (200, 200, 200)
-                                draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.beam_selection_selected else '  '} {weapon}", y_offset + i * 30, color)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
-                        else:
-                            menu_section = 5  # Skip to start
-                    elif menu_section == 4.5:
-                        # Testing options (testing mode only)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Testing Options:", y_offset - 60)
-                        invuln_color = (255, 255, 0) if ctx.config.invulnerability_mode else (200, 200, 200)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if ctx.config.invulnerability_mode else '  '} Invulnerability: {'ON' if ctx.config.invulnerability_mode else 'OFF'}", y_offset, invuln_color)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to toggle, LEFT to go back, RIGHT/ENTER to start", ctx.height - 100, (150, 150, 150))
-                    elif menu_section == 5:
-                        # Start game
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Ready to Start!", y_offset)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Press ENTER or SPACE to begin", y_offset + 60, (150, 150, 150))
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Press LEFT to go back", y_offset + 100, (150, 150, 150))
-                    elif menu_section == 6:
-                        # Custom profile creator
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Custom Profile Creator:", y_offset - 100)
-                        for i, stat_name in enumerate(custom_profile_stats_list):
-                            stat_key = custom_profile_stats_keys[i]
-                            stat_value = game_state.custom_profile_stats[stat_key]
-                            color = (255, 255, 0) if i == game_state.custom_profile_stat_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.custom_profile_stat_selected else '  '} {stat_name}: {stat_value:.1f}x", y_offset + i * 35, color)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select stat, LEFT/RIGHT to adjust, ENTER to continue", ctx.height - 100, (150, 150, 150))
-                    elif menu_section == 7:
-                        # Class selection
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Select Class:", y_offset - 60)
-                        for i, cls in enumerate(player_class_options):
-                            color = (255, 255, 0) if i == game_state.player_class_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.player_class_selected else '  '} {cls}", y_offset + i * 40, color)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
-            elif state == STATE_PLAYING or state == STATE_ENDURANCE:
+            if state == STATE_PLAYING or state == STATE_ENDURANCE:
                 lv = game_state.level
                 gameplay_ctx = {
                     "level_themes": level_themes,
@@ -1166,7 +926,7 @@ def _run_loop(app):
                 for msg in game_state.weapon_pickup_messages[:]:
                     if msg["timer"] <= 0:
                         game_state.weapon_pickup_messages.remove(msg)
-            elif state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
+            elif state in (STATE_TITLE, STATE_MENU, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
                 render_ctx = RenderContext.from_app_ctx(ctx)
                 current_scene = scene_stack.current()
                 if current_scene:
