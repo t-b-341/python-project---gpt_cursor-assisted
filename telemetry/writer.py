@@ -88,6 +88,7 @@ class Telemetry:
         self._friendly_shot_buf: list[tuple] = []
         self._friendly_death_buf: list[tuple] = []
         self._wave_enemy_types_buf: list[tuple] = []
+        self._run_state_buf: list[tuple] = []
 
     def start_run(self, started_at_iso: str, player_max_hp: int) -> int:
         cur = self.conn.cursor()
@@ -204,9 +205,16 @@ class Telemetry:
     def log_player_death(self, event: PlayerDeathEvent) -> None:
         if self.run_id is None:
             return
+        wave = int(getattr(event, "wave_number", 0))
         self._player_death_buf.append(
-            (self.run_id, float(event.t), int(event.player_x), int(event.player_y), int(event.lives_left))
+            (self.run_id, float(event.t), int(event.player_x), int(event.player_y), int(event.lives_left), wave)
         )
+
+    def log_run_state_sample(self, t: float, player_hp: int, enemies_alive: int) -> None:
+        """Log a single run-state sample (HP, enemy count) for difficulty time-series. Call at POS_SAMPLE_INTERVAL."""
+        if self.run_id is None:
+            return
+        self._run_state_buf.append((self.run_id, float(t), int(player_hp), int(enemies_alive)))
 
     def log_wave(self, event: WaveEvent) -> None:
         if self.run_id is None:
@@ -378,7 +386,7 @@ class Telemetry:
             + len(self._wave_buf) + len(self._enemy_pos_buf) + len(self._player_velocity_buf)
             + len(self._bullet_metadata_buf) + len(self._score_buf) + len(self._level_buf)
             + len(self._boss_buf) + len(self._weapon_switch_buf) + len(self._pickup_buf)
-            + len(self._overshield_buf) + len(self._wave_enemy_types_buf)
+            + len(self._overshield_buf) + len(self._wave_enemy_types_buf) + len(self._run_state_buf)
         )
         if total >= self.max_buffer:
             self.flush()
@@ -434,10 +442,17 @@ class Telemetry:
             wrote_any = True
         if self._player_death_buf:
             cur.executemany(
-                "INSERT INTO player_deaths (run_id, t, player_x, player_y, lives_left) VALUES (?, ?, ?, ?, ?);",
+                "INSERT INTO player_deaths (run_id, t, player_x, player_y, lives_left, wave_number) VALUES (?, ?, ?, ?, ?, ?);",
                 self._player_death_buf,
             )
             self._player_death_buf.clear()
+            wrote_any = True
+        if self._run_state_buf:
+            cur.executemany(
+                "INSERT INTO run_state_samples (run_id, t, player_hp, enemies_alive) VALUES (?, ?, ?, ?);",
+                self._run_state_buf,
+            )
+            self._run_state_buf.clear()
             wrote_any = True
         if self._wave_buf:
             cur.executemany(

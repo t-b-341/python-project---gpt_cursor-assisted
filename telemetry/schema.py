@@ -200,6 +200,18 @@ def init_schema(conn: sqlite3.Connection) -> None:
             player_x INTEGER NOT NULL,
             player_y INTEGER NOT NULL,
             lives_left INTEGER NOT NULL,
+            wave_number INTEGER,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS run_state_samples (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            t REAL NOT NULL,
+            player_hp INTEGER NOT NULL,
+            enemies_alive INTEGER NOT NULL,
             FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
         );
     """)
@@ -457,6 +469,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "runs", "max_level", "max_level INTEGER")
     _add_column_if_missing(conn, "runs", "difficulty", "difficulty TEXT")
     _add_column_if_missing(conn, "runs", "endurance_mode", "endurance_mode INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "player_deaths", "wave_number", "wave_number INTEGER")
     _add_column_if_missing(conn, "shots", "shape", "shape TEXT")
     _add_column_if_missing(conn, "shots", "color_r", "color_r INTEGER")
     _add_column_if_missing(conn, "shots", "color_g", "color_g INTEGER")
@@ -466,6 +479,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
 
     _create_index_if_missing(conn, "enemy_hits", "idx_enemy_hits_run_t", "run_id, t")
     _create_index_if_missing(conn, "player_damage", "idx_player_damage_run_t", "run_id, t")
+    _create_index_if_missing(conn, "run_state_samples", "idx_run_state_run_t", "run_id, t")
     _create_index_if_missing(conn, "waves", "idx_waves_run_wave", "run_id, wave_number")
     _create_index_if_missing(conn, "score_events", "idx_score_run_t", "run_id, t")
     _create_index_if_missing(conn, "weapon_switches", "idx_weapon_run_t", "run_id, t")

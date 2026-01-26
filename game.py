@@ -166,6 +166,10 @@ from systems.spawn_system import update as spawn_update, start_wave as spawn_sys
 from systems.ai_system import update as ai_update
 from systems.input_system import handle_gameplay_input
 from systems.audio_system import init_mixer, sync_from_config, play_sfx
+try:
+    from telemetry.perf import record_frame as _perf_record_frame
+except ImportError:
+    _perf_record_frame = lambda _dt: None
 from controls_io import _key_name_to_code, load_controls, save_controls
 from physics_loader import resolve_physics
 from geometry_utils import (
@@ -288,6 +292,13 @@ def main():
     def _make_level_context():
         w, h = ctx.width, ctx.height
         lv = game_state.level
+
+        def _log_player_death(t, px, py, lives_left, wave_num):
+            if ctx.config.enable_telemetry and ctx.telemetry_client:
+                ctx.telemetry_client.log_player_death(
+                    PlayerDeathEvent(t=t, player_x=px, player_y=py, lives_left=lives_left, wave_number=wave_num)
+                )
+
         return {
             "move_player": lambda p, dx, dy: move_player_with_push(p, dx, dy, lv, w, h),
             "move_enemy": lambda s, rect, mx, my: move_enemy_with_push(rect, mx, my, lv, s, w, h),
@@ -346,6 +357,7 @@ def main():
             "wave_banner_duration": getattr(ctx.config, "wave_banner_duration", 1.5),
             "base_enemies_per_wave": getattr(ctx.config, "base_enemies_per_wave", 12),
             "enemy_spawn_multiplier": getattr(ctx.config, "enemy_spawn_multiplier", 3.5),
+            "log_player_death": _log_player_death,
         }
     game_state.level_context = _make_level_context()
 
@@ -366,6 +378,7 @@ def main():
     FIXED_DT = 1.0 / 60.0
     MAX_SIMULATION_STEPS = 6  # cap to avoid spiral of death when dt is large
     simulation_accumulator = 0.0
+    last_telemetry_sample_t = -1.0  # for position/run_state sampling at POS_SAMPLE_INTERVAL
 
     def _update_simulation(sim_dt: float, gs: GameState, app_ctx: AppContext) -> None:
         """Run one fixed timestep of gameplay (timers, movement, collision, spawn, AI)."""
@@ -438,6 +451,7 @@ def main():
     try:
         while running:
             dt = ctx.clock.tick(FPS) / 1000.0  # Wall-clock delta for this frame
+            _perf_record_frame(dt)  # no-op unless GAME_DEBUG_PERF=1
             game_state.run_time += dt
             game_state.survival_time += dt
 
@@ -773,6 +787,7 @@ def main():
                                     game_state.level_context["invulnerability_mode"] = ctx.config.invulnerability_mode
 
                                 game_state.run_id = ctx.telemetry_client.start_run(game_state.run_started_at, game_state.player_max_hp) if ctx.config.enable_telemetry else None
+                                last_telemetry_sample_t = -1.0
                                 game_state.wave_reset_log.clear()
                                 game_state.wave_start_reason = "menu_start"
                                 spawn_system_start_wave(game_state.wave_number, game_state)
@@ -859,9 +874,21 @@ def main():
                     steps += 1
                 # Optional: for future render interpolation (smooth between steps)
                 setattr(game_state, "simulation_interpolation", simulation_accumulator / FIXED_DT if FIXED_DT else 0.0)
+                # Telemetry: position + run_state samples at POS_SAMPLE_INTERVAL, and flush tick
+                if ctx.config.enable_telemetry and ctx.telemetry_client:
+                    ctx.telemetry_client.tick(dt)
+                    now = game_state.run_time
+                    if last_telemetry_sample_t < 0:
+                        last_telemetry_sample_t = now
+                    elif now - last_telemetry_sample_t >= POS_SAMPLE_INTERVAL and game_state.player_rect:
+                        ctx.telemetry_client.log_player_position(
+                            PlayerPosEvent(t=now, x=game_state.player_rect.centerx, y=game_state.player_rect.centery)
+                        )
+                        ctx.telemetry_client.log_run_state_sample(now, game_state.player_hp, len(game_state.enemies))
+                        last_telemetry_sample_t = now
                 continue_blink_t = game_state.continue_blink_t
                 state = game_state.current_screen
-            
+
             # Rendering
             theme = level_themes.get(game_state.current_level, level_themes[1])
             if state not in (STATE_PLAYING, STATE_ENDURANCE):

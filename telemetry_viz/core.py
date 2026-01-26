@@ -20,6 +20,7 @@ from telemetry_viz.plots_damage import (
     draw_damage_dealt_by_enemy,
     draw_damage_heatmap_by_wave,
     draw_death_locations,
+    draw_difficulty_time_series,
 )
 from telemetry_viz.plots_waves import (
     draw_wave_progression,
@@ -71,6 +72,7 @@ def get_pages() -> List[Page]:
         Page("Damage dealt by enemy type", "damage_dealt_by_enemy.png", draw_damage_dealt_by_enemy),
         Page("Damage heatmap by wave", "damage_heatmap_wave.png", draw_damage_heatmap_by_wave),
         Page("Death locations", "death_locations.png", draw_death_locations),
+        Page("Difficulty over time", "difficulty_time_series.png", draw_difficulty_time_series),
         Page("Wave progression", "wave_progression.png", draw_wave_progression),
         Page("Wave difficulty scaling", "wave_difficulty.png", draw_wave_difficulty_scaling),
         Page("Survival time per wave", "survival_per_wave.png", draw_survival_time_per_wave),

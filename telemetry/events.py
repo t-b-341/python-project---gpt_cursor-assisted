@@ -62,6 +62,7 @@ class PlayerDeathEvent:
     player_x: int
     player_y: int
     lives_left: int
+    wave_number: int = 0  # Wave when death occurred (for death-position viz)
 
 
 @dataclass

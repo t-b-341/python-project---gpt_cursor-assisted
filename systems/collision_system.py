@@ -70,6 +70,17 @@ def _apply_player_damage(state, damage: int, ctx: dict) -> None:
     state.wave_damage_taken += damage
     if state.player_hp <= 0:
         reset = ctx.get("reset_after_death")
+        player = state.player_rect
+        lives_left = (state.lives - 1) if (state.lives > 0 and reset) else 0
+        log_death = ctx.get("log_player_death")
+        if callable(log_death) and player is not None:
+            log_death(
+                getattr(state, "run_time", 0.0),
+                player.centerx,
+                player.centery,
+                lives_left,
+                getattr(state, "wave_number", 0),
+            )
         if state.lives > 0 and reset:
             state.lives -= 1
             reset(state)
