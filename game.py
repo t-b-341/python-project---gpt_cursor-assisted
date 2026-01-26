@@ -160,7 +160,7 @@ from context import AppContext
 from config import GameConfig
 from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
-from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene
+from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene, ShaderTestScene
 from systems.registry import SIMULATION_SYSTEMS
 from systems.spawn_system import start_wave as spawn_system_start_wave
 from systems.input_system import handle_gameplay_input
@@ -374,7 +374,7 @@ def main():
 
     # Optional GPU shader toggle: ask in-program (do not require moderngl to be installed)
     try:
-        import moderngl  # noqa: F401
+        import moderngl  # noqa: F401  # type: ignore[import-untyped]
         moderngl_available = True
     except ImportError:
         print("moderngl not available; disabling shader mode.")
@@ -544,16 +544,20 @@ def main():
                     running = False
 
             handled_by_screen = False
-            if running and state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT):
+            if running and state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
                 current_scene = scene_stack.current()
                 if current_scene:
                     result = current_scene.handle_input(events, game_state, screen_ctx)
                 else:
                     h = SCREEN_HANDLERS.get(state)
-                    result = h["handle_events"](events, game_state, screen_ctx) if h and h.get("handle_events") else {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False, "replay": False}
+                    result = h["handle_events"](events, game_state, screen_ctx) if h and h.get("handle_events") else {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False, "replay": False, "pop": False}
                 # Apply result for both scene and fallback paths
                 if result.get("quit"):
                     running = False
+                if result.get("pop"):
+                    scene_stack.pop()
+                    state = game_state.previous_screen or STATE_PLAYING
+                    game_state.current_screen = state
                 if result.get("restart") or result.get("restart_to_wave1") or result.get("replay"):
                     game_state.reset_run(ctx, center_player=bool(result.get("restart_to_wave1") or result.get("replay")))
                     if result.get("restart"):
@@ -859,6 +863,10 @@ def main():
                                 game_state.previous_screen = previous_game_state
                                 scene_stack.clear()
                                 scene_stack.push(GameplayScene(state))
+                                if getattr(ctx.config, "use_shaders", False):
+                                    scene_stack.push(ShaderTestScene())
+                                    state = "SHADER_TEST"
+                                    game_state.current_screen = state
                                 # So spawn_system and others see current app config
                                 if game_state.level_context:
                                     game_state.level_context["telemetry"] = ctx.telemetry_client
@@ -1114,7 +1122,7 @@ def main():
                 for msg in game_state.weapon_pickup_messages[:]:
                     if msg["timer"] <= 0:
                         game_state.weapon_pickup_messages.remove(msg)
-            elif state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT):
+            elif state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
                 render_ctx = RenderContext.from_app_ctx(ctx)
                 current_scene = scene_stack.current()
                 if current_scene:

@@ -1,9 +1,10 @@
-"""Scenes: gameplay, pause, high scores, name input. Driven by SceneStack in the game loop."""
+"""Scenes: gameplay, pause, high scores, name input, shader test. Driven by SceneStack in the game loop."""
 from .base import Scene, SceneStack
 from .gameplay import GameplayScene
-from .pause import PauseScene
 from .high_scores import HighScoreScene
 from .name_input import NameInputScene
+from .pause import PauseScene
+from .shader_test import ShaderTestScene
 
 __all__ = [
     "Scene",
@@ -12,4 +13,5 @@ __all__ = [
     "PauseScene",
     "HighScoreScene",
     "NameInputScene",
+    "ShaderTestScene",
 ]

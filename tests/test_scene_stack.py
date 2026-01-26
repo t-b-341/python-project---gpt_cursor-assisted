@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from constants import STATE_PLAYING, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT
-from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene
+from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene, ShaderTestScene
 
 
 def test_scene_stack_push_pop_current():
@@ -56,3 +56,8 @@ def test_scene_handle_input_return_shape():
     g = GameplayScene(STATE_PLAYING)
     out = g.handle_input([], None, {})
     assert "screen" in out and "quit" in out
+
+    sh = ShaderTestScene()
+    out = sh.handle_input([], None, {})
+    assert isinstance(out, dict)
+    assert "screen" in out and "quit" in out and "pop" in out
