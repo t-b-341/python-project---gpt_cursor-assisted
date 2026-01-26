@@ -2049,8 +2049,8 @@ def spawn_weapon_in_center(weapon_type: str, state: GameState, width: int, heigh
 
 def spawn_weapon_drop(enemy: dict, state: GameState):
     """Spawn a drop from a killed enemy: giant (only weapon drop), health, armor, sprint, speed, or dash_recharge."""
-    # 30% chance to drop something
-    if random.random() >= 0.3:
+    # 15% chance to drop something (0.5x former 30% rate)
+    if random.random() >= 0.15:
         return
     drop_types = ["giant", "health", "armor", "sprint", "speed", "dash_recharge"]
     pickup_type = random.choice(drop_types)
