@@ -109,6 +109,7 @@ from geometry_utils import (
     filter_blocks_too_close_to_player,
     set_screen_dimensions,
 )
+from level_utils import filter_blocks_no_overlap, clone_enemies_from_templates
 
 # Placeholder WIDTH/HEIGHT for module-level geometry (trapezoids, etc.). Runtime dimensions live in AppContext (ctx.width, ctx.height).
 WIDTH = 1920
@@ -1652,48 +1653,6 @@ missile_speed = 400  # Missile movement speed
 # player_size = max(player.w, player.h)  # Use larger dimension (28)
 # min_block_distance = player_size * 10  # 10x player size = 280 pixels
 
-# Filter all block lists to remove blocks too close to player and prevent overlaps with each other
-def filter_blocks_no_overlap(block_list: list[dict], all_other_blocks: list[list[dict]], player_rect: pygame.Rect) -> list[dict]:
-    """Filter blocks to remove those too close to player and overlapping with other blocks."""
-    filtered = []
-    player_center = pygame.Vector2(player_rect.center)
-    player_size = max(player_rect.w, player_rect.h)  # Use larger dimension (28)
-    min_block_distance = player_size * 10  # 10x player size = 280 pixels
-    
-    for block in block_list:
-        block_rect = block["rect"]
-        block_center = pygame.Vector2(block_rect.center)
-        
-        # Check distance from player
-        if block_center.distance_to(player_center) < min_block_distance:
-            continue
-        
-        # Check collision with player
-        if block_rect.colliderect(player_rect):
-            continue
-        
-        # Check collision with other blocks
-        overlaps = False
-        for other_block_list in all_other_blocks:
-            for other_block in other_block_list:
-                if block_rect.colliderect(other_block["rect"]):
-                    overlaps = True
-                    break
-            if overlaps:
-                break
-        
-        # Check collision with other blocks in same list (prevent self-overlap)
-        if not overlaps:
-            for other_block in block_list:
-                if other_block is not block and block_rect.colliderect(other_block["rect"]):
-                    overlaps = True
-                    break
-        
-        if not overlaps:
-            filtered.append(block)
-    
-    return filtered
-
 # Filter blocks to prevent overlaps (allies checked at runtime in random_spawn_position)
 # Note: trapezoid_blocks and triangle_blocks are border elements and don't need overlap filtering
 # NOTE: This filtering will be done in main() after player is initialized
@@ -1783,12 +1742,6 @@ enemy_templates = ENEMY_TEMPLATES  # Alias for compatibility
 # boss_template will be created from BOSS_TEMPLATE.copy() when needed in start_wave()
 # We keep a reference here for compatibility, but it will be copied at runtime
 boss_template = BOSS_TEMPLATE  # Reference (will be copied when spawning boss)
-
-
-def clone_enemies_from_templates() -> list[dict]:
-    # Kept for compatibility but waves use start_wave() instead.
-    return [make_enemy_from_template(t, 1.0, 1.0) for t in enemy_templates]
-
 
 enemies: list[dict] = []
 
