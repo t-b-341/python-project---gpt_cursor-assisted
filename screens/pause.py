@@ -1,6 +1,9 @@
-"""Pause screen: handle_events and render."""
+"""Pause screen: handle_events and render. Uses AppContext for display/fonts."""
+from __future__ import annotations
+
 import pygame
 from constants import STATE_PLAYING, STATE_ENDURANCE, STATE_MENU, pause_options
+from context import AppContext
 from rendering import draw_centered_text
 
 
@@ -40,12 +43,13 @@ def handle_events(events, game_state, ctx):
     return out
 
 
-def render(screen, game_state, ctx):
-    """Draw pause overlay and menu."""
-    WIDTH = ctx["WIDTH"]
-    HEIGHT = ctx["HEIGHT"]
-    font = ctx["font"]
-    big_font = ctx["big_font"]
+def render(app_ctx: AppContext, game_state, screen_ctx) -> None:
+    """Draw pause overlay and menu. app_ctx: AppContext (screen, font, big_font, width, height)."""
+    screen = app_ctx.screen
+    WIDTH = app_ctx.width
+    HEIGHT = app_ctx.height
+    font = app_ctx.font
+    big_font = app_ctx.big_font
     overlay = pygame.Surface((WIDTH, HEIGHT))
     overlay.set_alpha(128)
     overlay.fill((0, 0, 0))

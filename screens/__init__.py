@@ -1,6 +1,7 @@
 """
 Screen handlers for menu, gameplay, pause, high scores, name input, etc.
-Each screen can provide handle_events(events, game_state, ctx) and render(screen, game_state, ctx).
+Each screen provides handle_events(events, game_state, screen_ctx) and render(app_ctx, game_state, screen_ctx).
+app_ctx is AppContext (screen, fonts, width, height, etc.); screen_ctx is a dict with get_high_scores, save_high_score, etc.
 """
 
 from . import pause
@@ -13,8 +14,8 @@ from constants import (
 )
 
 # Registry: screen_id -> {"handle_events": callable | None, "render": callable}
-# handle_events(events, game_state, ctx) -> {"screen": str|None, "quit": bool, "restart": bool}
-# render(screen_surface, game_state, ctx) -> None
+# handle_events(events, game_state, screen_ctx) -> {"screen": str|None, "quit": bool, "restart": bool}
+# render(app_ctx: AppContext, game_state, screen_ctx) -> None
 SCREEN_HANDLERS = {
     STATE_PAUSED: {"handle_events": pause.handle_events, "render": pause.render},
     STATE_HIGH_SCORES: {"handle_events": high_scores.handle_events, "render": high_scores.render},

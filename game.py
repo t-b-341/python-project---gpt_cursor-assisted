@@ -1089,7 +1089,7 @@ def main():
                     "aiming_mode": ctx.aiming_mode,
                     "current_state": state,
                 }
-                gameplay_render(ctx.screen, game_state, gameplay_ctx)
+                gameplay_render(ctx, game_state, gameplay_ctx)
                 
                 # Clean up expired UI tokens (state updates; timers decremented in update loop)
                 for dmg_num in game_state.damage_numbers[:]:
@@ -1099,7 +1099,7 @@ def main():
                     if msg["timer"] <= 0:
                         game_state.weapon_pickup_messages.remove(msg)
             elif state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT) and state in SCREEN_HANDLERS and SCREEN_HANDLERS[state].get("render"):
-                SCREEN_HANDLERS[state]["render"](ctx.screen, game_state, screen_ctx)
+                SCREEN_HANDLERS[state]["render"](ctx, game_state, screen_ctx)
             elif state == STATE_GAME_OVER:
                 # Game over screen
                 # (Game over rendering would go here)

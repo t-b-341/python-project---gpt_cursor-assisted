@@ -1,6 +1,9 @@
-"""Name input screen: handle_events and render."""
+"""Name input screen: handle_events and render. Uses AppContext for display/fonts."""
+from __future__ import annotations
+
 import pygame
 from constants import STATE_HIGH_SCORES
+from context import AppContext
 
 
 def handle_events(events, game_state, ctx):
@@ -47,13 +50,14 @@ def handle_events(events, game_state, ctx):
     return out
 
 
-def render(screen, game_state, ctx):
-    """Draw name input prompt and current text."""
-    WIDTH = ctx["WIDTH"]
-    HEIGHT = ctx["HEIGHT"]
-    font = ctx["font"]
-    big_font = ctx["big_font"]
-    small_font = ctx.get("small_font", font)
+def render(app_ctx: AppContext, game_state, screen_ctx) -> None:
+    """Draw name input prompt and current text. app_ctx: AppContext; screen_ctx provides save_high_score."""
+    screen = app_ctx.screen
+    WIDTH = app_ctx.width
+    HEIGHT = app_ctx.height
+    font = app_ctx.font
+    big_font = app_ctx.big_font
+    small_font = app_ctx.small_font
 
     screen.fill((20, 20, 40))
     title = big_font.render("ENTER YOUR NAME", True, (255, 255, 255))
