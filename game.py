@@ -103,7 +103,6 @@ from constants import (
     grenade_cooldown,
     grenade_damage,
     jump_cooldown,
-    jump_duration,
     laser_cooldown,
     laser_damage,
     laser_length,
@@ -167,7 +166,7 @@ from rendering_shaders import render_gameplay_with_optional_shaders, render_game
 from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene, ShaderTestScene, TitleScene, OptionsScene
 from visual_effects import apply_menu_effects, apply_pause_effects
 from shader_effects import get_menu_shader_stack, get_pause_shader_stack, get_gameplay_shader_stack
-from systems.registry import SIMULATION_SYSTEMS
+from simulation_systems import SIMULATION_SYSTEMS
 from systems.spawn_system import start_wave as spawn_system_start_wave
 from systems.input_system import handle_gameplay_input
 from systems.audio_system import init_mixer, sync_from_config, play_sfx, play_music, stop_music
@@ -187,7 +186,7 @@ from geometry_utils import (
     set_screen_dimensions,
 )
 from level_utils import filter_blocks_no_overlap, clone_enemies_from_templates
-from hazards import hazard_obstacles, update_hazard_obstacles, check_point_in_hazard
+from hazards import hazard_obstacles, check_point_in_hazard
 from level_state import LevelState
 
 # Placeholder WIDTH/HEIGHT for module-level geometry (trapezoids, etc.). Runtime dimensions live in AppContext (ctx.width, ctx.height).
@@ -422,69 +421,8 @@ def _create_app():
 
     def _update_simulation(sim_dt: float, gs: GameState, app_ctx: AppContext) -> None:
         """Run one fixed timestep of gameplay (timers, movement, collision, spawn, AI)."""
-        gs.player_time_since_shot += sim_dt
-        gs.laser_time_since_shot += sim_dt
-        gs.grenade_time_since_used += sim_dt
-        gs.missile_time_since_used += sim_dt
-        gs.jump_cooldown_timer += sim_dt
-        gs.jump_timer += sim_dt
-        gs.overshield_recharge_timer += sim_dt
-        if gs.overshield > 0:
-            gs.armor_drain_timer = getattr(gs, "armor_drain_timer", 0.0) + sim_dt
-            while gs.armor_drain_timer >= 0.5 and gs.overshield > 0:
-                gs.overshield = max(0, gs.overshield - 50)
-                gs.armor_drain_timer -= 0.5
-        else:
-            gs.armor_drain_timer = 0.0
-        if gs.shield_active:
-            gs.shield_duration_remaining -= sim_dt
-        gs.shield_cooldown_remaining -= sim_dt
-        gs.shield_recharge_timer += sim_dt
-        gs.ally_drop_timer += sim_dt
-        gs.ally_command_timer = max(0.0, getattr(gs, "ally_command_timer", 0.0) - sim_dt)
-        gs.teleporter_cooldown = max(0.0, getattr(gs, "teleporter_cooldown", 0.0) - sim_dt)
-        gs.fire_rate_buff_t += sim_dt
-        gs.pos_timer += sim_dt
-        gs.continue_blink_t += sim_dt
-        for dmg_num in gs.damage_numbers[:]:
-            dmg_num["timer"] -= sim_dt
-            if dmg_num["timer"] <= 0:
-                gs.damage_numbers.remove(dmg_num)
-        for msg in gs.weapon_pickup_messages[:]:
-            msg["timer"] -= sim_dt
-            if msg["timer"] <= 0:
-                gs.weapon_pickup_messages.remove(msg)
-        if gs.shield_active and gs.shield_duration_remaining <= 0.0:
-            gs.shield_active = False
-            gs.shield_cooldown_remaining = gs.shield_cooldown
-            gs.shield_recharge_timer = 0.0
-        if gs.is_jumping:
-            gs.jump_timer += sim_dt
-            if gs.jump_timer >= jump_duration:
-                gs.is_jumping = False
-                gs.jump_velocity = pygame.Vector2(0, 0)
-        if gs.level:
-            update_hazard_obstacles(sim_dt, gs.level.hazard_obstacles, gs.current_level, app_ctx.width, app_ctx.height)
-        for entity in gs.enemies:
-            if hasattr(entity, "update"):
-                entity.update(sim_dt, gs)
-        for entity in gs.friendly_ai:
-            if hasattr(entity, "update"):
-                entity.update(sim_dt, gs)
-        for msg in gs.enemy_defeat_messages[:]:
-            msg["timer"] -= sim_dt
-            if msg["timer"] <= 0:
-                gs.enemy_defeat_messages.remove(msg)
-        update_pickup_effects(sim_dt, gs)
-        for system_update in SIMULATION_SYSTEMS:
-            system_update(gs, sim_dt)
-        # Juice: decay visual feedback timers each step
-        gs.screen_damage_flash_timer = max(0.0, gs.screen_damage_flash_timer - sim_dt)
-        gs.damage_wobble_timer = max(0.0, getattr(gs, "damage_wobble_timer", 0.0) - sim_dt)
-        gs.wave_banner_timer = max(0.0, gs.wave_banner_timer - sim_dt)
-        for e in gs.enemies:
-            if isinstance(e, dict) and "damage_flash_timer" in e:
-                e["damage_flash_timer"] = max(0.0, e["damage_flash_timer"] - sim_dt)
+        for system in SIMULATION_SYSTEMS:
+            system(gs, sim_dt, app_ctx)
 
     SCENE_STATES = (STATE_PLAYING, STATE_ENDURANCE, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, STATE_TITLE, STATE_MENU)
 
@@ -2179,42 +2117,6 @@ def create_pickup_collection_effect(x: int, y: int, color: tuple[int, int, int],
             "life": 0.4,  # particle lifetime
             "size": random.randint(3, 6),
         })
-
-
-def update_pickup_effects(dt: float, state: GameState):
-    """Update pickup particle effects."""
-    # Update collection effects
-    for effect in state.collection_effects[:]:
-        effect["x"] += effect["vel_x"] * dt
-        effect["y"] += effect["vel_y"] * dt
-        effect["life"] -= dt
-        if effect["life"] <= 0:
-            state.collection_effects.remove(effect)
-    
-    # Generate particles around pickups
-    state.pickup_particles.clear()
-    for p in state.pickups:
-        center_x = p["rect"].centerx
-        center_y = p["rect"].centery
-        age = p.get("age", 0.0)
-        # Create pulsing glow effect
-        pulse = (math.sin(age * 4.0) + 1.0) / 2.0  # 0 to 1
-        glow_radius = 20 + pulse * 10
-        glow_alpha = int(100 + pulse * 80)
-        
-        # Add particles around pickup
-        for i in range(8):
-            angle = (i / 8.0) * 2 * math.pi + age * 2.0
-            dist = glow_radius * 0.7
-            px = center_x + math.cos(angle) * dist
-            py = center_y + math.sin(angle) * dist
-            state.pickup_particles.append({
-                "x": px,
-                "y": py,
-                "color": p["color"],
-                "alpha": int(glow_alpha * 0.6),
-                "size": 3,
-            })
 
 
 # Rendering helper functions are now imported from rendering.py
