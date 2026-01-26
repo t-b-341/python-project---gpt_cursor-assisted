@@ -348,13 +348,77 @@ def main():
     # Initialize high scores database
     init_high_scores_db()
 
-    # Main loop with safe shutdown
-    running = True
+    # Fixed-step simulation: deterministic updates, robust to frame spikes
     FPS = 60
-    
+    FIXED_DT = 1.0 / 60.0
+    MAX_SIMULATION_STEPS = 6  # cap to avoid spiral of death when dt is large
+    simulation_accumulator = 0.0
+
+    def _update_simulation(sim_dt: float, gs: GameState, app_ctx: AppContext) -> None:
+        """Run one fixed timestep of gameplay (timers, movement, collision, spawn, AI)."""
+        gs.player_time_since_shot += sim_dt
+        gs.laser_time_since_shot += sim_dt
+        gs.grenade_time_since_used += sim_dt
+        gs.missile_time_since_used += sim_dt
+        gs.jump_cooldown_timer += sim_dt
+        gs.jump_timer += sim_dt
+        gs.overshield_recharge_timer += sim_dt
+        if gs.overshield > 0:
+            gs.armor_drain_timer = getattr(gs, "armor_drain_timer", 0.0) + sim_dt
+            while gs.armor_drain_timer >= 0.5 and gs.overshield > 0:
+                gs.overshield = max(0, gs.overshield - 50)
+                gs.armor_drain_timer -= 0.5
+        else:
+            gs.armor_drain_timer = 0.0
+        if gs.shield_active:
+            gs.shield_duration_remaining -= sim_dt
+        gs.shield_cooldown_remaining -= sim_dt
+        gs.shield_recharge_timer += sim_dt
+        gs.ally_drop_timer += sim_dt
+        gs.ally_command_timer = max(0.0, getattr(gs, "ally_command_timer", 0.0) - sim_dt)
+        gs.teleporter_cooldown = max(0.0, getattr(gs, "teleporter_cooldown", 0.0) - sim_dt)
+        gs.fire_rate_buff_t += sim_dt
+        gs.pos_timer += sim_dt
+        gs.continue_blink_t += sim_dt
+        for dmg_num in gs.damage_numbers[:]:
+            dmg_num["timer"] -= sim_dt
+            if dmg_num["timer"] <= 0:
+                gs.damage_numbers.remove(dmg_num)
+        for msg in gs.weapon_pickup_messages[:]:
+            msg["timer"] -= sim_dt
+            if msg["timer"] <= 0:
+                gs.weapon_pickup_messages.remove(msg)
+        if gs.shield_active and gs.shield_duration_remaining <= 0.0:
+            gs.shield_active = False
+            gs.shield_cooldown_remaining = gs.shield_cooldown
+            gs.shield_recharge_timer = 0.0
+        if gs.is_jumping:
+            gs.jump_timer += sim_dt
+            if gs.jump_timer >= jump_duration:
+                gs.is_jumping = False
+                gs.jump_velocity = pygame.Vector2(0, 0)
+        if gs.level:
+            update_hazard_obstacles(sim_dt, gs.level.hazard_obstacles, gs.current_level, app_ctx.width, app_ctx.height)
+        for entity in gs.enemies:
+            if hasattr(entity, "update"):
+                entity.update(sim_dt, gs)
+        for entity in gs.friendly_ai:
+            if hasattr(entity, "update"):
+                entity.update(sim_dt, gs)
+        for msg in gs.enemy_defeat_messages[:]:
+            msg["timer"] -= sim_dt
+            if msg["timer"] <= 0:
+                gs.enemy_defeat_messages.remove(msg)
+        update_pickup_effects(sim_dt, gs)
+        movement_update(gs, sim_dt)
+        collision_update(gs, sim_dt)
+        spawn_update(gs, sim_dt)
+        ai_update(gs, sim_dt)
+
+    running = True
     try:
         while running:
-            dt = ctx.clock.tick(FPS) / 1000.0  # Delta time in seconds
+            dt = ctx.clock.tick(FPS) / 1000.0  # Wall-clock delta for this frame
             game_state.run_time += dt
             game_state.survival_time += dt
 
@@ -767,95 +831,17 @@ def main():
                 }
                 handle_gameplay_input(events, game_state, gameplay_input_ctx)
 
-                # Update timers
-                game_state.player_time_since_shot += dt
-                game_state.laser_time_since_shot += dt
-                game_state.grenade_time_since_used += dt
-                game_state.missile_time_since_used += dt
-                game_state.jump_cooldown_timer += dt
-                game_state.jump_timer += dt
-                game_state.overshield_recharge_timer += dt
-                # Armor drains 50 HP every 0.5s; drain stops when armor hits zero; bar hidden when 0
-                if game_state.overshield > 0:
-                    game_state.armor_drain_timer = getattr(game_state, "armor_drain_timer", 0.0) + dt
-                    while game_state.armor_drain_timer >= 0.5 and game_state.overshield > 0:
-                        game_state.overshield = max(0, game_state.overshield - 50)
-                        game_state.armor_drain_timer -= 0.5
-                else:
-                    game_state.armor_drain_timer = 0.0
-                # Only decrement shield duration when shield is active
-                if game_state.shield_active:
-                    game_state.shield_duration_remaining -= dt
-                game_state.shield_cooldown_remaining -= dt
-                game_state.shield_recharge_timer += dt
-                game_state.ally_drop_timer += dt
-                game_state.ally_command_timer = max(0.0, getattr(game_state, "ally_command_timer", 0.0) - dt)
-                game_state.teleporter_cooldown = max(0.0, getattr(game_state, "teleporter_cooldown", 0.0) - dt)
-                game_state.fire_rate_buff_t += dt
-                game_state.pos_timer += dt
-                continue_blink_t += dt
-                
-                # Update damage number timers
-                for dmg_num in game_state.damage_numbers[:]:
-                    dmg_num["timer"] -= dt
-                    if dmg_num["timer"] <= 0:
-                        game_state.damage_numbers.remove(dmg_num)
-                
-                # Update weapon pickup message timers
-                for msg in game_state.weapon_pickup_messages[:]:
-                    msg["timer"] -= dt
-                    if msg["timer"] <= 0:
-                        game_state.weapon_pickup_messages.remove(msg)
-                
-                # Update shield
-                if game_state.shield_active:
-                    if game_state.shield_duration_remaining <= 0.0:
-                        game_state.shield_active = False
-                        game_state.shield_cooldown_remaining = game_state.shield_cooldown
-                        game_state.shield_recharge_timer = 0.0
-                
-                # Update jump/dash
-                if game_state.is_jumping:
-                    game_state.jump_timer += dt
-                    if game_state.jump_timer >= jump_duration:
-                        game_state.is_jumping = False
-                        game_state.jump_velocity = pygame.Vector2(0, 0)
-                
-                # Update hazard obstacles
-                if game_state.level:
-                    update_hazard_obstacles(dt, game_state.level.hazard_obstacles, game_state.current_level, ctx.width, ctx.height)
-                
-                # Unified entity update (Enemy/Friendly call no-op update by default; hook for future logic)
-                for entity in game_state.enemies:
-                    if hasattr(entity, "update"):
-                        entity.update(dt, game_state)
-                for entity in game_state.friendly_ai:
-                    if hasattr(entity, "update"):
-                        entity.update(dt, game_state)
-                
-                # Hazard–enemy collision is in collision_system
-                
-                # Update enemy defeat message timers
-                for msg in game_state.enemy_defeat_messages[:]:
-                    msg["timer"] -= dt
-                    if msg["timer"] <= 0:
-                        game_state.enemy_defeat_messages.remove(msg)
-                
-                # Update pickup effects
-                update_pickup_effects(dt, game_state)
-                
-                # Movement/collision/ai (input already applied by handle_gameplay_input)
-                movement_update(game_state, dt)
-                collision_update(game_state, dt)
-                spawn_update(game_state, dt)
-                ai_update(game_state, dt)
-                state = game_state.current_screen  # pick up transitions (e.g. game over -> name input, victory)
-
-                # Laser beam collisions are in collision_system
-                # Enemy AI (targeting, queen shield/missiles, suicide, reflector, shooting) is in ai_system.update()
-                
-                # Bullet/projectile, pickups, health zone, friendly projs, grenades, missiles: collision_system
-                # Wave timers and next-wave start (including victory) are in spawn_system.update()
+                # Fixed-step simulation: run one or more steps with FIXED_DT
+                simulation_accumulator += dt
+                steps = 0
+                while simulation_accumulator >= FIXED_DT and steps < MAX_SIMULATION_STEPS:
+                    _update_simulation(FIXED_DT, game_state, ctx)
+                    simulation_accumulator -= FIXED_DT
+                    steps += 1
+                # Optional: for future render interpolation (smooth between steps)
+                setattr(game_state, "simulation_interpolation", simulation_accumulator / FIXED_DT if FIXED_DT else 0.0)
+                continue_blink_t = game_state.continue_blink_t
+                state = game_state.current_screen
             
             # Rendering
             theme = level_themes.get(game_state.current_level, level_themes[1])
