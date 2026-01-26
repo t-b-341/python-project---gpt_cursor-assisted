@@ -15,9 +15,6 @@ except ImportError:
 # State id used when this scene is active (game.py treats it like PAUSED/NAME_INPUT for input/render).
 SHADER_TEST_STATE_ID = "SHADER_TEST"
 
-# Fallback size when window size is not available in __init__ (e.g. 800x600).
-_OFFSCREEN_SIZE = (800, 600)
-
 # Fullscreen quad in NDC, triangle strip: pos (x,y) + texcoord (u,v) per vertex
 # (-1,-1,0,0), (1,-1,1,0), (-1,1,0,1), (1,1,1,1)
 _QUAD_POS_UV = struct.pack(
@@ -73,8 +70,6 @@ class ShaderTestScene:
                 self.gl = None
             if self.gl is not None:
                 try:
-                    w, h = _OFFSCREEN_SIZE
-                    self.offscreen_surface = pygame.Surface(_OFFSCREEN_SIZE)
                     self.program = self.gl.program(
                         vertex_shader=_VERTEX_SHADER,
                         fragment_shader=_FRAGMENT_SHADER,
@@ -84,7 +79,6 @@ class ShaderTestScene:
                         self.program,
                         [(self.vbo, "2f 2f", "in_position", "in_texcoord")],
                     )
-                    self.frame_texture = self.gl.texture((w, h), 4)
                 except Exception:
                     self.gl = None
                     self.program = None
@@ -116,7 +110,19 @@ class ShaderTestScene:
                 print("ShaderTestScene: moderngl not available, using fallback.")
             self._logged = True
 
-        if self.gl is not None and self.program is not None and self.vao is not None and self.offscreen_surface is not None and self.frame_texture is not None:
+        if self.gl is not None and self.program is not None and self.vao is not None:
+            # Lazy-create offscreen surface and texture to match window size
+            target_size = (render_ctx.width, render_ctx.height)
+            if self.offscreen_surface is None or self.offscreen_surface.get_size() != target_size:
+                self.offscreen_surface = pygame.Surface(target_size)
+                if self.frame_texture is not None:
+                    try:
+                        self.frame_texture.release()
+                    except Exception:
+                        pass
+                self.frame_texture = self.gl.texture(target_size, 4)
+                self.gl.viewport = (0, 0, render_ctx.width, render_ctx.height)
+
             # 1) Draw Pygame-style content into offscreen surface
             w, h = self.offscreen_surface.get_size()
             self.offscreen_surface.fill((30, 30, 45))
