@@ -147,6 +147,7 @@ class GameState:
 
     # Juice: timers for visual feedback (driven by config durations; decay in sim step)
     screen_damage_flash_timer: float = 0.0  # Seconds left for fullscreen damage vignette
+    damage_wobble_timer: float = 0.0  # Seconds left for optional screen jitter (enable_damage_wobble)
     wave_banner_timer: float = 0.0
     wave_banner_text: str = ""
 

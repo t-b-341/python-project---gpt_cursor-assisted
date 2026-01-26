@@ -5,6 +5,7 @@ import time
 import pygame
 
 from rendering import RenderContext
+from visual_effects import apply_gameplay_effects, apply_gameplay_final_blit
 
 try:
     from gpu_gl_utils import get_gl_context, get_fullscreen_quad, HAS_MODERNGL
@@ -20,7 +21,7 @@ _gl_fbo = None
 _gl_size: tuple[int, int] | None = None
 
 
-def _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx) -> bool:
+def _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx, game_state=None) -> bool:
     if not HAS_MODERNGL or get_fullscreen_quad is None or get_gl_context is None:
         return False
     try:
@@ -67,7 +68,8 @@ def _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx) -> boo
         data = _gl_fbo.read(components=4)
         out_surf = pygame.image.frombuffer(data, (width, height), "RGBA")
         out_surf = pygame.transform.flip(out_surf, False, True)
-        render_ctx.screen.blit(out_surf, (0, 0))
+        # Optional damage wobble on final blit (when enable_damage_wobble and timer > 0)
+        apply_gameplay_final_blit(out_surf, render_ctx.screen, ctx, game_state)
         return True
     except Exception:
         return False
@@ -127,8 +129,11 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
     offscreen_surface.fill((0, 0, 0, 255))
     _render_gameplay_frame(temp_ctx, game_state, ctx)
 
+    # Lightweight CPU effects (vignette, scanlines) by gameplay_effect_profile when enable_gameplay_shaders
+    apply_gameplay_effects(offscreen_surface, ctx, game_state)
+
     if profile == "gl_basic" and HAS_MODERNGL and use_shaders:
-        ok = _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx)
+        ok = _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx, game_state)
         if ok:
             return
 
@@ -137,4 +142,5 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
         overlay.fill((80, 0, 120, 60))  # RGBA: mild purple tint, low alpha
         offscreen_surface.blit(overlay, (0, 0))
 
-    render_ctx.screen.blit(offscreen_surface, (0, 0))
+    # Final blit; applies damage wobble when enable_damage_wobble and timer > 0
+    apply_gameplay_final_blit(offscreen_surface, render_ctx.screen, ctx, game_state)

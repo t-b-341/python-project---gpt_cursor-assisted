@@ -164,6 +164,7 @@ from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
 from rendering_shaders import render_gameplay_with_optional_shaders
 from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene, ShaderTestScene, TitleScene, OptionsScene
+from visual_effects import apply_menu_effects, apply_pause_effects
 from scenes.gameplay import cycle_shader_profile
 from systems.registry import SIMULATION_SYSTEMS
 from systems.spawn_system import start_wave as spawn_system_start_wave
@@ -346,6 +347,7 @@ def _create_app():
             "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
             "enable_damage_flash": getattr(ctx.config, "enable_damage_flash", True),
             "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
+            "enable_damage_wobble": getattr(ctx.config, "enable_damage_wobble", False),
             "enable_wave_banner": getattr(ctx.config, "enable_wave_banner", True),
             "wave_banner_duration": getattr(ctx.config, "wave_banner_duration", 1.5),
             "base_enemies_per_wave": getattr(ctx.config, "base_enemies_per_wave", 12),
@@ -477,6 +479,7 @@ def _create_app():
             system_update(gs, sim_dt)
         # Juice: decay visual feedback timers each step
         gs.screen_damage_flash_timer = max(0.0, gs.screen_damage_flash_timer - sim_dt)
+        gs.damage_wobble_timer = max(0.0, getattr(gs, "damage_wobble_timer", 0.0) - sim_dt)
         gs.wave_banner_timer = max(0.0, gs.wave_banner_timer - sim_dt)
         for e in gs.enemies:
             if isinstance(e, dict) and "damage_flash_timer" in e:
@@ -933,6 +936,11 @@ def _run_loop(app):
                     current_scene.render(render_ctx, game_state, screen_ctx)
                 elif state in SCREEN_HANDLERS and SCREEN_HANDLERS[state].get("render"):
                     SCREEN_HANDLERS[state]["render"](render_ctx, game_state, screen_ctx)
+                # Lightweight CPU effects for menus (config: enable_menu_shaders, menu_effect_profile)
+                if state == STATE_PAUSED:
+                    apply_pause_effects(render_ctx.screen, ctx)
+                elif state in (STATE_TITLE, STATE_MENU):
+                    apply_menu_effects(render_ctx.screen, ctx)
             elif state == STATE_GAME_OVER:
                 # Game over screen
                 # (Game over rendering would go here)

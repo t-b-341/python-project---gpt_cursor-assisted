@@ -24,6 +24,8 @@ def apply_player_damage(state, damage: int, ctx: dict) -> None:
         state.player_hp -= damage
         if ctx.get("enable_screen_flash", True):
             state.screen_damage_flash_timer = ctx.get("screen_flash_duration", 0.25)
+        if ctx.get("enable_damage_wobble", False):
+            state.damage_wobble_timer = 0.2  # short wobble duration
         pf = ctx.get("play_sfx")
         if callable(pf):
             pf("player_hit")
