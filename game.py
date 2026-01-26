@@ -99,6 +99,7 @@ from systems.movement_system import update as movement_update
 from systems.collision_system import update as collision_update
 from systems.spawn_system import update as spawn_update, start_wave as spawn_system_start_wave
 from systems.ai_system import update as ai_update
+from controls_io import _key_name_to_code, load_controls, save_controls
 
 # Placeholder WIDTH/HEIGHT for module-level geometry (trapezoids, etc.). Runtime dimensions live in AppContext (ctx.width, ctx.height).
 WIDTH = 1920
@@ -1149,44 +1150,6 @@ def main():
             ctx.telemetry_client.close()
             print(f"Saved run_id={game_state.run_id} to game_telemetry.db")
         pygame.quit()
-
-
-def _key_name_to_code(name: str) -> int:
-    name = (name or "").lower().strip()
-    if name in ("right mouse", "right_mouse", "mouse right"):
-        return MOUSE_BUTTON_RIGHT
-    try:
-        return pygame.key.key_code(name)
-    except Exception:
-        return pygame.K_UNKNOWN
-
-
-def load_controls() -> dict[str, int]:
-    data = {}
-    if os.path.exists(CONTROLS_PATH):
-        try:
-            with open(CONTROLS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f) or {}
-        except Exception:
-            data = {}
-
-    merged = {**DEFAULT_CONTROLS, **{k: v for k, v in data.items() if isinstance(v, str)}}
-    return {action: _key_name_to_code(key_name) for action, key_name in merged.items()}
-
-
-def save_controls(controls: dict[str, int]) -> None:
-    # Persist as human-readable key names so players can edit the file too
-    out: dict[str, str] = {}
-    for action, key_code in controls.items():
-        if key_code == MOUSE_BUTTON_RIGHT:
-            out[action] = "right mouse"
-        else:
-            try:
-                out[action] = pygame.key.name(key_code)
-            except Exception:
-                out[action] = "unknown"
-    with open(CONTROLS_PATH, "w", encoding="utf-8") as f:
-        json.dump(out, f, indent=2)
 
 
 # Controls will be initialized in main() after pygame.init()
