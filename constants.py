@@ -159,7 +159,7 @@ grenade_cooldown = 2.0
 grenade_damage = 1500
 
 # Missile constants
-missile_cooldown = 3.0
+missile_cooldown = 0.4
 missile_damage = 800
 
 # Ally drop constants

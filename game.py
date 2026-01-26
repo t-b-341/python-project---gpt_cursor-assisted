@@ -99,6 +99,7 @@ from systems.movement_system import update as movement_update
 from systems.collision_system import update as collision_update
 from systems.spawn_system import update as spawn_update, start_wave as spawn_system_start_wave
 from systems.ai_system import update as ai_update
+from systems.input_system import handle_gameplay_input
 from controls_io import _key_name_to_code, load_controls, save_controls
 from geometry_utils import (
     clamp_rect_to_screen,
@@ -353,19 +354,6 @@ def main():
                     if len(game_state.player_name_input) < 20:  # Limit name length
                         game_state.player_name_input += event.text
                 
-                # Ally direction command: right-click during play sends allies toward mouse position
-                # Direct allies: default right-click, or key if rebound
-                direct_allies_binding = ctx.controls.get("direct_allies", MOUSE_BUTTON_RIGHT)
-                if state in (STATE_PLAYING, STATE_ENDURANCE):
-                    if direct_allies_binding == MOUSE_BUTTON_RIGHT and event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-                        game_state.ally_command_target = (float(event.pos[0]), float(event.pos[1]))
-                        game_state.ally_command_timer = 5.0
-                    elif direct_allies_binding != MOUSE_BUTTON_RIGHT and event.type == pygame.KEYDOWN and event.key == direct_allies_binding:
-                        # Key binding: use current mouse position as target
-                        mx, my = pygame.mouse.get_pos()
-                        game_state.ally_command_target = (float(mx), float(my))
-                        game_state.ally_command_timer = 5.0
-
                 # Controls rebinding: accept right-click for direct_allies
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and state == STATE_CONTROLS and controls_rebinding:
                     action = controls_actions[controls_selected]
@@ -680,128 +668,69 @@ def main():
                             controls_rebinding = False
                         else:
                             controls_rebinding = False
-                    
-                    # Shield activation (Left Alt) - only activates when recharge bar is full
-                    if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == pygame.K_LALT:
-                        # Shield can only be activated when recharge bar is full (shield_recharge_timer >= shield_recharge_cooldown)
-                        if game_state.shield_recharge_timer >= game_state.shield_recharge_cooldown and not game_state.shield_active:
-                            game_state.shield_active = True
-                            game_state.shield_duration_remaining = shield_duration
-                            game_state.shield_cooldown = shield_recharge_cooldown  # From constants (halved for alt-r)
-                            game_state.shield_recharge_cooldown = game_state.shield_cooldown
-                            game_state.shield_recharge_timer = 0.0  # Reset recharge timer when shield activates
-                            game_state.shield_cooldown_remaining = 0.0
-                    
-                    # Overshield activation (Tab)
-                    if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == pygame.K_TAB:
-                        if game_state.overshield_recharge_timer >= overshield_recharge_cooldown:
-                            game_state.overshield = game_state.player_max_hp
-                            game_state.armor_drain_timer = 0.0  # First 50 HP drains after 0.5s
-                            overshield_max = max(overshield_max, game_state.player_max_hp)
-                            game_state.overshield_recharge_timer = 0.0
-                    
-                    # Grenade (E key)
-                    if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == pygame.K_e:
-                        if game_state.grenade_time_since_used >= grenade_cooldown:
-                            grenade_radius = player.w * 10  # 10x player size
-                            game_state.grenade_explosions.append({
-                                "x": player.centerx,
-                                "y": player.centery,
-                                "radius": 0,
-                                "max_radius": grenade_radius,
-                                "timer": 0.3,  # Explosion duration
-                                "damage": grenade_damage,
-                                "source": "player"  # Mark as player grenade for immunity
-                            })
-                            game_state.grenade_time_since_used = 0.0
-                    
-                    # Missile (R key)
-                    if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == pygame.K_r:
-                        if missile_time_since_used >= missile_cooldown:
-                            # Find nearest enemy as target
-                            target_enemy = None
-                            min_dist = float("inf")
-                            for enemy in game_state.enemies:
-                                dist = (pygame.Vector2(enemy["rect"].center) - pygame.Vector2(player.center)).length_squared()
-                                if dist < min_dist:
-                                    min_dist = dist
-                                    target_enemy = enemy
-                            
-                            if target_enemy:
-                                # Spawn 3 missiles in a burst (spread pattern)
-                                burst_offsets = [
-                                    (-10, -10),  # Left missile
-                                    (0, -15),    # Center missile (slightly ahead)
-                                    (10, -10),   # Right missile
-                                ]
-                                for offset_x, offset_y in burst_offsets:
-                                    missile_rect = pygame.Rect(
-                                        player.centerx - 8 + offset_x,
-                                        player.centery - 8 + offset_y,
-                                        16, 16
-                                    )
-                                    game_state.missiles.append({
-                                        "rect": missile_rect,
-                                        "vel": pygame.Vector2(0, 0),
-                                        "target_enemy": target_enemy,
-                                        "speed": 500,
-                                        "damage": missile_damage,
-                                        "explosion_radius": 150
-                                    })
-                                game_state.missile_time_since_used = 0.0
-                    
-                    # Ally drop (Q key) — multiple allies; do not remove previous
-                    if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == ctx.controls.get("ally_drop", pygame.K_q):
-                        if game_state.ally_drop_timer >= ally_drop_cooldown:
-                            # Find tank template
-                            tank_template = None
-                            for tmpl in friendly_ai_templates:
-                                if tmpl.get("type") == "tank":
-                                    tank_template = tmpl
-                                    break
-                            
-                            if tank_template:
-                                player_center = pygame.Vector2(player.center)
-                                if game_state.last_move_velocity.length_squared() > 0:
-                                    spawn_dir = -game_state.last_move_velocity.normalize()
-                                else:
-                                    spawn_dir = pygame.Vector2(0, 1)
-                                
-                                spawn_pos = player_center + spawn_dir * 60  # Spawn 60 pixels behind player
-                                friendly = make_friendly_from_template(tank_template, 1.0, 1.0)
-                                ally_hp = max(1, game_state.player_max_hp // 2)
-                                friendly["hp"] = ally_hp
-                                friendly["max_hp"] = ally_hp
-                                friendly["rect"].center = (int(spawn_pos.x), int(spawn_pos.y))
-                                friendly["is_dropped_ally"] = True  # Mark so enemies can prioritise it; still updated by same update_friendly_ai
-                                game_state.friendly_ai.append(friendly)
-                                game_state.dropped_ally = friendly
-                            
-                            game_state.ally_drop_timer = 0.0
-                    
-                    # Weapon switching (keys 1-6)
-                    if state == STATE_PLAYING or state == STATE_ENDURANCE:
-                        if event.key == pygame.K_1 and "basic" in game_state.unlocked_weapons:
-                            game_state.previous_weapon_mode = game_state.current_weapon_mode
-                            game_state.current_weapon_mode = "basic"
-                        elif event.key == pygame.K_2 and "triple" in game_state.unlocked_weapons:
-                            game_state.previous_weapon_mode = game_state.current_weapon_mode
-                            if game_state.previous_weapon_mode == "laser":
-                                game_state.laser_beams.clear()
-                            game_state.current_weapon_mode = "triple"
-                        elif event.key == pygame.K_3 and "giant" in game_state.unlocked_weapons:
-                            game_state.previous_weapon_mode = game_state.current_weapon_mode
-                            if game_state.previous_weapon_mode == "laser":
-                                game_state.laser_beams.clear()
-                            game_state.current_weapon_mode = "giant"
-                        elif event.key == pygame.K_4 and "laser" in game_state.unlocked_weapons:
-                            game_state.previous_weapon_mode = game_state.current_weapon_mode
-                            if game_state.previous_weapon_mode == "laser":
-                                game_state.laser_beams.clear()
-                            game_state.current_weapon_mode = "laser"
 
             # Game state updates (only when playing)
             if state == STATE_PLAYING or state == STATE_ENDURANCE:
+                # Gameplay input: movement, fire, weapons, abilities (handled in input_system)
+                def _try_spawn_bullet():
+                    if not getattr(game_state, "fire_pressed", False):
+                        return
+                    eff = game_state.player_shoot_cooldown * (
+                        fire_rate_mult if game_state.fire_rate_buff_t < fire_rate_buff_duration else 1.0
+                    )
+                    if game_state.player_time_since_shot >= eff:
+                        spawn_player_bullet_and_log(game_state, ctx)
+                        game_state.player_time_since_shot = 0.0
+
+                def _try_laser():
+                    if game_state.current_weapon_mode != "laser" or game_state.laser_time_since_shot < laser_cooldown:
+                        return
+                    pl = game_state.player_rect
+                    if not pl:
+                        return
+                    if ctx.aiming_mode == AIM_ARROWS:
+                        k = pygame.key.get_pressed()
+                        dx = (1 if k[pygame.K_RIGHT] else 0) - (1 if k[pygame.K_LEFT] else 0)
+                        dy = (1 if k[pygame.K_DOWN] else 0) - (1 if k[pygame.K_UP] else 0)
+                        if dx == 0 and dy == 0:
+                            direction = (
+                                game_state.last_move_velocity.normalize()
+                                if game_state.last_move_velocity.length_squared() > 0
+                                else pygame.Vector2(1, 0)
+                            )
+                        else:
+                            direction = pygame.Vector2(dx, dy).normalize()
+                    else:
+                        mx, my = pygame.mouse.get_pos()
+                        direction = vec_toward(pl.centerx, pl.centery, mx, my)
+                    end_pos = pygame.Vector2(pl.center) + direction * laser_length
+                    game_state.laser_beams.append({
+                        "start": pygame.Vector2(pl.center), "end": end_pos,
+                        "color": (255, 50, 50), "width": 5, "damage": laser_damage, "timer": 0.1,
+                    })
+                    game_state.laser_time_since_shot = 0.0
+
+                gameplay_input_ctx = {
+                    "controls": ctx.controls,
+                    "aiming_mode": ctx.aiming_mode,
+                    "width": ctx.width,
+                    "height": ctx.height,
+                    "dt": dt,
+                    "spawn_player_bullet": _try_spawn_bullet,
+                    "spawn_laser_beam": _try_laser,
+                    "overshield_recharge_cooldown": overshield_recharge_cooldown,
+                    "shield_duration": shield_duration,
+                    "grenade_cooldown": grenade_cooldown,
+                    "missile_cooldown": missile_cooldown,
+                    "ally_drop_cooldown": ally_drop_cooldown,
+                    "boost_meter_max": boost_meter_max,
+                    "boost_drain_per_s": boost_drain_per_s,
+                    "boost_regen_per_s": boost_regen_per_s,
+                    "boost_speed_mult": boost_speed_mult,
+                    "slow_speed_mult": slow_speed_mult,
+                }
+                handle_gameplay_input(events, game_state, gameplay_input_ctx)
+
                 # Update timers
                 game_state.player_time_since_shot += dt
                 game_state.laser_time_since_shot += dt
@@ -879,86 +808,13 @@ def main():
                 # Update pickup effects
                 update_pickup_effects(dt, game_state)
                 
-                # Player movement input (movement_system applies it)
-                keys = pygame.key.get_pressed()
-                move_x = 0
-                move_y = 0
-                if keys[controls.get("move_left", pygame.K_a)]:
-                    move_x = -1
-                    game_state.last_horizontal_key = controls.get("move_left", pygame.K_a)
-                elif keys[controls.get("move_right", pygame.K_d)]:
-                    move_x = 1
-                    game_state.last_horizontal_key = controls.get("move_right", pygame.K_d)
-                if keys[controls.get("move_up", pygame.K_w)]:
-                    move_y = -1
-                    game_state.last_vertical_key = controls.get("move_up", pygame.K_w)
-                elif keys[controls.get("move_down", pygame.K_s)]:
-                    move_y = 1
-                    game_state.last_vertical_key = controls.get("move_down", pygame.K_s)
-                is_boosting = keys[controls.get("boost", pygame.K_LSHIFT)] and game_state.boost_meter > 0
-                is_slowing = keys[controls.get("slow", pygame.K_LCTRL)]
-                if is_boosting:
-                    game_state.boost_meter = max(0, game_state.boost_meter - boost_drain_per_s * dt)
-                    game_state.speed_mult = boost_speed_mult
-                    game_state.previous_boost_state = True
-                else:
-                    game_state.boost_meter = min(boost_meter_max, game_state.boost_meter + boost_regen_per_s * dt)
-                    game_state.speed_mult = 1.0
-                    game_state.previous_boost_state = False
-                if is_slowing:
-                    game_state.speed_mult *= slow_speed_mult
-                    game_state.previous_slow_state = True
-                else:
-                    game_state.previous_slow_state = False
-                game_state.move_input_x = move_x
-                game_state.move_input_y = move_y
+                # Movement/collision/ai (input already applied by handle_gameplay_input)
                 movement_update(game_state, dt)
                 collision_update(game_state, dt)
                 spawn_update(game_state, dt)
                 ai_update(game_state, dt)
                 state = game_state.current_screen  # pick up transitions (e.g. game over -> name input, victory)
 
-                # Apply fire rate buff
-                effective_fire_rate = game_state.player_shoot_cooldown
-                if game_state.fire_rate_buff_t < fire_rate_buff_duration:
-                    effective_fire_rate *= fire_rate_mult
-                
-                # Player shooting
-                mouse_buttons = pygame.mouse.get_pressed()
-                shoot_input = mouse_buttons[0] or (ctx.aiming_mode == AIM_ARROWS and (keys[pygame.K_LEFT] or keys[pygame.K_RIGHT] or keys[pygame.K_UP] or keys[pygame.K_DOWN]))
-                
-                if shoot_input and game_state.player_time_since_shot >= effective_fire_rate:
-                    spawn_player_bullet_and_log(game_state, ctx)
-                    game_state.player_time_since_shot = 0.0
-                
-                # Laser beam weapon
-                if game_state.current_weapon_mode == "laser" and game_state.laser_time_since_shot >= laser_cooldown:
-                    if ctx.aiming_mode == AIM_ARROWS:
-                        keys = pygame.key.get_pressed()
-                        dx = (1 if keys[pygame.K_RIGHT] else 0) - (1 if keys[pygame.K_LEFT] else 0)
-                        dy = (1 if keys[pygame.K_DOWN] else 0) - (1 if keys[pygame.K_UP] else 0)
-                        if dx == 0 and dy == 0:
-                            if game_state.last_move_velocity.length_squared() > 0:
-                                direction = game_state.last_move_velocity.normalize()
-                            else:
-                                direction = pygame.Vector2(1, 0)
-                        else:
-                            direction = pygame.Vector2(dx, dy).normalize()
-                    else:
-                        mx, my = pygame.mouse.get_pos()
-                        direction = vec_toward(player.centerx, player.centery, mx, my)
-                    
-                    end_pos = pygame.Vector2(player.center) + direction * laser_length
-                    game_state.laser_beams.append({
-                        "start": pygame.Vector2(player.center),
-                        "end": end_pos,
-                        "color": (255, 50, 50),
-                        "width": 5,
-                        "damage": laser_damage,
-                        "timer": 0.1
-                    })
-                    game_state.laser_time_since_shot = 0.0
-                
                 # Laser beam collisions are in collision_system
                 # Enemy AI (targeting, queen shield/missiles, suicide, reflector, shooting) is in ai_system.update()
                 
