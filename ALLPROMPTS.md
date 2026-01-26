@@ -2567,6 +2567,1652 @@ The outcome of this step:
 
 Keep changes minimal and localized inside scenes/shader_test.py.
 
+GPU-1:
+Create a new test file: tests/test_shader_test_scene.py
+
+Goal:
+Verify that ShaderTestScene works correctly in the fallback path when moderngl is NOT available (HAS_MODERNGL = False). This test must NOT require moderngl or actual GPU access.
+
+Constraints:
+- Only create/modify files under tests/.
+- Do NOT change scenes/shader_test.py in this prompt.
+- Do NOT require moderngl to be installed.
+- Follow the existing test style (e.g., test_asset_manager.py).
+
+Tasks:
+
+1) Basic setup fixture
+- In tests/test_shader_test_scene.py:
+  - Import pytest and pygame.
+  - Ensure pygame.init() is called before creating surfaces.
+  - Optionally, define a small fixture to init/quit pygame like other tests.
+
+2) Force HAS_MODERNGL = False for the import
+- Use pytest’s monkeypatch fixture:
+  - monkeypatch.setenv or monkeypatch.setitem on sys.modules if needed, but simplest is:
+    - Import scenes.shader_test first.
+    - monkeypatch.setattr("scenes.shader_test.HAS_MODERNGL", False, raising=False)
+  - Then import ShaderTestScene from scenes.shader_test.
+
+3) Create a dummy RenderContext
+- Import RenderContext from rendering.
+- Build a small screen surface, e.g. pygame.Surface((640, 480)).
+- Build a RenderContext via RenderContext(
+    screen=screen,
+    font=get_font or a default pygame.font.Font,
+    big_font=..., small_font=...,
+    width=640, height=480
+  )
+  - You can reuse asset_manager.get_font or _default_font-style logic (copy what other tests do).
+
+4) The actual test
+- Instantiate ShaderTestScene():
+    scene = ShaderTestScene()
+- Call:
+    scene.handle_input([], game_state=None, ctx={})
+    scene.update(0.016, game_state=None, ctx={})
+    scene.render(render_ctx, game_state=None, ctx={})
+- Assert: no exceptions are raised.
+- Optionally, assert scene.state_id() == "SHADER_TEST".
+
+This test’s purpose is to guarantee that in environments without moderngl, ShaderTestScene still behaves gracefully.
+Keep the test small and fast.
+
+GPU-2:
+We are improving ShaderTestScene so its offscreen surface and GL texture match the actual window size, not a fixed 800x600.
+
+Constraints:
+- Only modify: scenes/shader_test.py
+- Keep all moderngl logic and fallback behavior intact.
+- Do NOT change any other scenes or rendering modules.
+- Keep changes minimal and well-contained.
+
+Tasks:
+
+1) Lazily create offscreen_surface and frame_texture based on render_ctx
+- In ShaderTestScene.__init__:
+  - Keep GL context, program, VBO, and VAO setup as-is.
+  - Initialize:
+      self.offscreen_surface = None
+      self.frame_texture = None
+    but do NOT create them with _OFFSCREEN_SIZE here.
+
+2) In render(...), when GL is active:
+- At the top of the GL branch, before drawing:
+  - If self.offscreen_surface is None or its size does NOT match (render_ctx.width, render_ctx.height):
+    - Re-create self.offscreen_surface = pygame.Surface((render_ctx.width, render_ctx.height))
+    - If self.frame_texture exists and size mismatches, release it (if needed) and create a new texture with the same size:
+        self.frame_texture = self.gl.texture((render_ctx.width, render_ctx.height), components=4)
+    - Update GL viewport to match the window:
+        self.gl.viewport = (0, 0, render_ctx.width, render_ctx.height)
+
+3) Use the dynamic size
+- When filling and drawing into self.offscreen_surface, always use its own get_size() for width/height.
+- When writing tex data, continue using pygame.image.tostring(..., "RGBA", False) or get_view("0"), but now for the dynamically sized surface.
+
+4) Keep fallback path unchanged
+- If self.gl is None or program/VAO/texture setup failed:
+  - Keep the existing Pygame-only fallback path exactly as it is now.
+
+The goal:
+- ShaderTestScene’s GL quad now matches the real window size when moderngl is present.
+- No behavior change when GL is unavailable.
+
+GPU-3:
+We want the gameplay debug overlay to show simple GPU/shader status lines.
+
+Constraints:
+- Only modify:
+  - rendering.py  (to extend render_debug_overlay)
+  - scenes/gameplay.py (to pass extra debug lines)
+- Do NOT modify any other files.
+- Keep existing behavior fully backward-compatible:
+  - Call sites that don’t care about GPU info should keep working unchanged.
+
+Tasks:
+
+1) Extend render_debug_overlay signature
+- In rendering.py, locate:
+
+    def render_debug_overlay(render_ctx: RenderContext, game_state, *, lines: list[str] | None = None) -> None:
+
+- Change the signature to:
+
+    def render_debug_overlay(
+        render_ctx: RenderContext,
+        game_state,
+        *,
+        lines: list[str] | None = None,
+        extra_lines: list[str] | None = None,
+    ) -> None:
+
+- Inside the function:
+  - If lines is None, build the current default list as before.
+  - If extra_lines is not None:
+      lines = list(lines) + list(extra_lines)
+  - Everything else (font rendering, background rect) stays the same.
+
+2) Use extra_lines in GameplayScene.render
+- In scenes/gameplay.py, in GameplayScene.render where you find:
+
+    if config and getattr(config, "debug_draw_overlay", False):
+        render_debug_overlay(render_ctx, game_state)
+
+- Modify this block to:
+  - Build extra_lines:
+      - Start with an empty list.
+      - Add shader status:
+
+            use_shaders = bool(getattr(config, "use_shaders", False))
+            extra_lines.append(f"shaders: {'ON' if use_shaders else 'OFF'}")
+
+      - Try to import CUDA_AVAILABLE from gpu_physics:
+            try:
+                from gpu_physics import CUDA_AVAILABLE
+                extra_lines.append(f"cuda_available: {CUDA_AVAILABLE}")
+            except ImportError:
+                extra_lines.append("cuda_available: import error")
+
+  - Then call:
+
+        render_debug_overlay(render_ctx, game_state, extra_lines=extra_lines)
+
+3) Backward compatibility
+- Ensure:
+  - No other call sites to render_debug_overlay are changed (they can still call it with just render_ctx and game_state, or with lines=... only).
+  - extra_lines remains optional with a default of None.
+
+Result:
+- When debug_draw_overlay=True, the HUD now shows:
+    - wave, enemies, HP, etc. (existing behavior)
+    - plus lines like:
+        shaders: ON/OFF
+        cuda_available: True/False/import error
+
+GPU-1:
+We’re adding a config toggle for GPU physics, without changing any gameplay logic yet.
+
+Goal:
+Add GameConfig.use_gpu_physics so I can explicitly turn GPU physics ON/OFF (separate from hardware availability).
+
+Constraints:
+- Only modify: config/game_config.py
+- No changes to game.py or other modules in this step.
+- Default should be safe: keep GPU physics OFF by default.
+
+Tasks:
+
+1) Add a field to GameConfig
+- In config/game_config.py, inside the GameConfig dataclass, add:
+
+    use_gpu_physics: bool = False  # When True AND CUDA_AVAILABLE, use GPU-accelerated physics code paths.
+
+- Place it near use_shaders and/or other “enable/disable” toggles for clarity.
+
+2) Update the module docstring comment (optional but helpful)
+- At the top docstring or in the tuning guide, add a bullet:
+  - “GPU physics: set use_gpu_physics=True (requires CUDA_AVAILABLE from gpu_physics).”
+
+No other files should be touched in this prompt.
+
+GPU-2:
+We now want render_gameplay_with_optional_shaders to check config.use_shaders and moderngl availability, but still render via the normal path. This step is about control flow, not changing visuals.
+
+Goal:
+Make the wrapper aware of config.use_shaders and moderngl presence, log what would happen, but still call the normal renderer in all cases.
+
+Constraints:
+- Only modify: rendering_shaders.py
+- Do NOT touch any other files.
+- No visual or behavioral changes beyond harmless logging.
+
+Tasks:
+
+1) Import moderngl optionally
+- At the top of rendering_shaders.py, add:
+
+    try:
+        import moderngl
+        HAS_MODERNGL = True
+    except ImportError:
+        moderngl = None  # type: ignore[assignment]
+        HAS_MODERNGL = False
+
+2) Branch on config.use_shaders inside the wrapper
+- In render_gameplay_with_optional_shaders(...):
+
+    def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx):
+        config = getattr(ctx, "config", None)
+        use_shaders = bool(getattr(config, "use_shaders", False))
+
+        if use_shaders and HAS_MODERNGL:
+            # For now, just log what we WOULD do.
+            # In future steps, we will:
+            # - render into an offscreen surface,
+            # - upload as a texture,
+            # - run a fullscreen quad post-process (like ShaderTestScene).
+            # For now: fall back to the normal renderer.
+            # Optionally print once or use a flag to avoid spam.
+            render_gameplay_frame(render_ctx, game_state, ctx)
+        else:
+            # Normal path
+            render_gameplay_frame(render_ctx, game_state, ctx)
+
+- Make sure there is no double-rendering; each frame should call render_gameplay_frame exactly once.
+
+3) Optional one-time log
+- Add a module-level flag (e.g., _logged_shader_mode = False).
+- On the first call where use_shaders is True:
+  - Print something like:
+      "rendering_shaders: shader mode requested, but using fallback renderer (no GL integration yet)."
+- Do not log every frame.
+
+Result:
+- You now have:
+  - A gameplay rendering wrapper that knows about config.use_shaders and HAS_MODERNGL.
+  - A clear “future hook” where the real moderngl pipeline will go.
+- Actual rendering is still unchanged: everything goes through the existing renderer.
+
+GPU-3:
+We are enhancing the gameplay rendering wrapper to render into an offscreen Pygame surface first, then blit that surface to the real screen. This is preparation for future GPU/shader integration, but will be CPU-only in this step.
+
+Goal:
+In rendering_shaders.py, introduce an offscreen_surface used by render_gameplay_with_optional_shaders. For now, we render gameplay into this surface with the normal renderer, then blit it onto render_ctx.screen.
+
+Constraints:
+- Only modify: rendering_shaders.py
+- Do NOT modify rendering.py, scenes/gameplay.py, or ShaderTestScene in this prompt.
+- No behavior changes from the player’s perspective (the frame should look the same).
+- Do NOT introduce moderngl usage yet; this step is CPU-only.
+
+Tasks:
+
+1) Add offscreen_surface attribute (module-level or cached)
+- At the top of rendering_shaders.py, after imports:
+  - Add module-level variables:
+      _offscreen_surface = None
+      _offscreen_size = None  # tuple[int, int] | None
+
+2) Helper to (re)create the offscreen surface
+- Add a private helper:
+
+      import pygame  # if not already imported
+
+      def _get_offscreen_surface(render_ctx: RenderContext):
+          global _offscreen_surface, _offscreen_size
+          size = (render_ctx.width, render_ctx.height)
+          if _offscreen_surface is None or _offscreen_size != size:
+              _offscreen_surface = pygame.Surface(size).convert_alpha()
+              _offscreen_surface.fill((0, 0, 0, 255))
+              _offscreen_size = size
+          return _offscreen_surface
+
+3) Use offscreen_surface in render_gameplay_with_optional_shaders
+- In render_gameplay_with_optional_shaders(render_ctx, game_state, ctx):
+  - Instead of calling render_gameplay_frame(render_ctx, game_state, ctx) directly:
+    - Obtain offscreen_surface = _get_offscreen_surface(render_ctx).
+    - Create a temporary RenderContext that uses offscreen_surface as its screen, but keeps the same fonts and dimensions. For example:
+
+          temp_ctx = RenderContext(
+              screen=offscreen_surface,
+              width=render_ctx.width,
+              height=render_ctx.height,
+              font=render_ctx.font,
+              big_font=render_ctx.big_font,
+              small_font=render_ctx.small_font,
+          )
+
+    - Clear the offscreen_surface (e.g., fill with black or a transparent color).
+    - Call render_gameplay_frame(temp_ctx, game_state, ctx) instead of using render_ctx.
+
+    - After that, blit the offscreen surface onto the real screen:
+          render_ctx.screen.blit(offscreen_surface, (0, 0))
+
+- Keep the existing use_shaders / HAS_MODERNGL branching structure, but for now both branches should render via the offscreen surface and then blit to the screen.
+
+Result:
+- Gameplay still looks identical, but the image now flows through:
+    normal renderer -> offscreen_surface -> screen
+- This gives us a clean hook for CPU or GPU post-processing in later steps.
+
+GPU SHADER 4:
+Now that gameplay rendering uses an offscreen_surface, we want a tiny CPU-based “post-process” effect when config.use_shaders is True. This will give immediate visual feedback that the shader path is active, without requiring moderngl yet.
+
+Goal:
+In rendering_shaders.py, when use_shaders is True, apply a simple CPU tint/brightness effect to the offscreen_surface before blitting it to the screen. When use_shaders is False, just blit as before.
+
+Constraints:
+- Only modify: rendering_shaders.py
+- Do NOT add or use moderngl here.
+- Effect must be cheap and simple (e.g., a global tint), not per-pixel Python loops over large surfaces.
+- Keep behavior for use_shaders=False identical to before.
+
+Tasks:
+
+1) Decide on a simple effect
+- Use something cheap like:
+  - Draw a semi-transparent colored rect over the offscreen_surface (e.g., a faint purple or teal overlay).
+- Do NOT manually iterate over each pixel in Python; use Pygame’s fill with special_flags or a blit with an alpha surface.
+
+2) Implement the effect in the wrapper
+- In render_gameplay_with_optional_shaders(render_ctx, game_state, ctx):
+  - After calling render_gameplay_frame(temp_ctx, game_state, ctx) and before the final blit to render_ctx.screen:
+    - Determine:
+          config = getattr(ctx, "config", None)
+          use_shaders = bool(getattr(config, "use_shaders", False))
+    - If use_shaders is True:
+        - Apply the overlay to offscreen_surface, for example:
+
+              overlay = pygame.Surface(offscreen_surface.get_size(), flags=pygame.SRCALPHA)
+              overlay.fill((80, 0, 120, 60))  # RGBA: mild purple tint with low alpha
+              offscreen_surface.blit(overlay, (0, 0))
+
+      (You may create a module-level overlay or re-create per call; keep it simple and reasonably fast.)
+
+3) Keep non-shader path unchanged
+- If use_shaders is False:
+  - Skip the tint / overlay and just blit offscreen_surface to the real screen.
+
+Result:
+- When config.use_shaders is False:
+  - The game looks exactly as before.
+- When config.use_shaders is True:
+  - The gameplay frame is visibly tinted/processed (CPU-based), proving the shader path is active.
+- This is still CPU-only, but it gives us a clean place to later swap in moderngl-based post-processing if desired.
+
+
+GPU PHYSICS 3:
+We now want to make the actual bullet update logic respect BOTH:
+- hardware capability flag (USE_GPU / CUDA_AVAILABLE)
+- user-config flag (config.use_gpu_physics)
+
+Goal:
+Wherever GPU bullet update functions (like gpu_physics.update_bullets_batch or check_collisions_batch) are called, ensure they are only used when:
+    USE_GPU is True AND ctx.config.use_gpu_physics is True.
+Otherwise, fall back to the existing CPU path.
+
+Constraints:
+- Only modify:
+  - The module that currently calls gpu_physics.update_bullets_batch / check_collisions_batch (likely a projectile/bullet system or game loop file).
+  - game.py if we need to pass ctx/config into the update call.
+- Do NOT modify gpu_physics.py itself.
+- Do NOT change gameplay behavior beyond correctly enabling/disabling GPU usage based on config.
+- Avoid spreading USE_GPU checks all over; keep the gating logic localized.
+
+Tasks:
+
+1) Locate GPU bullet update call sites
+- Find the function(s) where gpu_physics.update_bullets_batch and/or check_collisions_batch are called.
+  - This might be in a projectile_system, bullet_system, or in the main update loop in game.py.
+- Identify the surrounding code where the CPU bullet update logic lives (e.g., a standard Python loop).
+
+2) Introduce a combined condition
+- At the call site, change the condition from something like:
+
+      if USE_GPU:
+          gpu_physics.update_bullets_batch(...)
+      else:
+          # CPU bullet update
+
+  to:
+
+      use_gpu = USE_GPU
+      config = getattr(ctx, "config", None)
+      if config is not None:
+          use_gpu = use_gpu and bool(getattr(config, "use_gpu_physics", False))
+
+      if use_gpu:
+          gpu_physics.update_bullets_batch(...)
+      else:
+          # CPU bullet update
+
+- If ctx is not currently available in that function, adjust the signature or the call so ctx is passed in (keeping the change minimal and consistent with other systems).
+
+3) Apply the same logic for any other GPU-only bullet functions
+- If there is a separate GPU collision function (e.g., check_collisions_batch), wrap it with the same combined use_gpu condition.
+- Ensure there is always a CPU fallback path for bullets/collisions.
+
+4) Optional one-time log
+- For debugging, you may print once per run (with a module-level flag) when GPU bullet path is used:
+      "GPU bullet physics: ENABLED (config + CUDA)"
+  or when it is not used despite CUDA being available:
+      "GPU bullet physics: DISABLED by config"
+
+Result:
+- Even if CUDA_AVAILABLE and USE_GPU are True:
+  - GPU bullet physics will only be used when ctx.config.use_gpu_physics == True.
+- If CUDA is not available or the user chooses “no” at startup:
+  - CPU bullet update paths are used as before.
+
+PROMPT A:
+We want the gameplay debug overlay to explicitly show whether GPU physics is enabled in config, separate from CUDA availability.
+
+Goal:
+Add a line to the debug overlay: "gpu_physics: ON/OFF" based on ctx.config.use_gpu_physics.
+
+Constraints:
+- Only modify:
+  - rendering.py  (if needed to pass extra lines)
+  - scenes/gameplay.py (to add this line)
+- Assume previous changes already allow render_debug_overlay to accept extra_lines.
+- Do NOT change any other modules.
+- Keep existing overlay content intact.
+
+Tasks:
+
+1) Confirm render_debug_overlay extra_lines usage
+- In rendering.py, verify render_debug_overlay has a signature like:
+
+    def render_debug_overlay(render_ctx, game_state, *, lines=None, extra_lines=None):
+
+- If extra_lines is not there yet, add it with default None and merge it into the final lines list:
+    if extra_lines is not None:
+        lines = list(lines) + list(extra_lines)
+
+2) Add gpu_physics status in GameplayScene.render
+- In scenes/gameplay.py, in GameplayScene.render where we already prepare extra_lines for shaders/CUDA:
+  - After computing use_shaders and CUDA_AVAILABLE, add:
+
+        use_gpu_physics = bool(getattr(config, "use_gpu_physics", False))
+        extra_lines.append(f"gpu_physics: {'ON' if use_gpu_physics else 'OFF'}")
+
+  - Pass extra_lines to render_debug_overlay as already done, e.g.:
+
+        render_debug_overlay(render_ctx, game_state, extra_lines=extra_lines)
+
+3) Behavior
+- When debug_draw_overlay is False: no change.
+- When debug_draw_overlay is True:
+  - The overlay now shows something like:
+        shaders: ON/OFF
+        cuda_available: True/False/import error
+        gpu_physics: ON/OFF
+
+No other behavior should change.
+
+
+
+SHADER PROMPT 5:
+We now want render_gameplay_with_optional_shaders to optionally use moderngl to run a post-process shader on the offscreen_surface, similar in spirit to ShaderTestScene. This must be fully optional and fall back to the CPU tint if anything fails.
+
+Goal:
+In rendering_shaders.py, when:
+  - config.use_shaders is True AND
+  - HAS_MODERNGL is True
+we will:
+  1) Render gameplay into offscreen_surface (already done).
+  2) Upload it as a moderngl texture.
+  3) Draw a fullscreen quad with a simple fragment shader effect.
+Otherwise, keep the existing CPU-only path.
+
+Constraints:
+- Only modify: rendering_shaders.py
+- Do NOT touch ShaderTestScene or other modules.
+- Keep the current offscreen_surface pipeline.
+- If moderngl context or resources fail to init, silently fall back to the CPU tint path.
+- Avoid per-frame re-creation of GL objects if possible; cache them.
+
+Tasks:
+
+1) Add moderngl context & GL resources (module-level cache)
+- Near HAS_MODERNGL in rendering_shaders.py, add module-level variables:
+
+    _gl_ctx = None
+    _gl_program = None
+    _gl_vao = None
+    _gl_texture = None
+    _gl_size = None  # (width, height) of texture
+
+- Add a helper:
+
+    def _init_gl_if_needed(width: int, height: int):
+        global _gl_ctx, _gl_program, _gl_vao, _gl_texture, _gl_size
+        if not HAS_MODERNGL:
+            return False
+        if _gl_ctx is None:
+            try:
+                import moderngl
+                _gl_ctx = moderngl.create_context()
+            except Exception:
+                _gl_ctx = None
+                return False
+        # If size changed or texture not created yet, (re)create texture & quad.
+        # Create a simple fullscreen quad (pos + texcoord) and a tiny shader:
+        #  - Vertex: in vec2 in_pos; in vec2 in_uv; pass uv to fragment.
+        #  - Fragment: sampler2D u_frame_texture; vec4 color = texture(u_frame_texture, v_uv);
+        #              maybe apply a small effect like a mild contrast boost or tint.
+        # Store program, VAO, texture, and _gl_size.
+        return _gl_program is not None and _gl_vao is not None and _gl_texture is not None
+
+(You can borrow shader and quad patterns from ShaderTestScene but keep them minimal and self-contained here.)
+
+2) Write a helper to run the GL post-process on the offscreen_surface
+- Add:
+
+    def _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx):
+        if not HAS_MODERNGL:
+            return False
+        width, height = offscreen_surface.get_size()
+        if not _init_gl_if_needed(width, height):
+            return False
+
+        # Convert surface to bytes (RGBA) and write to _gl_texture.
+        # Set viewport to (0, 0, width, height).
+        # Bind program, set any uniforms if needed (e.g. time later).
+        # Draw the fullscreen quad into the GL framebuffer.
+        #
+        # Finally, read back or present:
+        # EITHER:
+        #   - For now, read back pixels into a temporary buffer and blit to render_ctx.screen
+        # OR:
+        #   - Use a moderngl_window-compatible swap if available.
+        #
+        # For this step, keep it simple:
+        #   - Read framebuffer into a bytes buffer
+        #   - Convert to a Pygame surface with pygame.image.frombuffer
+        #   - Blit that onto render_ctx.screen.
+
+        return True
+
+- IMPORTANT: If anything raises unexpectedly inside this helper, catch it and return False to signal fallback.
+
+3) Integrate into render_gameplay_with_optional_shaders
+- In render_gameplay_with_optional_shaders, after you:
+  - get offscreen_surface
+  - render into temp RenderContext
+  - and before the CPU tint / blit:
+
+    config = getattr(ctx, "config", None)
+    use_shaders = bool(getattr(config, "use_shaders", False))
+
+    if use_shaders and HAS_MODERNGL:
+        ok = _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx)
+        if ok:
+            # GL has already drawn to render_ctx.screen; skip CPU tint/blit.
+            return
+
+- If ok is False, fall through to the existing CPU tint + blit path.
+
+4) Behavior expectations
+- If use_shaders is False:
+  - Nothing changes; still CPU-only, no GL.
+- If use_shaders is True but moderngl is not importable or GL init fails:
+  - CPU tint overlay behavior continues as in SHADER PROMPT 4.
+- If use_shaders is True and moderngl works:
+  - Gameplay is rendered via:
+       normal renderer -> offscreen_surface -> GL post-process -> blit to screen
+  - Visible effect from the fragment shader should be clearly different from the CPU tint (e.g., stronger contrast/tint).
+
+The goal:
+- Introduce a small, self-contained moderngl post-process path for gameplay rendering that is completely optional and fails gracefully back to CPU behavior.
+
+
+SHADER PROMPT 6:
+We want to add a time-based uniform to the gameplay GL post-process shader in rendering_shaders.py so shader effects can animate over time.
+
+Goal:
+Introduce a uniform float u_time in the moderngl program in rendering_shaders.py and set it each frame using a monotonic clock. The shader should use u_time to slightly animate the effect (e.g., a subtle pulse or wave).
+
+Constraints:
+- Only modify: rendering_shaders.py
+- Do NOT change any other files.
+- The code must still gracefully fall back to CPU tint when GL is unavailable or fails.
+- Keep the effect simple and cheap.
+
+Tasks:
+
+1) Add a module-level time tracker
+- At the top of rendering_shaders.py, import the time module:
+
+    import time
+
+- Add a module-level variable:
+
+    _gl_start_time = time.perf_counter()
+
+2) Add u_time uniform to the GL shader
+- In the GL initialization helper (_init_gl_if_needed or equivalent):
+  - Modify the fragment shader source to declare a uniform:
+
+        uniform float u_time;
+
+  - Use it in the fragment shader’s color calculation, for example:
+
+        float t = 0.5 + 0.5 * sin(u_time * 0.5);
+        vec3 base = texture(u_frame_texture, v_uv).rgb;
+        vec3 out_color = mix(base, base * 1.2, t * 0.3);
+        fragColor = vec4(out_color, 1.0);
+
+    (Adjust names to match your existing shader variables; v_uv/v_texcoord/u_frame_texture, etc.)
+
+3) Set u_time each frame in the GL post-process helper
+- In _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx):
+  - After you bind the GL program and before drawing the fullscreen quad:
+    - Compute elapsed time:
+
+          now = time.perf_counter()
+          elapsed = float(now - _gl_start_time)
+
+    - Set the uniform:
+
+          _gl_program["u_time"].value = elapsed
+
+    (Adjust attribute access to match how you handle uniforms in moderngl in this file.)
+
+4) Keep fallback behavior unchanged
+- If HAS_MODERNGL is False or any GL init step fails:
+  - _gl_postprocess_offscreen_surface should still return False, so the existing CPU tint + blit path is used.
+- If use_shaders is False:
+  - render_gameplay_with_optional_shaders should never call _gl_postprocess_offscreen_surface.
+
+Result:
+- When GL shader mode is active (use_shaders=True and GL init succeeds), the post-process effect is slightly animated over time via u_time.
+- Otherwise, behavior remains as in previous steps.
+
+
+
+SHADER PROMPT 7:
+We want a simple shader_profile in GameConfig to control how the gameplay frame is post-processed:
+- "none"      -> no tint/shader, direct blit
+- "cpu_tint"  -> CPU overlay tint
+- "gl_basic"  -> GL post-process (if available), otherwise fall back to cpu_tint
+
+Goal:
+Add shader_profile to GameConfig and use it inside rendering_shaders.py to choose which path to use.
+
+Constraints:
+- Modify only:
+  - config/game_config.py
+  - rendering_shaders.py
+- Keep defaults safe and backward compatible:
+  - Default profile should behave like “none” to avoid surprising users.
+- If an unknown profile is set, fall back to safe behavior (e.g. cpu_tint or none).
+
+Tasks:
+
+1) Add shader_profile to GameConfig
+- In config/game_config.py, inside GameConfig dataclass, add:
+
+    shader_profile: str = "none"  # "none", "cpu_tint", or "gl_basic"
+
+- Optionally, add a short comment in any config docstring or tuning guide summarizing the options.
+
+2) Use shader_profile inside rendering_shaders.py
+- In render_gameplay_with_optional_shaders(render_ctx, game_state, ctx):
+  - After obtaining config from ctx, compute:
+
+        profile = "none"
+        if config is not None:
+            profile = getattr(config, "shader_profile", "none")
+
+  - Also compute use_shaders as before from config.use_shaders, but let profile be the primary selector.
+
+3) Route behavior based on shader_profile
+- Update the logic around the post-process stages like so:
+
+    # After rendering into offscreen_surface with the normal renderer:
+    if profile == "gl_basic" and HAS_MODERNGL and bool(getattr(config, "use_shaders", False)):
+        ok = _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx)
+        if ok:
+            return  # GL drew directly to the screen; no further blit needed
+
+    # If we reach here, either profile != "gl_basic", GL is unavailable, or GL failed.
+    if profile == "cpu_tint" or (profile == "gl_basic" and bool(getattr(config, "use_shaders", False))):
+        # Apply the CPU tint as in the existing shader-path code
+        # (reusing the overlay-on-offscreen_surface logic).
+        ...
+
+    # For "none" (or any unknown profile):
+        # Do NOT tint; just blit offscreen_surface directly.
+        render_ctx.screen.blit(offscreen_surface, (0, 0))
+
+- Ensure:
+  - "none": no tint, no GL; direct blit.
+  - "cpu_tint": always CPU tint, no GL.
+  - "gl_basic": try GL, if GL fails then fall back to CPU tint.
+
+4) Robustness
+- If shader_profile has an unexpected value:
+  - Treat it as "none" or "cpu_tint" (choose whichever you prefer; “none” is safest).
+- Keep behavior when use_shaders=False identical to “none” (i.e., don’t try GL or CPU tint unless you explicitly want that).
+
+Result:
+- You can now control gameplay post-processing via config.shader_profile, independent from just “use_shaders True/False”.
+- This is a clean knob for trying out and comparing profiles.
+
+
+
+SHADER PROMPT 8:
+We want to extract the common moderngl fullscreen-quad setup (context, quad VBO/VAO, basic program) into a small shared helper module so both ShaderTestScene and rendering_shaders.py can reuse it.
+
+Goal:
+Create a gpu_gl_utils.py helper with:
+- a function to lazily create and cache a moderngl Context
+- a function to lazily create and cache a fullscreen quad VAO + program + texture for a given (width, height)
+
+Constraints:
+- Create a new file: gpu_gl_utils.py
+- Only make minimal changes to:
+  - scenes/shader_test.py
+  - rendering_shaders.py
+- Do NOT change any other files.
+- Behavior of both ShaderTestScene and gameplay should remain the same after this refactor.
+
+Tasks:
+
+1) Create gpu_gl_utils.py
+- New module with something like:
+
+    from __future__ import annotations
+    import moderngl
+    from typing import Tuple, Optional
+
+    _gl_ctx: Optional[moderngl.Context] = None
+
+    def get_gl_context() -> Optional[moderngl.Context]:
+        global _gl_ctx
+        if _gl_ctx is None:
+            try:
+                _gl_ctx = moderngl.create_context()
+            except Exception:
+                _gl_ctx = None
+        return _gl_ctx
+
+    # You can optionally add a small class or tuple holder for:
+    # (program, vao, texture, size)
+
+    class FullscreenQuad:
+        def __init__(self, ctx: moderngl.Context, size: Tuple[int, int]):
+            ...
+            # create VBO, VAO, texture, program here
+
+        def ensure_size(self, size: Tuple[int, int]):
+            ...
+            # recreate texture if size changes
+
+    _quad_cache: dict[Tuple[int, int], FullscreenQuad] = {}
+
+    def get_fullscreen_quad(size: Tuple[int, int]) -> Optional[FullscreenQuad]:
+        ctx = get_gl_context()
+        if ctx is None:
+            return None
+        if size not in _quad_cache:
+            _quad_cache[size] = FullscreenQuad(ctx, size)
+        return _quad_cache[size]
+
+- Keep implementation simple, but encapsulate:
+  - shader compilation,
+  - quad geometry,
+  - texture creation.
+
+2) Update scenes/shader_test.py to use gpu_gl_utils
+- Replace direct moderngl.create_context / program / VAO / texture setup with calls to:
+    from gpu_gl_utils import get_fullscreen_quad
+- In render(), obtain the quad for the current size and use it to:
+  - upload the Pygame surface as texture (if you do that there),
+  - draw the quad.
+
+- Keep fallback path (no moderngl) unchanged.
+
+3) Update rendering_shaders.py to use gpu_gl_utils
+- Remove its local moderngl.create_context / VBO / VAO / texture setup if present.
+- Import and use get_fullscreen_quad(size) instead.
+- The GL post-process helper should:
+  - ask for the quad with the offscreen_surface size,
+  - bail out (return False) if get_fullscreen_quad(size) returns None.
+
+4) Ensure behavior is unchanged
+- ShaderTestScene should look the same as before.
+- Gameplay’s “gl_basic” behavior (if already implemented) should still work.
+
+The goal is purely architectural: one source of truth for GL context + fullscreen quad + program, used by both ShaderTestScene and gameplay.
+
+
+
+SHADER PROMPT 9:
+We want shader_profile="gl_basic" to apply a clearly visible effect to the gameplay frame when GL is active: for example, a strong vignette and slight pulsing brightness.
+
+Goal:
+Adjust the fragment shader in rendering_shaders.py’s GL pipeline so that:
+- vignette darkens the corners of the screen,
+- brightness slightly pulses with u_time,
+- resulting look is unambiguously “shader is on”.
+
+Constraints:
+- Only modify: rendering_shaders.py (and gpu_gl_utils.py if that’s where the shader string now lives).
+- Do NOT change CPU tint behavior.
+- Do NOT affect ShaderTestScene (unless it explicitly reuses the same shader string via gpu_gl_utils, in which case it will share the look, which is fine).
+- Keep the math simple & cheap.
+
+Tasks:
+
+1) Locate the GL fragment shader source
+- Find the fragment shader string used for the gameplay fullscreen quad (either in rendering_shaders.py or gpu_gl_utils.FullscreenQuad).
+- It should already:
+  - sample u_frame_texture,
+  - possibly use u_time.
+
+2) Replace the fragment shader body with a stronger effect, e.g.:
+
+    uniform sampler2D u_frame_texture;
+    uniform float u_time;
+
+    in vec2 v_uv;
+    out vec4 fragColor;
+
+    void main() {
+        vec4 color = texture(u_frame_texture, v_uv);
+
+        // Vignette based on distance from center
+        vec2 centered = v_uv - 0.5;
+        float dist = length(centered);
+        float vignette = smoothstep(0.7, 0.3, dist); // 0 at edges, ~1 near center
+
+        // Subtle pulsation over time
+        float pulse = 0.9 + 0.1 * sin(u_time * 2.0);
+
+        vec3 base = color.rgb * pulse;
+        vec3 final_rgb = base * vignette;
+
+        fragColor = vec4(final_rgb, color.a);
+    }
+
+- Adjust variable names to match your existing varying/uniform names (v_uv vs v_texcoord, u_frame_texture vs sampler name, etc.).
+
+3) Ensure u_time is set correctly
+- Verify that _gl_postprocess_offscreen_surface (or its equivalent) sets u_time every frame using elapsed time.
+- No other changes are needed there.
+
+Result:
+- With shader_profile="gl_basic", use_shaders=True, and moderngl available, gameplay should now have:
+  - darker corners,
+  - slightly pulsing brightness overall.
+- This makes it visually obvious when the shader is actually active.
+
+
+
+SHADER PROMPT 10:
+We want a runtime keybinding in the gameplay scene to cycle shader_profile between:
+- "none"
+- "cpu_tint"
+- "gl_basic"
+
+Goal:
+Pressing a specific key (e.g. F3) during gameplay will cycle the shader profile and print/log the new value so I can visually compare them.
+
+Constraints:
+- Only modify: scenes/gameplay.py
+- Do NOT change config/game_config.py or rendering_shaders.py in this prompt.
+- Use an F-key or other debug-style key that won’t conflict with normal controls.
+- Keep behavior unchanged when the key is not pressed.
+
+Tasks:
+
+1) Choose a key
+- Use an F-key, e.g. pygame.K_F3, as the toggle key.
+
+2) Implement cycling in handle_input
+- In GameplayScene.handle_input(...):
+  - After existing input handling, add logic like:
+
+        import pygame
+
+        def _cycle_shader_profile(self, ctx):
+            config = getattr(ctx, "config", None)
+            if config is None:
+                return
+            current = getattr(config, "shader_profile", "none")
+            order = ["none", "cpu_tint", "gl_basic"]
+            try:
+                idx = order.index(current)
+            except ValueError:
+                idx = 0
+            new_profile = order[(idx + 1) % len(order)]
+            config.shader_profile = new_profile
+            print(f"[Shader] shader_profile -> {new_profile}")
+
+  - In the event loop, when processing KEYDOWN:
+        if event.key == pygame.K_F3:
+            self._cycle_shader_profile(ctx)
+
+3) Visual confirmation
+- Because you already have:
+  - the debug overlay showing shader status and
+  - gl_basic / cpu_tint effects implemented,
+  pressing F3 should:
+    - change the overlay line (shader_profile indirectly via behavior),
+    - and visibly switch between:
+        - normal rendering,
+        - CPU tint,
+        - GL vignette/pulse.
+
+Result:
+- While in gameplay, you can:
+  - Turn use_shaders=True in config once,
+  - Hit F3 repeatedly and directly see how each profile looks and performs.
+
+1. Create GameApp and simplify game.py:
+You are refactoring this Pygame project.
+
+Goal:
+Introduce a GameApp class to own the main loop and shrink game.py into a thin entrypoint.
+
+Steps:
+1. Create a new file game_app.py.
+2. Move the main game loop logic and high-level orchestration from game.py into a GameApp class with methods like:
+   - __init__(...)
+   - run()
+3. GameApp should own:
+   - GameState
+   - any context/config objects
+   - SceneStack or current scene
+   - the Pygame main loop (event handling, update, render).
+4. In game.py:
+   - keep only imports, a main() function that creates GameApp() and calls app.run(), and the classic:
+       if __name__ == "__main__":
+           main()
+5. Do NOT change game behavior or features; just move code and wire it through GameApp.
+6. Keep changes minimal and well-commented.
+
+
+2. Remove global usage in game.py / game_app.py:
+Goal:
+Eliminate remaining use of global variables in game.py / game_app.py.
+
+Steps:
+1. Find any usage of "global" or module-level mutable state used by the main loop.
+2. Move that state into:
+   - GameState (for game data like player/enemies/bullets/etc.)
+   - or a small AppContext object (for configs, asset manager, services).
+3. Pass GameState and AppContext explicitly to systems and helper functions instead of using globals.
+4. Do not add new behavior; only refactor state ownership and references.
+5. Keep the diff as small and clear as possible.
+
+
+
+3. Move menu / flow logic into scenes:
+Goal:
+Move menu / flow logic (title screen, difficulty selection, high score entry, pause) into dedicated Scene classes instead of being driven directly from game.py / GameApp.
+
+Steps:
+1. Inspect scenes/ and existing Scene/SceneStack implementations.
+2. For any flow logic still in game.py / GameApp (e.g. title screen, options, aiming mode selection, pause handling), create or extend scene classes:
+   - TitleScene or MainMenuScene
+   - OptionsScene or AimingModeScene
+   - PauseScene (if not already handling everything)
+3. Move input handling and drawing for these flows into the scene classes.
+4. In GameApp, only push/pop scenes on the SceneStack and forward events/update/render to the active scene.
+5. Preserve existing behavior and keyboard/mouse shortcuts.
+
+
+
+
+4. Split collision_system.py into smaller modules:
+Goal:
+Split systems/collision_system.py into smaller collision modules by responsibility to improve readability, without changing behavior.
+
+Steps:
+1. Open systems/collision_system.py and identify logical groups such as:
+   - player vs enemies
+   - projectiles vs enemies
+   - player vs pickups
+2. Create new files in systems/:
+   - collision_player.py
+   - collision_projectiles.py
+   - collision_pickups.py
+   (or similar reasonable names).
+3. Move the functions and logic for each responsibility into the appropriate module.
+4. Create a thin collision_system.py that exposes a single public function like run_collisions(gs, ctx, dt) that calls into the new modules.
+5. Update imports and call sites to keep the external API the same.
+6. Do not introduce new features; just reorganize and lightly clean up.
+
+
+
+5. Add focused tests for collision logic:
+Goal:
+Add focused pytest tests for collision logic to cover key behaviors and prevent regressions.
+
+Steps:
+1. In tests/, create a new file tests/test_collision_system.py.
+2. Write small unit tests that:
+   - create a minimal GameState and any required entities (player, enemy, projectile, pickup).
+   - call the collision system entrypoint (from collision_system or the new split modules).
+   - assert on expected outcomes: enemy takes damage or dies, projectile is removed, player picks up items, etc.
+3. Use simple deterministic positions and velocities so the tests are stable.
+4. Avoid Pygame window creation in tests; use plain Python objects and minimal Pygame dependencies.
+5. Keep tests short, clear, and focused on behavior instead of implementation details.
+
+
+
+6. Harden GPU / C-extension fallback behavior:
+Goal:
+Make GPU/C-extension physics optional and fail-soft with a single capability flag.
+
+Steps:
+1. Open gpu_physics.py and any files that import it.
+2. Ensure there is a single, well-named flag (e.g. GPU_AVAILABLE or CUDA_AVAILABLE) that indicates whether the GPU path is usable.
+3. In all call sites, check that flag and:
+   - use GPU path only when available
+   - otherwise call the existing CPU fallback.
+4. Wrap imports and GPU initialization in try/except with clear logging or print statements, not crashes.
+5. Make sure the game runs correctly with GPU disabled (flag = False).
+6. Do not change physics semantics; just improve capability detection and fallback.
+
+
+
+7. Improve telemetry docs and starter SQL (small pass):
+Goal:
+Make telemetry easier to understand and query by adding minimal docs and starter SQL.
+
+Steps:
+1. In telemetry/, create a README.md that briefly explains:
+   - what tables exist (names only),
+   - what each table roughly represents (sessions, events, shots, etc.).
+2. Under a new folder sql/ at the project root or inside telemetry/, add:
+   - top_sessions.sql (select top N sessions by score or survival time),
+   - weapon_accuracy.sql (accuracy by weapon).
+3. Use simple, readable SQL that matches the existing schema.
+4. Adjust paths in README to show how to run the example queries with sqlite3.
+5. No code behavior changes; this is documentation + helper SQL only.
+
+SHADERS FOR MAIN MENU, PAUSE, AND GAME:
+You are refactoring and extending an existing Pygame project that already has basic shader / post-processing support.
+
+Goal:
+Add more interesting but lightweight shader-style visual effects for:
+1) main menu,
+2) in-game menu / pause screen,
+3) in-game gameplay (subtle, not distracting).
+
+Constraints:
+- Do NOT break existing behavior.
+- Keep performance reasonable on mid-range hardware.
+- Keep the shader system simple and data-driven where possible.
+- Reuse the existing shader / effects pipeline and configuration style already in this project.
+
+Steps:
+
+1. Inspect the existing shader / post-processing system:
+   - Find any modules that deal with shaders, post-processing, or visual effects (e.g. shader classes, effect pipelines, config for effects).
+   - Identify how shaders/effects are currently applied in gameplay and in any test scenes (e.g. ShaderTestScene).
+
+2. Design a small set of reusable effects:
+   Implement several parameterized 2D effects that can be toggled via config, such as:
+   - Subtle scanline / CRT-style overlay.
+   - Slow color grading or tint for the main menu (e.g. cool blue, warm orange).
+   - Slight vignette around the edges for gameplay.
+   - Gentle pulsing / breathing highlight for menu selections.
+   - Optional low-intensity screen wobble or zoom pulse when the player takes damage (if this fits the current art style).
+
+   These should be implemented as reusable “effect” objects or functions that:
+   - Take a surface or frame as input,
+   - Apply the effect,
+   - Return the modified surface,
+   and can be chained together.
+
+3. Integrate effects into:
+   - Main menu scene:
+     * Add a configurable background effect stack (e.g. vignette + scanlines + tint).
+     * Apply effects only once per frame after the menu UI is rendered.
+   - In-game menu / pause scene:
+     * Slightly dim or blur the underlying game view if feasible.
+     * Optionally add a subtle vignette or color tint to differentiate from active gameplay.
+   - In-game gameplay:
+     * Keep effects subtle (e.g. small vignette, faint scanlines, or soft color grading).
+     * Hook any “impact” effects (like a short-duration wobble on damage) into existing damage / hit feedback code, using configuration flags.
+
+4. Configuration:
+   - Add new options to the existing game/shader config module(s), such as:
+     * enable_menu_shaders (bool)
+     * enable_gameplay_shaders (bool)
+     * menu_effect_profile (e.g. "none", "crt", "soft_glow")
+     * gameplay_effect_profile (e.g. "none", "subtle_vignette", "crt_light")
+   - Ensure there are sensible defaults that keep the game looking like it does now or slightly improved, not radically different.
+
+5. Scene wiring:
+   - In the main menu, pause, and gameplay rendering flows, identify the point where the final frame surface is ready.
+   - Insert calls to the shader / effect pipeline there, controlled by the new configuration settings.
+   - Make sure the effect application is encapsulated in helper functions, e.g.:
+       apply_menu_effects(surface, ctx)
+       apply_gameplay_effects(surface, ctx)
+
+6. Testing and safety:
+   - Make sure the game still runs correctly with ALL new effects disabled.
+   - Test with effects enabled to ensure:
+     * Menus are readable.
+     * Gameplay is not obscured.
+     * No exceptions are raised even if shaders are disabled or unsupported.
+
+7. Keep changes focused:
+   - Do not refactor unrelated systems.
+   - Keep changes limited to shader/effects-related modules, scene rendering code, and configuration.
+   - Add short comments explaining each new effect and where it is used.
+
+PROMPT - IMPLEMENT & REGISTER ALL SHADER EFFECTS:
+You are working on a Pygame project that already has a shader / post-processing system and a shader registry.
+
+Goal:
+Implement and register several reusable post-processing effects in the existing shader/effect system, using the current architecture (base classes, registry, and pipeline). Do NOT change unrelated systems or gameplay.
+
+Effects to add:
+Implement lightweight, parameterized versions of the following effects (in whatever file(s) currently hold shader/effect classes):
+
+1) ChromaticAberrationEffect
+   - Slight RGB channel offset.
+   - Params: shift_strength (float), direction (e.g. "radial" or "horizontal").
+
+2) BloomEffect
+   - Brightness threshold + blur to create glow.
+   - Params: intensity, threshold, blur_size.
+
+3) GodRaysEffect
+   - Simple radial blur from a source point.
+   - Params: source_pos (tuple), strength, ray_length, samples.
+
+4) DistortionEffect
+   - 2D displacement using a noise/offset pattern.
+   - Params: intensity, scale, speed.
+
+5) VHSNoiseEffect
+   - Horizontal jitter + scanline noise.
+   - Params: jitter_strength, noise_strength, roll_speed.
+
+6) BarrelDistortionEffect
+   - CRT-like curvature.
+   - Params: curvature_strength, edge_softness.
+
+7) VignetteEffect
+   - Darkens corners.
+   - Params: radius, softness, intensity, color.
+
+8) HeatDistortionEffect
+   - Wavy distortion using time-based sin/noise.
+   - Params: intensity, wave_scale, speed.
+
+9) PulseGlowEffect
+   - Periodic brightness/tint modulation.
+   - Params: period, min_intensity, max_intensity, tint_color.
+
+10) ColorGradingEffect
+    - Simple LUT or curve-based grading.
+    - Params: mode string (e.g. "retro", "noir", "neon") and strength.
+
+11) PixelateEffect
+    - Downscale/upscale for pixel look.
+    - Params: pixel_scale, blend_amount.
+
+12) ShockwaveEffect
+    - Radial displacement from origin.
+    - Params: origin, radius, amplitude, falloff.
+
+13) EdgeDetectEffect
+    - Sobel-like edges blended over the frame.
+    - Params: threshold, outline_color, blend_strength.
+
+14) PosterizeEffect
+    - Reduce color levels.
+    - Params: levels, contrast_boost.
+
+15) MotionTrailEffect
+    - Frame history blending for simple streaks.
+    - Params: history_blend, fade_speed.
+
+Implementation constraints:
+- Use the existing shader/effect base class or interface in this project.
+- Each effect should be a class with a clear, small apply(surface, dt or time, context) method, consistent with the current system.
+- Keep implementations simple and efficient; this is 2D post-processing, not heavy GLSL.
+- Put all new effect classes in the appropriate existing shader/effects module(s) (or a new shaders/effects file if that is clearly better).
+
+Registry:
+- Add each effect to the central shader/effect registry with a unique key string, like:
+  "chromatic_aberration", "bloom", "god_rays", "distortion", "vhs_noise", "barrel_distortion", "vignette", "heat_distortion", "pulse_glow", "color_grading", "pixelate", "shockwave", "edge_detect", "posterize", "motion_trail".
+- Ensure the registry can construct each effect with default parameters (sensible defaults that are subtle, not extreme).
+
+Do not:
+- Do NOT change the main loop, scene system, or input.
+- Do NOT break existing shaders.
+- Keep the diff focused on: effect classes + registry entries.
+
+Prompt – Add config options for menu/gameplay shader stacks:
+You are working on the same project as before, which now has a larger shader/effect registry.
+
+Goal:
+Add configuration options that define which shader/effect stacks are used for:
+1) main menu
+2) in-game menu / pause
+3) in-game gameplay
+
+Constraints:
+- Use the project’s existing config system (e.g. config/game_config.py or similar).
+- Keep behavior compatible with current defaults (no drastic visual changes unless user opts in).
+
+Steps:
+
+1) Config data:
+In the main config module, add settings for:
+- enable_menu_shaders: bool (default: False or a subtle preset)
+- enable_pause_shaders: bool (default: False)
+- enable_gameplay_shaders: bool (default: False or a subtle preset)
+
+- menu_shader_profile: str
+- pause_shader_profile: str
+- gameplay_shader_profile: str
+
+Profiles should be named strings like:
+- "none"
+- "menu_crt"
+- "menu_neon"
+- "pause_dim_vignette"
+- "gameplay_subtle_vignette"
+- "gameplay_retro"
+
+2) Define shader profiles:
+Create a small mapping from profile name -> list of effect definitions, e.g.:
+
+- For "menu_crt":
+  - barrel_distortion
+  - vignette
+  - chromatic_aberration (low strength)
+  - optional scanline/vhs effect if it exists.
+
+- For "pause_dim_vignette":
+  - vignette
+  - color_grading with a desaturation or dim mode.
+
+- For "gameplay_subtle_vignette":
+  - vignette with low intensity.
+
+Implement this as a central dictionary (e.g. SHADER_PROFILES) that uses the registry keys and parameter sets.
+
+3) Defaults:
+Set conservative defaults:
+- main menu: maybe "menu_crt" or "none" depending on how heavy the effect is.
+- pause: "pause_dim_vignette" or "none".
+- gameplay: "gameplay_subtle_vignette" or "none".
+
+4) Access helpers:
+Add helper functions like:
+- get_menu_shader_stack(config, registry)
+- get_pause_shader_stack(config, registry)
+- get_gameplay_shader_stack(config, registry)
+
+Each returns a list or pipeline of effect instances constructed from the registry and the selected profile.
+
+Do not:
+- Do not modify any rendering code yet.
+- Do not modify scenes yet.
+- Only touch the config layer + shader profile mapping + helpers to build stacks.
+
+
+
+Prompt – Wire config-based shader stacks into rendering & stop using F3:
+You are working on the same Pygame project with:
+- a shader registry
+- new shader effect classes
+- config-driven shader profiles for menu, pause, and gameplay.
+
+Currently, shader toggling is controlled by an F3-style cycle or debug key. We want to replace that with the config-based stacks defined earlier.
+
+Goal:
+Use the config-based shader profiles for:
+1) main menu rendering
+2) in-game pause/menu rendering
+3) in-game gameplay rendering
+
+And remove the old “cycle shaders with F3” behavior.
+
+Steps:
+
+1) Identify rendering integration points:
+Locate the code where:
+- main menu frame is rendered (e.g. in a MainMenuScene or TitleScene).
+- in-game pause or menu frame is rendered (PauseScene or similar).
+- gameplay frame is rendered (gameplay scene or main game loop drawing code).
+
+Find where the current shader pipeline is applied (or where it SHOULD be inserted, near the final frame compositing).
+
+2) Replace F3-based toggling:
+Find the code that cycles shaders with F3 (or any debug key):
+- Remove or disable that behavior.
+- Instead, have each scene or the top-level render code request the appropriate shader stack from the config helper functions, something like:
+  - menu_stack = get_menu_shader_stack(config, registry)
+  - pause_stack = get_pause_shader_stack(config, registry)
+  - gameplay_stack = get_gameplay_shader_stack(config, registry)
+
+3) Apply stacks conditionally:
+For each rendering path:
+
+- Main menu:
+  - If config.enable_menu_shaders is True:
+    - Apply the menu shader stack to the final menu surface before flipping.
+  - Otherwise, render without extra effects.
+
+- In-game pause/menu:
+  - If config.enable_pause_shaders is True:
+    - Render gameplay frame as usual into a surface.
+    - Apply the pause shader stack to that surface.
+    - Draw the pause menu UI on top as appropriate.
+
+- Gameplay:
+  - If config.enable_gameplay_shaders is True:
+    - Apply the gameplay shader stack to the final gameplay frame.
+  - Otherwise, leave unchanged.
+
+4) Ensure deterministic behavior:
+- The active shader stacks should now depend only on config values, not on keyboard cycles.
+- Verify that switching scenes (menu -> gameplay -> pause -> back) respects the configured stacks.
+
+5) Keep a simple debug path:
+- Optionally, keep a debug-only key that reloads config or prints the currently active profiles, but do NOT cycle the shader stack itself.
+
+Do not:
+- Do not redesign the scene system.
+- Do not change game logic, only the render/effect integration.
+
+
+
+Prompt – Add UI options in main menu & in-game menu to toggle shaders:
+You are working on the same project, which now uses config-based shader profiles for menu, pause, and gameplay. We want players to enable/disable shaders and select profiles via menus, instead of F3.
+
+Goal:
+Add simple menu options in:
+1) main menu options/settings
+2) in-game pause/options menu
+
+that:
+- toggle enable_menu_shaders, enable_pause_shaders, enable_gameplay_shaders
+- allow choosing a profile for each from a small list of profile names
+
+Constraints:
+- Use the existing UI/menu framework in this project (existing options/menus/scenes).
+- Keep UI changes minimal and consistent with the current style.
+- It’s okay if settings are only stored in memory for now (no permanent on-disk save, unless a settings system already exists).
+
+Steps:
+
+1) Main menu options:
+Locate the scene or screen that handles main menu options/settings (e.g. OptionsScene or similar).
+
+Add UI elements for:
+- “Menu Shaders: On/Off”
+- “Pause Shaders: On/Off”
+- “Gameplay Shaders: On/Off”
+
+These should toggle:
+- config.enable_menu_shaders
+- config.enable_pause_shaders
+- config.enable_gameplay_shaders
+
+Also add simple profile selectors (e.g. left/right arrows or cycling entries) for:
+- “Menu Shader Profile: [none/menu_crt/menu_neon]”
+- “Pause Shader Profile: [none/pause_dim_vignette]”
+- “Gameplay Shader Profile: [none/gameplay_subtle_vignette/gameplay_retro]”
+
+Make sure these map directly to the string profile names defined in the config/profile mapping.
+
+2) In-game pause/options menu:
+Locate the in-game pause or options menu scene.
+
+Add a smaller subset of options:
+- At minimum, allow toggling enable_gameplay_shaders and enable_pause_shaders, and changing gameplay_shader_profile and pause_shader_profile.
+- Reuse the same underlying config object so changes immediately affect the active shader stacks the next frame.
+
+3) Reflect changes live:
+When the player changes one of these settings:
+- Update the config object immediately.
+- Ensure the scene that owns the render path will pick up the new config values on the next frame and update its shader stack.
+
+4) Default values:
+- Ensure that when opening the menu, the UI reflects the current config values.
+- No re-initialization should reset these unexpectedly during the same run.
+
+5) Remove reliance on F3:
+- Confirm that after these UI changes, the user can fully control shader usage (on/off/profile) without debug keys.
+- It’s okay to leave a debug key to print the current shader config, but not to cycle the stack.
+
+Do not:
+- Do not add complicated new UI systems.
+- Do not implement disk persistence if the project doesn’t already have a settings save/load system; if it DOES, hook into it minimally and cleanly.
+
+
+
+Cursor Prompt – Verify All Shader-System Changes Work Correctly:
+You are auditing the project to verify that the previous 4 shader-related refactor prompts were implemented correctly.
+
+Goal:
+Confirm that all shader effects, shader profiles, config toggles, registry entries, and menu options work together end-to-end WITHOUT rewriting large parts of the project. Only fix clear mistakes or missing glue.
+
+Verification tasks:
+
+1. Shader Registry & Effect Classes
+- Confirm all 15+ new shader effect classes exist, are named correctly, and are located in the shader/effects modules.
+- Ensure each effect has:
+  * a constructor with sensible default parameters,
+  * an apply() method that matches the engine's shader pipeline API,
+  * a registry entry with a unique string key.
+- Ensure no registry keys conflict or overwrite other effects.
+
+2. Shader Profiles
+- Confirm the central mapping of shader profile names → effect stacks exists (e.g. SHADER_PROFILES).
+- Ensure each profile lists registry keys, not class names.
+- Validate that get_menu_shader_stack(), get_pause_shader_stack(), and get_gameplay_shader_stack() construct the correct effect objects.
+- Verify defaults handle the “none” profile properly.
+
+3. Config Integration
+- Ensure config includes:
+  * enable_menu_shaders
+  * enable_pause_shaders
+  * enable_gameplay_shaders
+  * menu_shader_profile
+  * pause_shader_profile
+  * gameplay_shader_profile
+- Verify default values match the intended safe behavior (e.g., subtle default or none).
+- Confirm the config options are read correctly by the shader-stack builder functions.
+
+4. Rendering Integration (Scene-Level)
+For the main menu scene, pause menu scene, and gameplay scene:
+- Ensure each scene retrieves the correct shader stack based on config.
+- Ensure shader stacks are applied to the FINAL frame before blitting to screen.
+- Confirm that old F3-based shader cycling code is fully removed or disabled.
+- Confirm scenes do NOT require a debug toggle to activate shaders.
+
+5. UI / Menu Options
+- Confirm main menu options screen shows toggles for:
+  * Menu Shaders On/Off
+  * Pause Shaders On/Off
+  * Gameplay Shaders On/Off
+- Confirm profile selectors appear for:
+  * Menu Shader Profile
+  * Pause Shader Profile
+  * Gameplay Shader Profile
+- In pause menu, confirm you can toggle gameplay/pause shader settings live.
+- Validate setting changes immediately update config and impact shader stacks the next frame.
+
+6. Functional Tests
+Simulate or check:
+- Menu shaders activate when entering the menu with enable_menu_shaders = True.
+- Gameplay shaders activate in gameplay only when enable_gameplay_shaders = True.
+- Pause shaders activate ONLY while paused and do not leak into gameplay.
+- Switching profiles through UI immediately produces different visual stacks.
+- Disabling a shader group removes ALL its effects reliably.
+
+7. Code Health
+- Ensure there is no dead/unused code left from F3 cycling.
+- Confirm no scene or shader system crashes when shaders are disabled entirely.
+- Validate that missing effects or invalid profiles fail safely with clear logs or fallbacks.
+
+Fixing Rules:
+- Fix ONLY issues that clearly break the intended shader system integration.
+- Do NOT re-architect anything.
+- Keep all fixes minimal, localized, and consistent with existing patterns.
+
+DO DIS:
+Refactor game.py to make it smaller and more modular without changing any behavior.
+
+Step 1: Analyze game.py and identify large blocks of logic that can be safely moved out. Focus on:
+
+Simulation update logic (player cooldowns, overshield, timers, enemies, pickups, system updates, etc.)
+
+Helper/utility functions that do not need to live in game.py
+Do not rewrite anything. Only identify moveable code.
+
+Step 2: Create a new file named simulation_systems.py in the same directory as game.py.
+Move all simulation-related update logic from game.py into simulation_systems.py.
+Each chunk of logic should become its own function.
+Each function must keep its existing behavior, variable usage, and ordering.
+Use the same function signature that game.py currently uses for simulation update code (for example: (gs, sim_dt, app_ctx), or whatever is already being used).
+
+Step 3: In simulation_systems.py, create a list named SIMULATION_SYSTEMS that contains all of these system functions in the exact order they originally executed inside game.py.
+
+Step 4: In game.py, replace the old simulation update block with:
+from simulation_systems import SIMULATION_SYSTEMS
+
+def _update_simulation(sim_dt, gs, app_ctx):
+for system in SIMULATION_SYSTEMS:
+system(gs, sim_dt, app_ctx)
+
+Step 5: Find any helper or utility functions in game.py that do not need to be in this file. Move them into a new module (for example: game_utils.py) or into an existing utility module. After moving them, import them into game.py instead of defining them there. Do not change behavior.
+
+Step 6: After the refactor is complete, game.py should primarily contain:
+
+main()
+
+the if name == "main": main() entry
+
+the main game loop
+
+scene stack setup and scene flow
+
+thin orchestration code that delegates to other modules
+
+Step 7: Avoid creating circular imports. If a circular import occurs, move the shared helper into a neutral module and import from there.
+
+Step 8: Do not change any gameplay logic, timing, rendering behavior, shaders, menus, controls, or config. Only move code to reduce size.
+
+When finished, show me:
+
+The updated game.py
+
+The new simulation_systems.py
+
+Any new helper modules created
+
+Keep the edits small, mechanical, and behavior-identical.
+
+PROMPT 1:
+Refactor telemetry so that per-frame telemetry logic is handled by a dedicated system in systems/telemetry_system.py instead of being embedded in game.py.
+
+Step 1:
+Open systems/telemetry_system.py. If it does not exist, create it.
+Add a function with a clear signature like:
+def update_telemetry(gs, sim_dt, app_ctx) -> None:
+Move any per-frame telemetry sampling or logging logic that currently lives in game.py or any other location where the game loop updates telemetry. This includes frame-level metrics, player snapshots, wave snapshots, or anything else that currently updates telemetry each frame.
+Do not change behavior, only move logic into this function.
+
+Step 2:
+In game.py (or wherever the main loop lives), replace any inline telemetry update code with a single call:
+update_telemetry(gs, sim_dt, app_ctx)
+Import this function from systems.telemetry_system.
+
+Step 3:
+Ensure GameState and AppContext still hold telemetry references, but that per-frame decisions are centralized in update_telemetry.
+
+Step 4:
+Do not modify any schema, DB paths, or data. Only move logic.
+
+When done, show updated game.py and systems/telemetry_system.py.
+
+PROMPT 2:
+Unify gameplay configuration so that the config/ package is the single source of truth and older config modules become thin compatibility layers.
+
+Step 1:
+Inspect config/enemy_defs.py and config/projectile_defs.py. Treat these as canonical definitions. If config_enemies.py or config_weapons.py contain additional useful definitions, move or merge them into config/enemy_defs.py or config/projectile_defs.py.
+
+Step 2:
+Update modules that currently import from config_enemies or config_weapons so they instead import from config.enemy_defs or config.projectile_defs when it is safe to do so and avoids circular imports.
+
+Step 3:
+Convert config_enemies.py and config_weapons.py into thin shims that import and re-export from the config/ package. Add comments marking them as compatibility shims.
+
+Step 4:
+Move balance and tuning-related values from constants.py into config/game_config.py when they relate to gameplay configuration. Keep constants.py for true global constants.
+
+Step 5:
+Do not change any actual values or behavior. Only reorganize sources of truth.
+
+When done, show:
+- updated config/enemy_defs.py
+- updated config/projectile_defs.py
+- updated config/game_config.py
+- final shims for config_enemies.py and config_weapons.py.
+
+
+
+PROMPT 3:
+Introduce a graphics/performance preset system that controls GPU physics and shader usage via config values, without changing current default behavior.
+
+Step 1:
+In config/game_config.py, add:
+- graphics_preset (string such as "low", "medium", "high", "ultra")
+- use_gpu_physics (bool)
+- use_gpu_shaders (bool)
+- internal_resolution_scale (float)
+Set defaults that match the current behavior of the game.
+
+Step 2:
+Extend AppContext so it includes a graphics or performance config field that references these values.
+
+Step 3:
+Update systems/movement_system.py so GPU physics usage is determined by app_ctx.config.use_gpu_physics instead of any hard-coded flags.
+
+Step 4:
+Update rendering_shaders.py and shader_effects to check app_ctx.config.use_gpu_shaders and optionally use internal_resolution_scale for CPU-based effects.
+
+Step 5:
+Do not change current keybinds or menus. Only centralize the configuration.
+
+When done, show:
+- updated config/game_config.py
+- updated AppContext
+- updated systems/movement_system.py
+- updated rendering_shaders.py (and any affected modules).
+
+
+
+PROMPT 4:
+Refactor shader_effects.py into a shader_effects/ package without changing behavior.
+
+Step 1:
+Create a folder shader_effects/ with an __init__.py file.
+
+Step 2:
+Inside that folder, create:
+- base.py (holds base effect classes, registry logic, helpers)
+- color_effects.py (color-based effects)
+- distort_effects.py (distortions, waves, warps, glitch-style effects)
+
+Step 3:
+Move code from shader_effects.py into these files, preserving class names, behavior, and registry entries.
+
+Step 4:
+Re-export all necessary symbols from shader_effects/__init__.py so existing imports still work.
+
+Step 5:
+Update broken imports to point to the new structure or rely on re-exported names.
+
+Do not change effect behavior.
+
+When done, show base.py, color_effects.py, distort_effects.py, and __init__.py.
+
+
+
+PROMPT 5:
+
+
+
+PROMPT 6:
+
+
 
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------
