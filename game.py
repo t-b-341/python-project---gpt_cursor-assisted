@@ -21,17 +21,17 @@ import sqlite3
 # Suppress pygame's pkg_resources deprecation warning (pygame internal, not our code)
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
 
-# Optional GPU acceleration (Cython/numba)
+# Optional GPU acceleration (numba/CUDA). Single capability flag; CPU fallback when disabled.
 try:
     from gpu_physics import update_bullets_batch, check_collisions_batch, CUDA_AVAILABLE
     USE_GPU = CUDA_AVAILABLE
-    if USE_GPU:
-        print("GPU acceleration enabled (CUDA)")
-    else:
-        print("GPU acceleration available but CUDA not detected (using CPU fallback)")
-except ImportError:
+    if not USE_GPU:
+        pass  # gpu_physics logs or stays quiet; game uses CPU path when USE_GPU is False
+except Exception as e:
     USE_GPU = False
-    print("Note: GPU acceleration not available. Install with: pip install numba")
+    update_bullets_batch = None
+    check_collisions_batch = None
+    print("gpu_physics: could not load ({}). Using CPU physics.".format(e))
 
 from telemetry import (
     Telemetry,

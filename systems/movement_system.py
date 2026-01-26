@@ -21,8 +21,8 @@ except ImportError:
 
 try:
     from gpu_physics import update_bullets_batch, CUDA_AVAILABLE
-    _USE_GPU = CUDA_AVAILABLE
-except ImportError:
+    _USE_GPU = CUDA_AVAILABLE  # Single capability flag: True only when GPU path is usable
+except Exception:
     _USE_GPU = False
     update_bullets_batch = None
 

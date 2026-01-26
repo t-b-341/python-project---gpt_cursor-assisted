@@ -7,16 +7,11 @@ from typing import Optional
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# GPU acceleration support (optional - falls back to CPU if unavailable)
+# GPU acceleration support (optional). Single capability flag from gpu_physics.
 try:
     from gpu_physics import CUDA_AVAILABLE
     USE_GPU = CUDA_AVAILABLE
-    if USE_GPU:
-        try:
-            from numba import cuda  # noqa: F401
-        except ImportError:
-            USE_GPU = False
-except ImportError:
+except Exception:
     USE_GPU = False
 
 

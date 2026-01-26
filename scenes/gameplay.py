@@ -66,8 +66,8 @@ class GameplayScene:
             try:
                 from gpu_physics import CUDA_AVAILABLE
                 extra_lines.append(f"cuda_available: {CUDA_AVAILABLE}")
-            except ImportError:
-                extra_lines.append("cuda_available: import error")
+            except Exception:
+                extra_lines.append("cuda_available: unavailable")
             use_gpu_physics = bool(getattr(config, "use_gpu_physics", False))
             extra_lines.append(f"gpu_physics: {'ON' if use_gpu_physics else 'OFF'}")
             render_debug_overlay(render_ctx, game_state, extra_lines=extra_lines)

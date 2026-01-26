@@ -8,8 +8,8 @@ from .collision_common import apply_player_damage, set_enemy_damage_flash
 
 try:
     from gpu_physics import check_collisions_batch, CUDA_AVAILABLE
-    _USE_GPU_COLLISION = CUDA_AVAILABLE
-except ImportError:
+    _USE_GPU_COLLISION = CUDA_AVAILABLE  # Single capability flag: True only when GPU path is usable
+except Exception:
     _USE_GPU_COLLISION = False
     check_collisions_batch = None
 
