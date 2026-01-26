@@ -10,6 +10,7 @@ Tuning guide (which values to tweak for feel):
 - Feel profiles: use FEEL_PROFILE_CASUAL / FEEL_PROFILE_ARCADE to apply preset overrides (see apply_feel_profile).
 - On-screen debug info (wave, enemy count, player HP): set debug_draw_overlay=True to enable the debug HUD in gameplay.
 - GPU physics: set use_gpu_physics=True (requires CUDA_AVAILABLE from gpu_physics).
+- Post-process profile: shader_profile "none" | "cpu_tint" | "gl_basic" (only when use_shaders=True).
 """
 from __future__ import annotations
 
@@ -64,6 +65,7 @@ class GameConfig:
     default_weapon_mode: str = "giant"
     debug_draw_overlay: bool = False  # When True, gameplay shows a small debug HUD (wave, enemies, HP, lives).
     use_shaders: bool = False  # When True, use GPU shaders for rendering (requires moderngl).
+    shader_profile: str = "none"  # "none" | "cpu_tint" | "gl_basic"; only applies when use_shaders=True.
     use_gpu_physics: bool = False  # When True AND CUDA_AVAILABLE, use GPU-accelerated physics code paths.
     # Audio (used by systems.audio_system)
     sfx_volume: float = 1.0
