@@ -62,6 +62,7 @@ class GameConfig:
     invulnerability_mode: bool = False
     default_weapon_mode: str = "giant"
     debug_draw_overlay: bool = False  # When True, gameplay shows a small debug HUD (wave, enemies, HP, lives).
+    use_shaders: bool = False  # When True, use GPU shaders for rendering (requires moderngl).
     # Audio (used by systems.audio_system)
     sfx_volume: float = 1.0
     music_volume: float = 1.0

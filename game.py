@@ -372,6 +372,34 @@ def main():
     # Initialize high scores database
     init_high_scores_db()
 
+    # Optional GPU shader toggle: ask in-program (do not require moderngl to be installed)
+    try:
+        import moderngl  # noqa: F401
+        moderngl_available = True
+    except ImportError:
+        print("moderngl not available; disabling shader mode.")
+        ctx.config.use_shaders = False
+        moderngl_available = False
+    if moderngl_available:
+        prompt_done = False
+        while not prompt_done:
+            ctx.screen.fill((30, 30, 40))
+            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Enable GPU shaders?", ctx.height // 2 - 50, color=(220, 220, 220), use_big=True)
+            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "(Y)es  /  (N)o", ctx.height // 2 + 20, (180, 180, 180))
+            pygame.display.flip()
+            for e in pygame.event.get():
+                if e.type == pygame.QUIT:
+                    prompt_done = True
+                    ctx.config.use_shaders = False
+                elif e.type == pygame.KEYDOWN:
+                    if e.key in (pygame.K_y, pygame.K_z):
+                        ctx.config.use_shaders = True
+                        prompt_done = True
+                    elif e.key in (pygame.K_n, pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                        ctx.config.use_shaders = False
+                        prompt_done = True
+    print("Shader mode: ON" if ctx.config.use_shaders else "Shader mode: OFF")
+
     # Fixed-step simulation: deterministic updates, robust to frame spikes
     FPS = 60
     FIXED_DT = 1.0 / 60.0
