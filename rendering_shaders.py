@@ -61,6 +61,10 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
     )
     offscreen_surface.fill((0, 0, 0, 255))
     _render_gameplay_frame(temp_ctx, game_state, ctx)
+    if use_shaders:
+        overlay = pygame.Surface(offscreen_surface.get_size(), flags=pygame.SRCALPHA)
+        overlay.fill((80, 0, 120, 60))  # RGBA: mild purple tint, low alpha
+        offscreen_surface.blit(overlay, (0, 0))
     render_ctx.screen.blit(offscreen_surface, (0, 0))
 
     if use_shaders and HAS_MODERNGL:
