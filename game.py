@@ -163,6 +163,7 @@ from config import GameConfig
 from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
 from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene, ShaderTestScene
+from scenes.gameplay import cycle_shader_profile
 from systems.registry import SIMULATION_SYSTEMS
 from systems.spawn_system import start_wave as spawn_system_start_wave
 from systems.input_system import handle_gameplay_input
@@ -553,7 +554,7 @@ def main():
             controls_rebinding = game_state.controls_rebinding
 
             # Context for screen handlers (shared by event and render)
-            screen_ctx = {"WIDTH": ctx.width, "HEIGHT": ctx.height, "font": ctx.font, "big_font": ctx.big_font, "small_font": ctx.small_font, "get_high_scores": get_high_scores, "save_high_score": save_high_score, "difficulty": ctx.config.difficulty}
+            screen_ctx = {"WIDTH": ctx.width, "HEIGHT": ctx.height, "font": ctx.font, "big_font": ctx.big_font, "small_font": ctx.small_font, "get_high_scores": get_high_scores, "save_high_score": save_high_score, "difficulty": ctx.config.difficulty, "app_ctx": ctx}
 
             # Event handling
             events = pygame.event.get()
@@ -688,6 +689,9 @@ def main():
                             game_state.current_screen = STATE_PAUSED
                         elif state == STATE_PAUSED:
                             state = previous_game_state if previous_game_state else STATE_PLAYING
+                    # F3: cycle shader profile (none -> cpu_tint -> gl_basic) during gameplay
+                    if event.key == pygame.K_F3 and (state == STATE_PLAYING or state == STATE_ENDURANCE):
+                        cycle_shader_profile(ctx.config)
                     
                     # Pause menu navigation (fallback when not using screen handler)
                     if state == STATE_PAUSED:
