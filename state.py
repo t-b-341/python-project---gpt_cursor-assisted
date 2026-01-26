@@ -145,6 +145,11 @@ class GameState:
     name_input_active: bool = False
     final_score_for_high_score: int = 0
 
+    # Juice: timers for visual feedback (driven by config durations; decay in sim step)
+    screen_damage_flash_timer: float = 0.0  # Seconds left for fullscreen damage vignette
+    wave_banner_timer: float = 0.0
+    wave_banner_text: str = ""
+
     # Player rect (position/size on screen; created in main() after display init)
     player_rect: Optional[pygame.Rect] = None
 

@@ -36,7 +36,7 @@ def render_hud(state: "GameState", ctx: dict, render_ctx: RenderContext) -> None
 
 
 def render_overlays(state: "GameState", ctx: dict, render_ctx: RenderContext) -> None:
-    """Draw overlay layer: damage numbers, defeat/pickup messages, wave countdown, wave-reset debug."""
+    """Draw overlay layer: damage numbers, defeat/pickup messages, wave countdown, wave-reset debug, juice (screen flash, wave banner)."""
     if not ctx or not render_ctx:
         return
     screen = render_ctx.screen
@@ -51,6 +51,36 @@ def render_overlays(state: "GameState", ctx: dict, render_ctx: RenderContext) ->
     _draw_wave_countdown(screen, state, font, big_font, WIDTH, HEIGHT)
     if ui_show_metrics:
         _draw_wave_reset_debug(screen, state, small_font, WIDTH, HEIGHT)
+    _draw_screen_damage_flash(screen, state, ctx, WIDTH, HEIGHT)
+    _draw_wave_banner(screen, state, ctx, big_font, WIDTH, HEIGHT)
+
+
+def _draw_screen_damage_flash(screen: pygame.Surface, state: "GameState", ctx: dict, WIDTH: int, HEIGHT: int) -> None:
+    """Juice: brief red vignette when player takes damage. Magnitude/duration from config."""
+    if not ctx.get("enable_screen_flash", True):
+        return
+    t = getattr(state, "screen_damage_flash_timer", 0.0)
+    if t <= 0:
+        return
+    duration = ctx.get("screen_flash_duration", 0.25)
+    max_alpha = min(255, max(0, ctx.get("screen_flash_max_alpha", 100)))
+    alpha = int(max_alpha * (t / duration)) if duration > 0 else 0
+    if alpha <= 0:
+        return
+    surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    surf.fill((255, 50, 50, alpha))
+    screen.blit(surf, (0, 0))
+
+
+def _draw_wave_banner(screen: pygame.Surface, state: "GameState", ctx: dict, big_font: Any, WIDTH: int, HEIGHT: int) -> None:
+    """Juice: centered 'WAVE N' text when a wave starts. Duration from config."""
+    if not ctx.get("enable_wave_banner", True):
+        return
+    t = getattr(state, "wave_banner_timer", 0.0)
+    if t <= 0:
+        return
+    text = getattr(state, "wave_banner_text", "") or "WAVE"
+    draw_centered_text(screen, big_font, big_font, WIDTH, text, HEIGHT // 2 - 30, (255, 255, 200), use_big=True)
 
 
 def render(state: "GameState", screen: pygame.Surface, ctx: dict) -> None:

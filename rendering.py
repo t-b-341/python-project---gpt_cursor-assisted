@@ -459,7 +459,13 @@ def _draw_allies_and_enemies(screen: pygame.Surface, state) -> None:
         if hasattr(enemy, "draw"):
             enemy.draw(screen)
         elif r:
-            pygame.draw.rect(screen, enemy.get("color", (200, 50, 50)), r)
+            base_color = enemy.get("color", (200, 50, 50))
+            # Juice: damage flash — brief bright tint when enemy is hit
+            flash_t = enemy.get("damage_flash_timer", 0.0)
+            if flash_t > 0:
+                flash_frac = min(1.0, flash_t / 0.12)
+                base_color = tuple(min(255, int(c + (255 - c) * flash_frac)) for c in base_color)
+            pygame.draw.rect(screen, base_color, r)
         if highlight_when_few and r:
             out = r.inflate(8, 8)
             pygame.draw.rect(screen, (255, 255, 0), out, 3)

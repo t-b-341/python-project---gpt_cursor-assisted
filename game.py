@@ -165,7 +165,7 @@ from systems.collision_system import update as collision_update
 from systems.spawn_system import update as spawn_update, start_wave as spawn_system_start_wave
 from systems.ai_system import update as ai_update
 from systems.input_system import handle_gameplay_input
-from systems.audio_system import init_mixer, sync_from_config
+from systems.audio_system import init_mixer, sync_from_config, play_sfx
 from controls_io import _key_name_to_code, load_controls, save_controls
 from physics_loader import resolve_physics
 from geometry_utils import (
@@ -336,6 +336,16 @@ def main():
             "telemetry_enabled": ctx.config.enable_telemetry,
             "overshield_recharge_cooldown": overshield_recharge_cooldown,
             "ally_drop_cooldown": ally_drop_cooldown,
+            "play_sfx": play_sfx,
+            "damage_flash_duration": getattr(ctx.config, "damage_flash_duration", 0.12),
+            "screen_flash_duration": getattr(ctx.config, "screen_flash_duration", 0.25),
+            "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
+            "enable_damage_flash": getattr(ctx.config, "enable_damage_flash", True),
+            "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
+            "enable_wave_banner": getattr(ctx.config, "enable_wave_banner", True),
+            "wave_banner_duration": getattr(ctx.config, "wave_banner_duration", 1.5),
+            "base_enemies_per_wave": getattr(ctx.config, "base_enemies_per_wave", 12),
+            "enemy_spawn_multiplier": getattr(ctx.config, "enemy_spawn_multiplier", 3.5),
         }
     game_state.level_context = _make_level_context()
 
@@ -417,6 +427,12 @@ def main():
         collision_update(gs, sim_dt)
         spawn_update(gs, sim_dt)
         ai_update(gs, sim_dt)
+        # Juice: decay visual feedback timers each step
+        gs.screen_damage_flash_timer = max(0.0, gs.screen_damage_flash_timer - sim_dt)
+        gs.wave_banner_timer = max(0.0, gs.wave_banner_timer - sim_dt)
+        for e in gs.enemies:
+            if isinstance(e, dict) and "damage_flash_timer" in e:
+                e["damage_flash_timer"] = max(0.0, e["damage_flash_timer"] - sim_dt)
 
     running = True
     try:
@@ -730,13 +746,13 @@ def main():
                                 else:
                                     ctx.telemetry_client = NoOpTelemetry()
                                 
-                                # Apply class stats
+                                # Apply class stats from config base values
                                 stats = player_class_stats[ctx.config.player_class]
                                 game_state.player_max_hp = int(1000 * stats["hp_mult"] * 0.75)  # Reduced by 0.75x
                                 game_state.player_hp = game_state.player_max_hp
-                                game_state.player_speed = int(300 * stats["speed_mult"])
-                                game_state.player_bullet_damage = int(20 * stats["damage_mult"])
-                                game_state.player_shoot_cooldown = 0.12 / stats["firerate_mult"]
+                                game_state.player_speed = int(ctx.config.player_base_speed * stats["speed_mult"])
+                                game_state.player_bullet_damage = int(ctx.config.player_base_damage * stats["damage_mult"])
+                                game_state.player_shoot_cooldown = ctx.config.player_base_shoot_cooldown / stats["firerate_mult"]
                                 
                                 # Set state and persist to game_state so "state = game_state.current_screen" in the play block doesn't overwrite with MENU
                                 if endurance_mode_selected == 1:
@@ -976,6 +992,10 @@ def main():
                     "shield_duration": shield_duration,
                     "aiming_mode": ctx.config.aim_mode,
                     "current_state": state,
+                    "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
+                    "screen_flash_duration": getattr(ctx.config, "screen_flash_duration", 0.25),
+                    "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
+                    "enable_wave_banner": getattr(ctx.config, "enable_wave_banner", True),
                 }
                 gameplay_render(ctx, game_state, gameplay_ctx)
                 
@@ -2435,6 +2455,7 @@ def spawn_ally_missile(friendly: dict, target_enemy: dict, state: GameState) -> 
 
 def kill_enemy(enemy: dict, state: GameState, width: int, height: int) -> None:
     """Handle enemy death: drop weapon, update score, remove from list, and clean up projectiles."""
+    play_sfx("enemy_death")
     is_boss = enemy.get("is_boss", False)
     
     # Spawner enemy: when killed, all spawned enemies die

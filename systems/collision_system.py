@@ -43,6 +43,12 @@ def update(state: "GameState", dt: float) -> None:
     _handle_missile_collisions(state, ctx)
 
 
+def _set_enemy_damage_flash(enemy: dict, ctx: dict) -> None:
+    """Set enemy damage flash timer when config enables it (juice)."""
+    if ctx.get("enable_damage_flash", True):
+        enemy["damage_flash_timer"] = ctx.get("damage_flash_duration", 0.12)
+
+
 def _apply_player_damage(state, damage: int, ctx: dict) -> None:
     """Apply damage to player (overshield then HP); trigger death/game-over if needed."""
     if damage <= 0:
@@ -55,6 +61,11 @@ def _apply_player_damage(state, damage: int, ctx: dict) -> None:
         damage = damage - damage_to_overshield
     if damage > 0:
         state.player_hp -= damage
+        if ctx.get("enable_screen_flash", True):
+            state.screen_damage_flash_timer = ctx.get("screen_flash_duration", 0.25)
+        pf = ctx.get("play_sfx")
+        if callable(pf):
+            pf("player_hit")
     state.damage_taken += damage
     state.wave_damage_taken += damage
     if state.player_hp <= 0:
@@ -84,6 +95,7 @@ def _handle_hazard_enemy_collisions(state, dt: float, ctx: dict) -> None:
             center = pygame.Vector2(enemy["rect"].center)
             if check(center, hazard["points"], hazard["bounding_rect"]):
                 enemy["hp"] -= hazard_damage * dt
+                _set_enemy_damage_flash(enemy, ctx)
                 if enemy["hp"] <= 0:
                     kill(enemy, state)
 
@@ -102,6 +114,7 @@ def _handle_laser_beam_collisions(state, dt: float, ctx: dict) -> None:
         for enemy in state.enemies[:]:
             if line_rect(beam["start"], beam["end"], enemy["rect"]):
                 enemy["hp"] -= damage
+                _set_enemy_damage_flash(enemy, ctx)
                 if enemy["hp"] <= 0:
                     kill(enemy, state)
 
@@ -218,6 +231,7 @@ def _handle_player_bullet_enemy_collisions(state, ctx: dict) -> None:
                 else:
                     dmg = bullet.get("damage", player_damage)
                     enemy["hp"] -= dmg
+                    _set_enemy_damage_flash(enemy, ctx)
                     state.damage_numbers.append({
                         "x": enemy["rect"].centerx,
                         "y": enemy["rect"].y - 20,
@@ -235,6 +249,7 @@ def _handle_player_bullet_enemy_collisions(state, ctx: dict) -> None:
             else:
                 dmg = bullet.get("damage", player_damage)
                 enemy["hp"] -= dmg
+                _set_enemy_damage_flash(enemy, ctx)
                 state.damage_numbers.append({
                     "x": enemy["rect"].centerx,
                     "y": enemy["rect"].y - 20,
@@ -474,6 +489,7 @@ def _handle_friendly_projectile_offscreen_blocks_enemies(state, ctx: dict) -> No
                 if proj["rect"].colliderect(enemy["rect"]):
                     dmg = proj.get("damage", 20)
                     enemy["hp"] -= dmg
+                    _set_enemy_damage_flash(enemy, ctx)
                     state.damage_numbers.append({
                         "x": enemy["rect"].centerx,
                         "y": enemy["rect"].y - 20,
@@ -511,6 +527,7 @@ def _handle_grenade_explosion_damage(state, dt: float, ctx: dict) -> None:
                 d = (pygame.Vector2(enemy["rect"].center) - pos).length()
                 if d <= r:
                     enemy["hp"] -= damage_val
+                    _set_enemy_damage_flash(enemy, ctx)
                     state.damage_numbers.append({
                         "x": enemy["rect"].centerx,
                         "y": enemy["rect"].y - 20,
@@ -573,6 +590,7 @@ def _handle_missile_collisions(state, ctx: dict) -> None:
                 if (pygame.Vector2(enemy["rect"].center) - pos).length() <= rad:
                     dmg = missile.get("damage", md)
                     enemy["hp"] -= dmg
+                    _set_enemy_damage_flash(enemy, ctx)
                     state.damage_numbers.append({
                         "x": enemy["rect"].centerx,
                         "y": enemy["rect"].y - 20,

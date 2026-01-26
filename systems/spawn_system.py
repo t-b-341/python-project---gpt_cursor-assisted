@@ -77,6 +77,14 @@ def _start_wave(wave_num: int, state, ctx: dict) -> None:
     _log_wave_reset(state, trigger, wave_num, enemies_before)
     state.wave_start_reason = ""
 
+    # Juice: wave banner and SFX
+    if ctx.get("enable_wave_banner", True):
+        state.wave_banner_timer = ctx.get("wave_banner_duration", 1.5)
+        state.wave_banner_text = f"WAVE {wave_num}"
+    pf = ctx.get("play_sfx")
+    if callable(pf):
+        pf("wave_start")
+
     state.enemies = []
     state.boss_active = False
     state.wave_damage_taken = 0
@@ -182,6 +190,9 @@ def _spawn_boss_wave(
     boss["time_since_shot"] = 0.0
     state.enemies.append(Enemy(boss))
     state.boss_active = True
+    pf = ctx.get("play_sfx")
+    if callable(pf):
+        pf("boss_spawn")
 
     if telemetry:
         ref = [state.enemies_spawned]
@@ -214,8 +225,14 @@ def _spawn_regular_wave(
     wave_in_level_mult = 1.0 + (state.wave_in_level - 1) * 0.15
     hp_scale = (1.0 + 0.15 * (wave_num - 1)) * diff_mult["enemy_hp"] * level_mult * wave_in_level_mult
     speed_scale = (1.0 + 0.05 * (wave_num - 1)) * diff_mult["enemy_speed"] * level_mult * wave_in_level_mult
-    base_count = BASE_ENEMIES_PER_WAVE + 2 * (wave_num - 1)
-    count = min(int(base_count * diff_mult["enemy_spawn"] * ENEMY_SPAWN_MULTIPLIER), MAX_ENEMIES_PER_WAVE)
+    base_enemies = ctx.get("base_enemies_per_wave")
+    if base_enemies is None:
+        base_enemies = BASE_ENEMIES_PER_WAVE
+    spawn_mult = ctx.get("enemy_spawn_multiplier")
+    if spawn_mult is None:
+        spawn_mult = ENEMY_SPAWN_MULTIPLIER
+    base_count = base_enemies + 2 * (wave_num - 1)
+    count = min(int(base_count * diff_mult["enemy_spawn"] * spawn_mult), MAX_ENEMIES_PER_WAVE)
 
     spawned = []
     enemy_type_counts = {}
@@ -363,6 +380,9 @@ def _update_wave_timers(state, dt: float, ctx: dict) -> None:
 
     state.wave_number += 1
     state.wave_in_level += 1
+    pf = ctx.get("play_sfx")
+    if callable(pf):
+        pf("wave_clear")
     if state.wave_in_level > 3:
         state.wave_in_level = 1
         state.current_level += 1
