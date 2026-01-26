@@ -93,6 +93,7 @@ from allies import (
 )
 from state import GameState
 from context import AppContext
+from config import GameConfig
 from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
 from systems.movement_system import update as movement_update
@@ -160,7 +161,21 @@ def main():
     if not controls:
         controls = load_controls()
 
-    # Application context: screen, fonts, clock, telemetry, difficulty, and other app-level config
+    # Application context: screen, fonts, clock, telemetry, and centralized config
+    cfg = GameConfig(
+        difficulty=DIFFICULTY_NORMAL,
+        aim_mode=AIM_MOUSE,
+        player_class=PLAYER_CLASS_BALANCED,
+        enable_telemetry=False,
+        show_metrics=True,
+        show_hud=True,
+        show_health_bars=True,
+        show_player_health_bar=True,
+        profile_enabled=False,
+        testing_mode=True,
+        invulnerability_mode=False,
+        default_weapon_mode="giant",
+    )
     ctx = AppContext(
         screen=screen,
         clock=clock,
@@ -170,19 +185,9 @@ def main():
         width=WIDTH,
         height=HEIGHT,
         telemetry_client=None,
-        telemetry_enabled=False,
         run_started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         controls=controls,
-        difficulty=DIFFICULTY_NORMAL,
-        aiming_mode=AIM_MOUSE,
-        profile_enabled=False,
-        player_class=PLAYER_CLASS_BALANCED,
-        testing_mode=True,
-        invulnerability_mode=False,
-        ui_show_metrics=True,
-        ui_show_hud=True,
-        ui_show_health_bars=True,
-        ui_show_player_health_bar=True,
+        config=cfg,
     )
 
     # Create GameState as the single source of truth for all mutable game state.
@@ -241,8 +246,8 @@ def main():
             "teleporter_pads": teleporter_pads,
             "check_point_in_hazard": check_point_in_hazard,
             "line_rect_intersection": line_rect_intersection,
-            "testing_mode": ctx.testing_mode,
-            "invulnerability_mode": ctx.invulnerability_mode,
+            "testing_mode": ctx.config.testing_mode,
+            "invulnerability_mode": ctx.config.invulnerability_mode,
             "reset_after_death": lambda s: reset_after_death(s, w, h),
             "create_pickup_collection_effect": create_pickup_collection_effect,
             "apply_pickup_effect": lambda pt, s: apply_pickup_effect(pt, s, ctx),
@@ -250,12 +255,12 @@ def main():
             "enemy_projectiles_color": enemy_projectiles_color,
             "missile_damage": missile_damage,
             "find_nearest_threat": find_nearest_threat,
-            "spawn_enemy_projectile": lambda e, s: spawn_enemy_projectile(e, s, ctx.telemetry_client, ctx.telemetry_enabled),
+            "spawn_enemy_projectile": lambda e, s: spawn_enemy_projectile(e, s, ctx.telemetry_client, ctx.config.enable_telemetry),
             "spawn_enemy_projectile_predictive": spawn_enemy_projectile_predictive,
-            "difficulty": ctx.difficulty,
+            "difficulty": ctx.config.difficulty,
             "random_spawn_position": random_spawn_position,
             "telemetry": ctx.telemetry_client,
-            "telemetry_enabled": ctx.telemetry_enabled,
+            "telemetry_enabled": ctx.config.enable_telemetry,
             "overshield_recharge_cooldown": overshield_recharge_cooldown,
             "ally_drop_cooldown": ally_drop_cooldown,
         }
@@ -293,7 +298,7 @@ def main():
             controls_rebinding = game_state.controls_rebinding
 
             # Context for screen handlers (shared by event and render)
-            screen_ctx = {"WIDTH": ctx.width, "HEIGHT": ctx.height, "font": ctx.font, "big_font": ctx.big_font, "small_font": ctx.small_font, "get_high_scores": get_high_scores, "save_high_score": save_high_score, "difficulty": ctx.difficulty}
+            screen_ctx = {"WIDTH": ctx.width, "HEIGHT": ctx.height, "font": ctx.font, "big_font": ctx.big_font, "small_font": ctx.small_font, "get_high_scores": get_high_scores, "save_high_score": save_high_score, "difficulty": ctx.config.difficulty}
 
             # Event handling
             events = pygame.event.get()
@@ -356,7 +361,7 @@ def main():
                                     game_state.wave_number - 1,
                                     game_state.survival_time,
                                     game_state.enemies_killed,
-                                    ctx.difficulty
+                                    ctx.config.difficulty
                                 )
                             state = STATE_HIGH_SCORES
                             game_state.name_input_active = False
@@ -398,7 +403,7 @@ def main():
                                     game_state.wave_number - 1,
                                     game_state.survival_time,
                                     game_state.enemies_killed,
-                                    ctx.difficulty
+                                    ctx.config.difficulty
                                 )
                             state = STATE_HIGH_SCORES
                             game_state.name_input_active = False
@@ -463,7 +468,7 @@ def main():
                                 game_state.current_screen = STATE_TITLE
                                 game_state.menu_confirm_quit = False
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.difficulty = difficulty_options[difficulty_selected]
+                                ctx.config.difficulty = difficulty_options[difficulty_selected]
                                 menu_section = 1.5  # Go to character profile yes/no (aiming mode removed, default mouse)
                         elif menu_section == 1.5:  # Character profile yes/no
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -473,8 +478,8 @@ def main():
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 0  # Go back to difficulty
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.profile_enabled = use_character_profile_selected == 1
-                                if ctx.profile_enabled:
+                                ctx.config.profile_enabled = use_character_profile_selected == 1
+                                if ctx.config.profile_enabled:
                                     menu_section = 2  # Go to profile selection
                                 else:
                                     menu_section = 3  # Skip to options
@@ -519,7 +524,7 @@ def main():
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 2  # Go back
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.player_class = player_class_options[player_class_selected]
+                                ctx.config.player_class = player_class_options[player_class_selected]
                                 menu_section = 3  # Go to options
                         elif menu_section == 3:  # HUD options
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -527,13 +532,13 @@ def main():
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
                                 ui_show_metrics_selected = (ui_show_metrics_selected + 1) % 2
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                if ctx.profile_enabled:
+                                if ctx.config.profile_enabled:
                                     menu_section = 7 if character_profile_selected == 0 else 6
                                 else:
                                     menu_section = 1.5
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.ui_show_metrics = ui_show_metrics_selected == 0
-                                ctx.ui_show_hud = ctx.ui_show_metrics
+                                ctx.config.show_metrics = ui_show_metrics_selected == 0
+                                ctx.config.show_hud = ctx.config.show_metrics
                                 menu_section = 3.5  # Go to telemetry options
                         elif menu_section == 3.5:  # Telemetry options
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -543,8 +548,8 @@ def main():
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 3  # Go back to HUD options
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.telemetry_enabled = ui_telemetry_enabled_selected == 0
-                                if ctx.testing_mode:
+                                ctx.config.enable_telemetry = ui_telemetry_enabled_selected == 0
+                                if ctx.config.testing_mode:
                                     menu_section = 4  # Go to weapon selection
                                 else:
                                     menu_section = 5  # Go to start
@@ -562,35 +567,34 @@ def main():
                                     game_state.laser_beams.clear()
                                 game_state.current_weapon_mode = selected_weapon
                                 beam_selection_pattern = selected_weapon
-                                if ctx.testing_mode:
+                                if ctx.config.testing_mode:
                                     menu_section = 4.5  # Go to testing options
                                 else:
                                     menu_section = 5  # Go to start
                         elif menu_section == 4.5:  # Testing options (testing mode only)
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                ctx.invulnerability_mode = not ctx.invulnerability_mode
+                                ctx.config.invulnerability_mode = not ctx.config.invulnerability_mode
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                ctx.invulnerability_mode = not ctx.invulnerability_mode
+                                ctx.config.invulnerability_mode = not ctx.config.invulnerability_mode
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 4  # Go back to weapon selection
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                                 menu_section = 5  # Go to start
                         elif menu_section == 5:  # Start game
                             if event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                if ctx.testing_mode:
+                                if ctx.config.testing_mode:
                                     menu_section = 4.5
                                 else:
                                     menu_section = 3.5  # Go back to telemetry options
                             elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                                 # Initialize game
-                                ctx.telemetry_enabled = (ui_telemetry_enabled_selected == 0)
-                                if ctx.telemetry_enabled:
+                                if ctx.config.enable_telemetry:
                                     ctx.telemetry_client = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
                                 else:
                                     ctx.telemetry_client = NoOpTelemetry()
                                 
                                 # Apply class stats
-                                stats = player_class_stats[ctx.player_class]
+                                stats = player_class_stats[ctx.config.player_class]
                                 game_state.player_max_hp = int(1000 * stats["hp_mult"] * 0.75)  # Reduced by 0.75x
                                 game_state.player_hp = game_state.player_max_hp
                                 game_state.player_speed = int(300 * stats["speed_mult"])
@@ -610,12 +614,12 @@ def main():
                                 # So spawn_system and others see current app config
                                 if game_state.level_context:
                                     game_state.level_context["telemetry"] = ctx.telemetry_client
-                                    game_state.level_context["telemetry_enabled"] = ctx.telemetry_enabled
-                                    game_state.level_context["difficulty"] = ctx.difficulty
-                                    game_state.level_context["testing_mode"] = ctx.testing_mode
-                                    game_state.level_context["invulnerability_mode"] = ctx.invulnerability_mode
+                                    game_state.level_context["telemetry_enabled"] = ctx.config.enable_telemetry
+                                    game_state.level_context["difficulty"] = ctx.config.difficulty
+                                    game_state.level_context["testing_mode"] = ctx.config.testing_mode
+                                    game_state.level_context["invulnerability_mode"] = ctx.config.invulnerability_mode
 
-                                game_state.run_id = ctx.telemetry_client.start_run(game_state.run_started_at, game_state.player_max_hp) if ctx.telemetry_enabled else None
+                                game_state.run_id = ctx.telemetry_client.start_run(game_state.run_started_at, game_state.player_max_hp) if ctx.config.enable_telemetry else None
                                 game_state.wave_reset_log.clear()
                                 game_state.wave_start_reason = "menu_start"
                                 spawn_system_start_wave(game_state.wave_number, game_state)
@@ -649,7 +653,7 @@ def main():
                     pl = game_state.player_rect
                     if not pl:
                         return
-                    if ctx.aiming_mode == AIM_ARROWS:
+                    if ctx.config.aim_mode == AIM_ARROWS:
                         k = pygame.key.get_pressed()
                         dx = (1 if k[pygame.K_RIGHT] else 0) - (1 if k[pygame.K_LEFT] else 0)
                         dy = (1 if k[pygame.K_DOWN] else 0) - (1 if k[pygame.K_UP] else 0)
@@ -674,7 +678,7 @@ def main():
 
                 gameplay_input_ctx = {
                     "controls": ctx.controls,
-                    "aiming_mode": ctx.aiming_mode,
+                    "aiming_mode": ctx.config.aim_mode,
                     "width": ctx.width,
                     "height": ctx.height,
                     "dt": dt,
@@ -848,7 +852,7 @@ def main():
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
                     elif menu_section == 4:
                         # Beam/weapon selection (if testing mode)
-                        if ctx.testing_mode:
+                        if ctx.config.testing_mode:
                             draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Select Weapon:", y_offset - 60)
                             for i, weapon in enumerate(weapon_selection_options):
                                 color = (255, 255, 0) if i == beam_selection_selected else (200, 200, 200)
@@ -859,8 +863,8 @@ def main():
                     elif menu_section == 4.5:
                         # Testing options (testing mode only)
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Testing Options:", y_offset - 60)
-                        invuln_color = (255, 255, 0) if ctx.invulnerability_mode else (200, 200, 200)
-                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if ctx.invulnerability_mode else '  '} Invulnerability: {'ON' if ctx.invulnerability_mode else 'OFF'}", y_offset, invuln_color)
+                        invuln_color = (255, 255, 0) if ctx.config.invulnerability_mode else (200, 200, 200)
+                        draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if ctx.config.invulnerability_mode else '  '} Invulnerability: {'ON' if ctx.config.invulnerability_mode else 'OFF'}", y_offset, invuln_color)
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to toggle, LEFT to go back, RIGHT/ENTER to start", ctx.height - 100, (150, 150, 150))
                     elif menu_section == 5:
                         # Start game
@@ -902,16 +906,16 @@ def main():
                     "HEIGHT": ctx.height,
                     "font": ctx.font,
                     "big_font": ctx.big_font,
-                    "ui_show_hud": ctx.ui_show_hud,
-                    "ui_show_metrics": ctx.ui_show_metrics,
-                    "ui_show_health_bars": ctx.ui_show_health_bars,
+                    "ui_show_hud": ctx.config.show_hud,
+                    "ui_show_metrics": ctx.config.show_metrics,
+                    "ui_show_health_bars": ctx.config.show_health_bars,
                     "overshield_max": overshield_max,
                     "grenade_cooldown": grenade_cooldown,
                     "missile_cooldown": missile_cooldown,
                     "ally_drop_cooldown": ally_drop_cooldown,
                     "overshield_recharge_cooldown": overshield_recharge_cooldown,
                     "shield_duration": shield_duration,
-                    "aiming_mode": ctx.aiming_mode,
+                    "aiming_mode": ctx.config.aim_mode,
                     "current_state": state,
                 }
                 gameplay_render(ctx, game_state, gameplay_ctx)
@@ -958,7 +962,7 @@ def main():
     
     finally:
         run_ended_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        if ctx.telemetry_enabled and ctx.telemetry_client:
+        if ctx.config.enable_telemetry and ctx.telemetry_client:
             ctx.telemetry_client.end_run(
                 ended_at_iso=run_ended_at,
                 seconds_survived=game_state.run_time,
@@ -2124,7 +2128,7 @@ def spawn_player_bullet_and_log(state: GameState, ctx: AppContext):
     if state.player_rect is None:
         return
     # Determine aiming direction based on aiming mode
-    if ctx.aiming_mode == AIM_ARROWS:
+    if ctx.config.aim_mode == AIM_ARROWS:
         # Arrow key aiming
         keys = pygame.key.get_pressed()
         dx = 0
@@ -2221,7 +2225,7 @@ def spawn_player_bullet_and_log(state: GameState, ctx: AppContext):
             })
     state.shots_fired += 1
 
-    if ctx.telemetry_enabled and ctx.telemetry_client:
+    if ctx.config.enable_telemetry and ctx.telemetry_client:
         ctx.telemetry_client.log_shot(
             ShotEvent(
                 t=state.run_time,
@@ -2490,7 +2494,7 @@ def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
         state.current_weapon_mode = "giant"
         # Log weapon switch from pickup
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if ctx.telemetry_enabled and ctx.telemetry_client and state.player_rect:
+            if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
                 ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
@@ -2513,7 +2517,7 @@ def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
             "color": WEAPON_DISPLAY_COLORS.get("triple", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if ctx.telemetry_enabled and ctx.telemetry_client and state.player_rect:
+            if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
                 ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
@@ -2534,7 +2538,7 @@ def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
             "color": WEAPON_DISPLAY_COLORS.get("laser", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if ctx.telemetry_enabled and ctx.telemetry_client and state.player_rect:
+            if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
                 ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
@@ -2557,7 +2561,7 @@ def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
             "color": WEAPON_DISPLAY_COLORS.get("basic", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if ctx.telemetry_enabled and ctx.telemetry_client and state.player_rect:
+            if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
                 ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
