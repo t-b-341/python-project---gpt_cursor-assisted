@@ -13,11 +13,12 @@ from config_enemies import (
     BOSS_TEMPLATE,
     BASE_ENEMIES_PER_WAVE,
     MAX_ENEMIES_PER_WAVE,
-    ENEMY_SPAWN_MULTIPLIER,
     ENEMY_FIRE_RATE_MULTIPLIER,
+    ENEMY_SPAWN_MULTIPLIER,
     ENEMY_SPEED_SCALE_MULTIPLIER,
     ENEMY_TEMPLATES,
 )
+from config.enemy_defs import get_enemy_def
 from constants import ENEMY_COLOR, STATE_VICTORY, difficulty_multipliers
 from enemies import log_enemy_spawns, make_enemy_from_template
 from entities import Enemy
@@ -140,7 +141,7 @@ def _start_wave(wave_num: int, state, ctx: dict) -> None:
 
 def _spawn_ambient_enemies(state, ctx: dict, wave_num: int, random_spawn, telemetry, telemetry_enabled: bool) -> None:
     """Spawn 3–5 stationary ambient enemies at start of each round, randomly placed, non-overlapping."""
-    ambient_tmpl = next((t for t in ENEMY_TEMPLATES if t.get("type") == "ambient"), None)
+    ambient_tmpl = get_enemy_def("ambient")
     if not ambient_tmpl or not random_spawn:
         return
     count = random.randint(3, 5)
@@ -178,7 +179,8 @@ def _spawn_boss_wave(
     overshield_cooldown: float,
 ) -> None:
     """Spawn boss for wave 3 of the level."""
-    boss = BOSS_TEMPLATE.copy()
+    boss_base = get_enemy_def("FINAL_BOSS")
+    boss = (boss_base.copy() if boss_base is not None else BOSS_TEMPLATE.copy())
     boss["color"] = ENEMY_COLOR  # All enemies same color
     boss["rect"] = pygame.Rect(w // 2 - 50, h // 2 - 50, 100, 100)
     boss_hp_scale = 1.0 + (state.current_level - 1) * 0.3

@@ -160,10 +160,8 @@ from context import AppContext
 from config import GameConfig
 from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
-from systems.movement_system import update as movement_update
-from systems.collision_system import update as collision_update
-from systems.spawn_system import update as spawn_update, start_wave as spawn_system_start_wave
-from systems.ai_system import update as ai_update
+from systems.registry import SIMULATION_SYSTEMS
+from systems.spawn_system import start_wave as spawn_system_start_wave
 from systems.input_system import handle_gameplay_input
 from systems.audio_system import init_mixer, sync_from_config, play_sfx
 try:
@@ -436,10 +434,8 @@ def main():
             if msg["timer"] <= 0:
                 gs.enemy_defeat_messages.remove(msg)
         update_pickup_effects(sim_dt, gs)
-        movement_update(gs, sim_dt)
-        collision_update(gs, sim_dt)
-        spawn_update(gs, sim_dt)
-        ai_update(gs, sim_dt)
+        for system_update in SIMULATION_SYSTEMS:
+            system_update(gs, sim_dt)
         # Juice: decay visual feedback timers each step
         gs.screen_damage_flash_timer = max(0.0, gs.screen_damage_flash_timer - sim_dt)
         gs.wave_banner_timer = max(0.0, gs.wave_banner_timer - sim_dt)
@@ -2270,9 +2266,29 @@ def spawn_player_bullet_and_log(state: GameState, ctx: AppContext):
     shape = player_bullet_shapes[state.player_bullet_shape_index % len(player_bullet_shapes)]
     state.player_bullet_shape_index = (state.player_bullet_shape_index + 1) % len(player_bullet_shapes)
 
-    # Get weapon config (default to basic if not found)
-    weapon_config = WEAPON_CONFIGS.get(state.current_weapon_mode, WEAPON_CONFIGS["basic"])
-    
+    # Resolve weapon params from data-driven def when available, else WEAPON_CONFIGS
+    from config.projectile_defs import get_projectile_def
+    weapon_mode = state.current_weapon_mode
+    pd = get_projectile_def("player_" + weapon_mode) if weapon_mode != "laser" else None
+    if pd:
+        base_speed = pd["speed"]
+        base_size = pd["size"]
+        weapon_config = {
+            "damage_multiplier": pd["damage_multiplier"],
+            "size_multiplier": pd["size_multiplier"],
+            "speed_multiplier": 1.0,
+            "spread_angle_deg": pd["spread_angle_deg"],
+            "num_projectiles": pd["num_projectiles"],
+            "color": pd["color"],
+            "explosion_radius": pd["explosion_radius"],
+            "max_bounces": pd["max_bounces"],
+            "is_rocket": pd["is_rocket"],
+        }
+    else:
+        weapon_config = WEAPON_CONFIGS.get(weapon_mode, WEAPON_CONFIGS["basic"])
+        base_speed = player_bullet_speed * weapon_config["speed_multiplier"]
+        base_size = player_bullet_size
+
     # Determine shot pattern based on weapon mode
     if weapon_config["num_projectiles"] > 1:
         # Multi-projectile weapons (triple, basic)
@@ -2289,14 +2305,12 @@ def spawn_player_bullet_and_log(state: GameState, ctx: AppContext):
     for d in directions:
         # Apply stat multipliers and weapon-specific multipliers
         size_mult = state.player_stat_multipliers["bullet_size"] * weapon_config["size_multiplier"]
-        
         effective_size = (
-            int(player_bullet_size[0] * size_mult),
-            int(player_bullet_size[1] * size_mult),
+            int(base_size[0] * size_mult),
+            int(base_size[1] * size_mult),
         )
-        effective_speed = player_bullet_speed * state.player_stat_multipliers["bullet_speed"] * weapon_config["speed_multiplier"]
+        effective_speed = base_speed * state.player_stat_multipliers["bullet_speed"]
         base_damage = int(state.player_bullet_damage * state.player_stat_multipliers["bullet_damage"])
-        
         # Apply weapon damage multiplier
         effective_damage = int(base_damage * weapon_config["damage_multiplier"])
         # Unlocked-weapon shots deal 1.75x damage
@@ -2372,15 +2386,19 @@ def spawn_enemy_projectile(enemy: dict, state: GameState, telemetry_client=None,
     else:
         # Fallback to player if no threats
         d = vec_toward(enemy["rect"].centerx, enemy["rect"].centery, state.player_rect.centerx, state.player_rect.centery)
-    
+
+    from config.projectile_defs import get_projectile_def
+    edef = get_projectile_def("enemy_default")
+    proj_size = edef["size"] if edef else enemy_projectile_size
+    default_color = edef["color"] if edef else enemy_projectiles_color
     # Create projectile rect and properties (used regardless of threat result)
     r = pygame.Rect(
-        enemy["rect"].centerx - enemy_projectile_size[0] // 2,
-        enemy["rect"].centery - enemy_projectile_size[1] // 2,
-        enemy_projectile_size[0],
-        enemy_projectile_size[1],
+        enemy["rect"].centerx - proj_size[0] // 2,
+        enemy["rect"].centery - proj_size[1] // 2,
+        proj_size[0],
+        proj_size[1],
     )
-    proj_color = enemy.get("projectile_color", enemy_projectiles_color)
+    proj_color = enemy.get("projectile_color", default_color)
     proj_shape = enemy.get("projectile_shape", "circle")
     bounces = enemy.get("bouncing_projectiles", False)
     
@@ -2412,13 +2430,17 @@ def spawn_enemy_projectile(enemy: dict, state: GameState, telemetry_client=None,
 
 def spawn_enemy_projectile_predictive(enemy: dict, direction: pygame.Vector2, state: GameState):
     """Spawn projectile from predictive enemy in a specific direction (predicted player position)."""
+    from config.projectile_defs import get_projectile_def
+    edef = get_projectile_def("enemy_default")
+    proj_size = edef["size"] if edef else enemy_projectile_size
+    default_color = edef["color"] if edef else enemy_projectiles_color
     r = pygame.Rect(
-        enemy["rect"].centerx - enemy_projectile_size[0] // 2,
-        enemy["rect"].centery - enemy_projectile_size[1] // 2,
-        enemy_projectile_size[0],
-        enemy_projectile_size[1],
+        enemy["rect"].centerx - proj_size[0] // 2,
+        enemy["rect"].centery - proj_size[1] // 2,
+        proj_size[0],
+        proj_size[1],
     )
-    proj_color = enemy.get("projectile_color", enemy_projectiles_color)
+    proj_color = enemy.get("projectile_color", default_color)
     proj_shape = enemy.get("projectile_shape", "diamond")  # Rhomboid shape
     state.enemy_projectiles.append({
         "rect": r,
@@ -2433,13 +2455,17 @@ def spawn_enemy_projectile_predictive(enemy: dict, direction: pygame.Vector2, st
 
 def spawn_boss_projectile(boss: dict, direction: pygame.Vector2, state: GameState):
     """Spawn a projectile from the boss in a specific direction."""
+    from config.projectile_defs import get_projectile_def
+    edef = get_projectile_def("enemy_default")
+    proj_size = edef["size"] if edef else enemy_projectile_size
+    default_color = edef["color"] if edef else enemy_projectiles_color
     r = pygame.Rect(
-        boss["rect"].centerx - enemy_projectile_size[0] // 2,
-        boss["rect"].centery - enemy_projectile_size[1] // 2,
-        enemy_projectile_size[0],
-        enemy_projectile_size[1],
+        boss["rect"].centerx - proj_size[0] // 2,
+        boss["rect"].centery - proj_size[1] // 2,
+        proj_size[0],
+        proj_size[1],
     )
-    proj_color = boss.get("projectile_color", enemy_projectiles_color)
+    proj_color = boss.get("projectile_color", default_color)
     proj_shape = boss.get("projectile_shape", "circle")
     state.enemy_projectiles.append(
         {
