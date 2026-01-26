@@ -6,7 +6,7 @@ disabled and run without raising when enabled. Covers primitives and apply_gamep
 """
 from __future__ import annotations
 
-import pytest
+import pytest  # type: ignore[import-untyped]
 
 import pygame
 
