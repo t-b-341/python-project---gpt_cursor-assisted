@@ -260,7 +260,8 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
 
 
 def _update_player_bullets(state, dt: float, ctx: dict) -> None:
-    """Advance player bullet positions (no collision/removal)."""
+    """Advance player bullet positions (no collision/removal).
+    GPU physics is gated solely by config.use_gpu_physics (config from app_ctx via level_context)."""
     global _gpu_bullet_logged
     config = ctx.get("config")
     use_gpu = _USE_GPU and (config is not None and bool(getattr(config, "use_gpu_physics", False)))

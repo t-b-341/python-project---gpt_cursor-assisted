@@ -83,6 +83,12 @@ class GameConfig:
     pause_shader_profile: str = "none"  # "none" | "pause_dim_vignette"; used when enable_pause_shaders=True.
     gameplay_shader_profile: str = "none"  # "none" | "gameplay_subtle_vignette" | "gameplay_retro"; used when enable_gameplay_shaders=True.
     use_gpu_physics: bool = False  # When True AND CUDA_AVAILABLE, use GPU-accelerated physics code paths.
+
+    # Graphics/performance preset (centralized; future presets low/medium/high/ultra can map onto these)
+    graphics_preset: str = "low"  # "low" | "medium" | "high" | "ultra"; currently informational, values drive the flags below.
+    use_gpu_shaders: bool = False  # When True, use GPU (OpenGL) path for shader postprocess when shader_profile allows.
+    internal_resolution_scale: float = 1.0  # Scale for CPU-based effect offscreen (e.g. 0.5 = half-res); 1.0 = full res.
+
     # Audio (used by systems.audio_system)
     sfx_volume: float = 1.0
     music_volume: float = 1.0

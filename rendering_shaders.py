@@ -80,10 +80,12 @@ _offscreen_surface = None
 _offscreen_size: tuple[int, int] | None = None
 
 
-def _get_offscreen_surface(render_ctx: RenderContext) -> pygame.Surface:
-    """Return a surface sized to render_ctx; (re)create if size changed."""
+def _get_offscreen_surface(render_ctx: RenderContext, size: tuple[int, int] | None = None) -> pygame.Surface:
+    """Return a surface of the given size or render_ctx size; (re)create if size changed.
+    When config.internal_resolution_scale < 1, pass a smaller size for CPU-based effects."""
     global _offscreen_surface, _offscreen_size
-    size = (render_ctx.width, render_ctx.height)
+    if size is None:
+        size = (render_ctx.width, render_ctx.height)
     if _offscreen_surface is None or _offscreen_size != size:
         _offscreen_surface = pygame.Surface(size).convert_alpha()
         _offscreen_surface.fill((0, 0, 0, 255))
@@ -116,26 +118,37 @@ def render_gameplay_frame_to_surface(surface, width, height, font, big_font, sma
 def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
     """
     Renders to an offscreen surface, then blits (or runs GL post-process) according to
-    config.use_shaders and config.shader_profile: "none" (direct blit), "cpu_tint", or "gl_basic".
+    config.use_shaders / config.use_gpu_shaders and config.shader_profile.
+    GPU path when (use_gpu_shaders or use_shaders) and profile "gl_basic".
+    CPU effects can use config.internal_resolution_scale for a smaller offscreen, then scale up.
     """
     config = getattr(ctx, "config", None)
     if config is None and isinstance(ctx, dict):
         app_ctx = ctx.get("app_ctx")
         config = getattr(app_ctx, "config", None) if app_ctx else None
     use_shaders = bool(getattr(config, "use_shaders", False))
+    use_gpu_shaders = bool(getattr(config, "use_gpu_shaders", False))
     profile = "none"
     if config is not None:
         profile = getattr(config, "shader_profile", "none")
     if profile not in ("none", "cpu_tint", "gl_basic"):
         profile = "none"
-    if not use_shaders:
+    if not use_shaders and not use_gpu_shaders:
         profile = "none"
 
-    offscreen_surface = _get_offscreen_surface(render_ctx)
+    use_gl_path = profile == "gl_basic" and HAS_MODERNGL and (use_gpu_shaders or use_shaders)
+    scale = 1.0
+    if config is not None and not use_gl_path:
+        scale = max(0.25, min(1.0, float(getattr(config, "internal_resolution_scale", 1.0))))
+    offscreen_w = max(1, int(render_ctx.width * scale))
+    offscreen_h = max(1, int(render_ctx.height * scale))
+    offscreen_size = (offscreen_w, offscreen_h)
+
+    offscreen_surface = _get_offscreen_surface(render_ctx, offscreen_size)
     temp_ctx = RenderContext(
         screen=offscreen_surface,
-        width=render_ctx.width,
-        height=render_ctx.height,
+        width=offscreen_w,
+        height=offscreen_h,
         font=render_ctx.font,
         big_font=render_ctx.big_font,
         small_font=render_ctx.small_font,
@@ -144,7 +157,7 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
     _render_gameplay_frame(temp_ctx, game_state, ctx)
 
     # Config-based gameplay shader stack when enable_gameplay_shaders and gameplay_shader_profile != "none"
-    if config is not None and getattr(config, "enable_gameplay_shaders", False):
+    if config is not None and getattr(config, "enable_gameplay_shaders", False) and (not use_gpu_shaders or not use_gl_path):
         gameplay_stack = get_gameplay_shader_stack(config)
         t = time.perf_counter() - _gl_start_time
         eff_ctx = {"time": t}
@@ -157,15 +170,19 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
     # Lightweight CPU effects (vignette, scanlines) by gameplay_effect_profile when enable_gameplay_shaders
     apply_gameplay_effects(offscreen_surface, ctx, game_state)
 
-    if profile == "gl_basic" and HAS_MODERNGL and use_shaders:
+    if use_gl_path:
         ok = _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx, game_state)
         if ok:
             return
 
-    if profile == "cpu_tint" or (profile == "gl_basic" and use_shaders):
+    if profile == "cpu_tint" or (profile == "gl_basic" and (use_shaders or use_gpu_shaders)):
         overlay = pygame.Surface(offscreen_surface.get_size(), flags=pygame.SRCALPHA)
         overlay.fill((80, 0, 120, 60))  # RGBA: mild purple tint, low alpha
         offscreen_surface.blit(overlay, (0, 0))
 
-    # Final blit; applies damage wobble when enable_damage_wobble and timer > 0
-    apply_gameplay_final_blit(offscreen_surface, render_ctx.screen, ctx, game_state)
+    # Scale up to screen size when we rendered at lower internal resolution (CPU path)
+    if scale < 1.0:
+        scaled = pygame.transform.smoothscale(offscreen_surface, (render_ctx.width, render_ctx.height))
+        apply_gameplay_final_blit(scaled, render_ctx.screen, ctx, game_state)
+    else:
+        apply_gameplay_final_blit(offscreen_surface, render_ctx.screen, ctx, game_state)

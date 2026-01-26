@@ -42,7 +42,8 @@ class AppContext:
     # Key bindings (loaded once per run from controls file)
     controls: dict[str, int] = field(default_factory=dict)
 
-    # Centralized game options (difficulty, player class, aim mode, toggles)
+    # Centralized game options (difficulty, player class, aim mode, toggles).
+    # Graphics/performance: config.graphics_preset, config.use_gpu_physics, config.use_gpu_shaders, config.internal_resolution_scale.
     config: GameConfig = field(default_factory=GameConfig)
 
     # Physics backend: True if C-accelerated game_physics is in use, False if Python fallback
