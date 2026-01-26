@@ -71,7 +71,6 @@ from constants import (
     MOUSE_BUTTON_RIGHT,
     PLAYER_CLASS_BALANCED,
     PICKUP_SPAWN_INTERVAL,
-    POS_SAMPLE_INTERVAL,
     SCORE_BASE_POINTS,
     SCORE_TIME_MULTIPLIER,
     SCORE_WAVE_MULTIPLIER,
@@ -169,6 +168,7 @@ from shader_effects import get_menu_shader_stack, get_pause_shader_stack, get_ga
 from simulation_systems import SIMULATION_SYSTEMS
 from systems.spawn_system import start_wave as spawn_system_start_wave
 from systems.input_system import handle_gameplay_input
+from systems.telemetry_system import update_telemetry
 from systems.audio_system import init_mixer, sync_from_config, play_sfx, play_music, stop_music
 try:
     from telemetry.perf import record_frame as _perf_record_frame
@@ -417,7 +417,6 @@ def _create_app():
     FIXED_DT = 1.0 / 60.0
     MAX_SIMULATION_STEPS = 6  # cap to avoid spiral of death when dt is large
     simulation_accumulator = 0.0
-    last_telemetry_sample_t = -1.0  # for position/run_state sampling at POS_SAMPLE_INTERVAL
 
     def _update_simulation(sim_dt: float, gs: GameState, app_ctx: AppContext) -> None:
         """Run one fixed timestep of gameplay (timers, movement, collision, spawn, AI)."""
@@ -498,7 +497,6 @@ def _create_app():
     r.update_simulation = _update_simulation
     r.sync_scene_stack = _sync_scene_stack
     r.simulation_accumulator = 0.0
-    r.last_telemetry_sample_t = -1.0
     return r
 
 
@@ -529,7 +527,6 @@ def _run_loop(app):
     _update_simulation = app.update_simulation
     _sync_scene_stack = app.sync_scene_stack
     simulation_accumulator = app.simulation_accumulator
-    last_telemetry_sample_t = app.last_telemetry_sample_t
     running = True
     try:
         while running:
@@ -613,7 +610,7 @@ def _run_loop(app):
                         game_state.level_context["testing_mode"] = ctx.config.testing_mode
                         game_state.level_context["invulnerability_mode"] = ctx.config.invulnerability_mode
                     game_state.run_id = ctx.telemetry_client.start_run(game_state.run_started_at, game_state.player_max_hp) if ctx.config.enable_telemetry else None
-                    last_telemetry_sample_t = -1.0
+                    ctx.last_telemetry_sample_t = -1.0
                     game_state.wave_reset_log.clear()
                     game_state.wave_start_reason = "menu_start"
                     spawn_system_start_wave(game_state.wave_number, game_state)
@@ -818,18 +815,7 @@ def _run_loop(app):
                     steps += 1
                 # Optional: for future render interpolation (smooth between steps)
                 setattr(game_state, "simulation_interpolation", simulation_accumulator / FIXED_DT if FIXED_DT else 0.0)
-                # Telemetry: position + run_state samples at POS_SAMPLE_INTERVAL, and flush tick
-                if ctx.config.enable_telemetry and ctx.telemetry_client:
-                    ctx.telemetry_client.tick(dt)
-                    now = game_state.run_time
-                    if last_telemetry_sample_t < 0:
-                        last_telemetry_sample_t = now
-                    elif now - last_telemetry_sample_t >= POS_SAMPLE_INTERVAL and game_state.player_rect:
-                        ctx.telemetry_client.log_player_position(
-                            PlayerPosEvent(t=now, x=game_state.player_rect.centerx, y=game_state.player_rect.centery)
-                        )
-                        ctx.telemetry_client.log_run_state_sample(now, game_state.player_hp, len(game_state.enemies))
-                        last_telemetry_sample_t = now
+                update_telemetry(game_state, dt, ctx)
                 continue_blink_t = game_state.continue_blink_t
                 state = game_state.current_screen
 
@@ -979,7 +965,6 @@ def _run_loop(app):
             game_state.controls_selected = controls_selected
             game_state.controls_rebinding = controls_rebinding
             app.simulation_accumulator = simulation_accumulator
-            app.last_telemetry_sample_t = last_telemetry_sample_t
 
     except KeyboardInterrupt:
         print("Interrupted by user (Ctrl+C). Saving run...")

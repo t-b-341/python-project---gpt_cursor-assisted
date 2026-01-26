@@ -34,6 +34,7 @@ class AppContext:
 
     # Telemetry (optional; None or no-op when disabled). Enable/disable is in config.
     telemetry_client: Optional[Any] = None  # Telemetry | NoOpTelemetry
+    last_telemetry_sample_t: float = -1.0  # per-frame sampling clock; updated by telemetry_system
 
     # Run timestamp for telemetry (ISO string when a run starts)
     run_started_at: Optional[str] = None

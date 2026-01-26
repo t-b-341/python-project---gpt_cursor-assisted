@@ -21,7 +21,6 @@ class GameApp:
         self.update_simulation = r.update_simulation
         self.sync_scene_stack = r.sync_scene_stack
         self.simulation_accumulator = r.simulation_accumulator
-        self.last_telemetry_sample_t = r.last_telemetry_sample_t
 
     def run(self) -> None:
         """Run the main loop (event handling, update, render)."""
