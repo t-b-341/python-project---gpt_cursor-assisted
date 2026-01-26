@@ -44,9 +44,11 @@ def _update_enemy_ai(state, dt: float, ctx: dict) -> None:
     spawn_projectile = ctx.get("spawn_enemy_projectile")
     spawn_projectile_predictive = ctx.get("spawn_enemy_projectile_predictive")
 
+    player_targeting_slots = ctx.get("_player_targeting_slots", set())
     for enemy in state.enemies[:]:
         enemy_pos = pygame.Vector2(enemy["rect"].center)
-        target_info = find_threat(enemy_pos, player, state.friendly_ai) if find_threat else None
+        allow_player = id(enemy) in player_targeting_slots
+        target_info = find_threat(enemy_pos, player, state.friendly_ai, allow_player=allow_player) if find_threat else None
         if target_info:
             target_pos, target_type = target_info
             direction = vec_toward(enemy_pos.x, enemy_pos.y, target_pos.x, target_pos.y) if vec_toward else pygame.Vector2(1, 0)

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import pygame
 
+from constants import MAX_ENEMIES_TARGETING_PLAYER
 from enemies import find_nearest_threat, find_threats_in_dodge_range
 
 try:
@@ -119,6 +120,16 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
 
     player_in_main = main_area and main_area.collidepoint(player.centerx, player.centery) if main_area else False
 
+    # Only allow up to N enemies to target the player; the rest target friendlies or patrol. Closest N by distance get the slots.
+    player_center = pygame.Vector2(player.center)
+    candidates = [
+        (e, (pygame.Vector2(e["rect"].center) - player_center).length_squared())
+        for e in state.enemies
+        if e.get("hp", 1) > 0 and not e.get("is_ambient")
+    ]
+    candidates.sort(key=lambda x: x[1])
+    ctx["_player_targeting_slots"] = set(id(e) for e, _ in candidates[:MAX_ENEMIES_TARGETING_PLAYER])
+
     for enemy in state.enemies:
         if enemy.get("hp", 1) <= 0:
             continue
@@ -137,7 +148,8 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
         enemy["stuck_timer"] = stuck_timer
 
         enemy_pos = pygame.Vector2(enemy["rect"].center)
-        target_info = find_nearest_threat(enemy_pos, player, state.friendly_ai)
+        allow_player = id(enemy) in ctx.get("_player_targeting_slots", set())
+        target_info = find_nearest_threat(enemy_pos, player, state.friendly_ai, allow_player=allow_player)
 
         # When player is in main area, non-boss non-patrol enemies patrol the outer area
         if target_info and player_in_main and outer_rect and not enemy.get("is_boss") and not enemy.get("is_patrol"):

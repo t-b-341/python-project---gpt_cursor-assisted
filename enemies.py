@@ -145,17 +145,15 @@ def find_nearest_threat(
     enemy_pos: pygame.Vector2,
     player: pygame.Rect | None,
     friendly_ai: list[dict],
+    *,
+    allow_player: bool = True,
 ) -> tuple[pygame.Vector2, str] | None:
     """Find the nearest threat (player or friendly AI) to an enemy.
-    Prioritizes dropped ally if within radius, otherwise prioritizes player."""
-    if player is None:
+    Prioritizes dropped ally if within radius, otherwise player (if allow_player), else nearest friendly."""
+    if player is None or not allow_player:
         player_pos = None
-        player_dist_sq = float("inf")
-        player_dist = float("inf")
     else:
         player_pos = pygame.Vector2(player.center)
-        player_dist_sq = (player_pos - enemy_pos).length_squared()
-        player_dist = math.sqrt(player_dist_sq)
 
     # Collect friendly AI threats
     dropped_ally_threats = []
@@ -183,7 +181,7 @@ def find_nearest_threat(
             # Focus on dropped ally if within radius
             return (nearest_ally[0], nearest_ally[2])
 
-    # Otherwise, prioritize player (if present)
+    # Otherwise, prioritize player (if present and allowed)
     if player_pos is not None:
         return (player_pos, "player")
     # No player; return nearest friendly if any

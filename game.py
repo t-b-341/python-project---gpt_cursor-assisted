@@ -2282,19 +2282,24 @@ def spawn_player_bullet_and_log(state: GameState, ctx: AppContext):
 
 
 def spawn_enemy_projectile(enemy: dict, state: GameState, telemetry_client=None, telemetry_enabled: bool = False):
-    """Spawn projectile from enemy targeting nearest threat (player or friendly AI)."""
+    """Spawn projectile from enemy targeting nearest threat (player or friendly AI). Respects max-enemies-targeting-player cap."""
     if state.player_rect is None:
         return
     e_pos = pygame.Vector2(enemy["rect"].center)
-    threat_result = find_nearest_threat(e_pos, state.player_rect, state.friendly_ai)
+    ctx = getattr(state, "level_context", None)
+    allow_player = id(enemy) in ctx.get("_player_targeting_slots", set()) if ctx else True
+    threat_result = find_nearest_threat(e_pos, state.player_rect, state.friendly_ai, allow_player=allow_player)
 
     # Calculate direction
     if threat_result:
         threat_pos, threat_type = threat_result
         d = vec_toward(e_pos.x, e_pos.y, threat_pos.x, threat_pos.y)
-    else:
-        # Fallback to player if no threats
+    elif allow_player:
+        # Fallback to player if no threats and this enemy may target player
         d = vec_toward(enemy["rect"].centerx, enemy["rect"].centery, state.player_rect.centerx, state.player_rect.centery)
+    else:
+        # No threat and not allowed to target player; fire in a neutral direction
+        d = pygame.Vector2(1, 0)
 
     from config.projectile_defs import get_projectile_def
     edef = get_projectile_def("enemy_default")

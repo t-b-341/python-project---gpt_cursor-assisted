@@ -181,6 +181,9 @@ SCORE_TIME_MULTIPLIER = 2
 POS_SAMPLE_INTERVAL = 0.25
 PICKUP_SPAWN_INTERVAL = 7.5
 
+# At most this many enemies may target the player at once (movement and shooting); rest target friendlies or patrol.
+MAX_ENEMIES_TARGETING_PLAYER = 18
+
 # ----------------------------
 # Enemy appearance (all enemies use same color)
 # ----------------------------
