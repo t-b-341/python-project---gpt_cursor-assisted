@@ -1,15 +1,86 @@
 """
-Data-driven projectile definitions. Unified lookup by type_id with caching.
+Data-driven projectile and weapon definitions. Unified lookup by type_id with caching.
 
-Each definition provides: type_id, speed, damage, lifetime, sprite_id (optional),
-flags (e.g. "piercing", "explosive"). Player defs also carry weapon-style fields
-(size, color, size_multiplier, speed_multiplier, damage_multiplier, num_projectiles,
-spread_angle_deg, explosion_radius, max_bounces, is_rocket) so spawn logic can use
-one canonical source. Enemy defs use constants for default size/damage/color.
+Canonical source for WEAPON_CONFIGS, WEAPON_NAMES, WEAPON_DISPLAY_COLORS, WEAPON_UNLOCK_ORDER.
+Each projectile definition provides: type_id, speed, damage, lifetime, sprite_id (optional),
+flags. Player defs carry weapon-style fields so spawn logic uses one canonical source.
 """
 from __future__ import annotations
 
 from typing import Any, Optional
+
+# ----------------------------
+# Weapon config (canonical; config_weapons.py is a compatibility shim)
+# ----------------------------
+WEAPON_CONFIGS: dict[str, dict[str, Any]] = {
+    "basic": {
+        "damage_multiplier": 1.0,
+        "size_multiplier": 1.0,
+        "speed_multiplier": 1.0,
+        "cooldown_multiplier": 1.0,
+        "spread_angle_deg": 30.0,
+        "num_projectiles": 3,
+        "color": (10, 200, 200),
+        "explosion_radius": 0.0,
+        "max_bounces": 0,
+        "is_rocket": False,
+    },
+    "triple": {
+        "damage_multiplier": 1.0,
+        "size_multiplier": 3.0,
+        "speed_multiplier": 1.0,
+        "cooldown_multiplier": 1.0,
+        "spread_angle_deg": 30.0,
+        "num_projectiles": 3,
+        "color": (255, 105, 180),
+        "explosion_radius": 0.0,
+        "max_bounces": 0,
+        "is_rocket": False,
+    },
+    "giant": {
+        "damage_multiplier": 1.0,
+        "size_multiplier": 10.0,
+        "speed_multiplier": 1.0,
+        "cooldown_multiplier": 1.0,
+        "spread_angle_deg": 0.0,
+        "num_projectiles": 1,
+        "color": (10, 200, 200),
+        "explosion_radius": 0.0,
+        "max_bounces": 0,
+        "is_rocket": False,
+    },
+    "laser": {
+        "damage_multiplier": 1.0,
+        "size_multiplier": 1.0,
+        "speed_multiplier": 1.0,
+        "cooldown_multiplier": 1.0,
+        "spread_angle_deg": 0.0,
+        "num_projectiles": 0,
+        "color": (255, 50, 50),
+        "explosion_radius": 0.0,
+        "max_bounces": 0,
+        "is_rocket": False,
+    },
+}
+
+WEAPON_NAMES: dict[str, str] = {
+    "giant": "GIANT BULLETS",
+    "triple": "TRIPLE SHOT",
+    "laser": "LASER BEAM",
+    "basic": "BASIC FIRE",
+}
+
+WEAPON_DISPLAY_COLORS: dict[str, tuple[int, int, int]] = {
+    "giant": (255, 200, 0),
+    "triple": (255, 105, 180),
+    "laser": (255, 50, 50),
+    "basic": (200, 200, 200),
+}
+
+WEAPON_UNLOCK_ORDER: dict[int, str] = {
+    1: "giant",
+    2: "giant",
+}
 
 _PROJECTILE_DEF_CACHE: dict[str, Optional[dict[str, Any]]] = {}
 
@@ -36,7 +107,6 @@ def _build_player_def(weapon_key: str) -> dict[str, Any]:
         player_bullet_speed,
         player_bullets_color,
     )
-    from config_weapons import WEAPON_CONFIGS
 
     cfg = WEAPON_CONFIGS.get(weapon_key, WEAPON_CONFIGS["basic"])
     return {

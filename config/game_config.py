@@ -3,6 +3,9 @@
 All scalar config and toggles that are chosen in menus or at startup live here.
 Passed via AppContext.config so systems use ctx.config.<field>.
 
+Balance and tuning constants (scoring, cooldowns, damage, projectile/weapon defaults)
+live in config.balance; constants.py re-exports them for backward compatibility.
+
 Tuning guide (which values to tweak for feel):
 - More floaty vs tight movement: player_base_speed, movement_smoothing (0=instant, 1=full smoothing).
 - Faster vs slower weapons: player_base_shoot_cooldown, per-weapon cooldown_multiplier in config_weapons.

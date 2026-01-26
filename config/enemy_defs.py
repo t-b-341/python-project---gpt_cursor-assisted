@@ -1,18 +1,30 @@
 """
 Data-driven enemy definitions. Unified lookup by type_id with caching.
 
-Each definition is the same dict shape as config_enemies.ENEMY_TEMPLATES / BOSS_TEMPLATE,
-so it can be passed to make_enemy_from_template. Normalized fields used by callers:
-  type_id (str) — same as "type"
-  base_health (int) — from "hp" / "max_hp"
-  move_speed (int/float) — from "speed"
-  sprite_id — asset key; defaults to type_id (no separate assets yet)
-  score_value — base score for kill; 0 means use global formula
-  behavior_flags (frozenset) — e.g. "flying", "suicider", "ambient", "boss"
+Canonical source: config.enemy_data. This module re-exports templates and constants
+and provides get_enemy_def() / clear_enemy_def_cache(). Each definition is the same
+dict shape as ENEMY_TEMPLATES / BOSS_TEMPLATE for make_enemy_from_template.
+Normalized fields used by callers: type_id, base_health, move_speed, sprite_id,
+score_value, behavior_flags (frozenset).
 """
 from __future__ import annotations
 
 from typing import Any, Optional
+
+from config.enemy_data import (
+    BOSS_TEMPLATE,
+    BASE_ENEMIES_PER_WAVE,
+    ENEMY_FIRE_RATE_MULTIPLIER,
+    ENEMY_HP_CAP,
+    ENEMY_HP_SCALE_MULTIPLIER,
+    ENEMY_SPAWN_MULTIPLIER,
+    ENEMY_SPEED_SCALE_MULTIPLIER,
+    ENEMY_TEMPLATES,
+    FRIENDLY_AI_TEMPLATES,
+    MAX_ENEMIES_PER_WAVE,
+    QUEEN_FIXED_HP,
+    QUEEN_SPEED_MULTIPLIER,
+)
 
 _ENEMY_DEF_CACHE: dict[str, Optional[dict[str, Any]]] = {}
 
@@ -21,8 +33,6 @@ def get_enemy_def(type_id: str) -> Optional[dict[str, Any]]:
     """Return the enemy definition for type_id, or None if unknown. Results are cached."""
     if type_id in _ENEMY_DEF_CACHE:
         return _ENEMY_DEF_CACHE[type_id]
-    from config_enemies import BOSS_TEMPLATE, ENEMY_TEMPLATES
-
     template = None
     if type_id == BOSS_TEMPLATE.get("type", "boss"):
         template = BOSS_TEMPLATE.copy()

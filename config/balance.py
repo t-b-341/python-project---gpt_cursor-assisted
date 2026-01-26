@@ -1,0 +1,73 @@
+"""
+Gameplay balance and tuning constants. Single source of truth for values
+that are gameplay configuration; constants.py re-exports these for backward compatibility.
+"""
+
+# Weapon / player projectiles
+player_bullet_shapes = ["circle", "square", "diamond"]
+player_bullets_color = (10, 200, 200)
+player_bullet_size = (8, 8)
+player_bullet_speed = 900
+player_bullet_damage = 20
+player_shoot_cooldown = 0.12
+
+# Laser
+laser_length = 800
+laser_damage = 50
+laser_cooldown = 0.3
+
+UNLOCKED_WEAPON_DAMAGE_MULT = 1.75
+
+# Lives
+LIVES_START = 10
+
+# Dash/jump
+jump_cooldown = 0.5
+jump_speed = 600
+jump_duration = 0.15
+
+# Boost/slow
+boost_meter_max = 100.0
+boost_drain_per_s = 45.0
+boost_regen_per_s = 25.0
+boost_speed_mult = 1.7
+slow_speed_mult = 0.45
+
+# Fire rate buff
+fire_rate_buff_duration = 10.0
+fire_rate_mult = 0.55
+
+# Shield
+shield_duration = 5.0
+shield_recharge_cooldown = 5.0
+
+# Overshield
+overshield_max = 37
+overshield_recharge_cooldown = 45.0
+
+# Grenade
+grenade_cooldown = 2.0
+grenade_damage = 1500
+
+# Missile
+missile_cooldown = 0.4
+missile_damage = 800
+
+# Ally drop
+ally_drop_cooldown = 3.0
+
+# Scoring
+SCORE_BASE_POINTS = 100
+SCORE_WAVE_MULTIPLIER = 50
+SCORE_TIME_MULTIPLIER = 2
+
+# Game timing / tuning
+POS_SAMPLE_INTERVAL = 0.25
+PICKUP_SPAWN_INTERVAL = 7.5
+MAX_ENEMIES_TARGETING_PLAYER = 18
+
+# Enemy appearance / projectiles
+ENEMY_COLOR = (200, 50, 50)
+ENEMY_PROJECTILE_SIZE = (10, 10)
+ENEMY_PROJECTILE_DAMAGE = 11
+ENEMY_PROJECTILES_COLOR = (200, 200, 200)

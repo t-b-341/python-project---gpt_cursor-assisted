@@ -113,85 +113,46 @@ weapon_selection_options = ["laser", "triple", "giant", "basic"]
 
 # Note: WEAPON_KEY_MAP uses pygame constants and must remain in game.py
 
-player_bullet_shapes = ["circle", "square", "diamond"]
-player_bullets_color = (10, 200, 200)
-player_bullet_size = (8, 8)
-player_bullet_speed = 900
-player_bullet_damage = 20
-player_shoot_cooldown = 0.12
-
-# Laser beam constants
-laser_length = 800
-laser_damage = 50
-laser_cooldown = 0.3
-
-# All unlocked-weapon shots deal 1.75x damage
-UNLOCKED_WEAPON_DAMAGE_MULT = 1.75
-
-# ----------------------------
-# Physics constants
-# ----------------------------
-LIVES_START = 10
-
-# Dash/jump constants
-jump_cooldown = 0.5
-jump_speed = 600
-jump_duration = 0.15
-
-# Boost/slow constants
-boost_meter_max = 100.0
-boost_drain_per_s = 45.0
-boost_regen_per_s = 25.0
-boost_speed_mult = 1.7
-slow_speed_mult = 0.45
-
-# Fire rate buff
-fire_rate_buff_duration = 10.0
-fire_rate_mult = 0.55
-
-# Shield constants (half alt-r shield cooldown)
-shield_duration = 5.0
-shield_recharge_cooldown = 5.0  # 0.5 * 10.0
-
-# Overshield constants (armor 0.75x)
-overshield_max = 37  # 50 * 0.75
-overshield_recharge_cooldown = 45.0
-
-# Grenade constants
-grenade_cooldown = 2.0
-grenade_damage = 1500
-
-# Missile constants
-missile_cooldown = 0.4
-missile_damage = 800
-
-# Ally drop constants
-ally_drop_cooldown = 3.0
-
-# ----------------------------
-# Scoring constants
-# ----------------------------
-SCORE_BASE_POINTS = 100
-SCORE_WAVE_MULTIPLIER = 50
-SCORE_TIME_MULTIPLIER = 2
-
-# ----------------------------
-# Game timing constants
-# ----------------------------
-POS_SAMPLE_INTERVAL = 0.25
-PICKUP_SPAWN_INTERVAL = 7.5
-
-# At most this many enemies may target the player at once (movement and shooting); rest target friendlies or patrol.
-MAX_ENEMIES_TARGETING_PLAYER = 18
-
-# ----------------------------
-# Enemy appearance (all enemies use same color)
-# ----------------------------
-ENEMY_COLOR = (200, 50, 50)  # Single color for all enemy types
-
-# ----------------------------
-# Enemy projectile constants
-# ----------------------------
-ENEMY_PROJECTILE_SIZE = (10, 10)
-ENEMY_PROJECTILE_DAMAGE = 11  # 110% of base 10 damage
-ENEMY_PROJECTILES_COLOR = (200, 200, 200)
+# Balance/tuning: re-export from config.balance (single source of truth)
+from config.balance import (
+    LIVES_START,
+    SCORE_BASE_POINTS,
+    SCORE_TIME_MULTIPLIER,
+    SCORE_WAVE_MULTIPLIER,
+    ENEMY_COLOR,
+    ENEMY_PROJECTILE_DAMAGE,
+    ENEMY_PROJECTILE_SIZE,
+    ENEMY_PROJECTILES_COLOR,
+    MAX_ENEMIES_TARGETING_PLAYER,
+    PICKUP_SPAWN_INTERVAL,
+    POS_SAMPLE_INTERVAL,
+    UNLOCKED_WEAPON_DAMAGE_MULT,
+    ally_drop_cooldown,
+    boost_drain_per_s,
+    boost_meter_max,
+    boost_regen_per_s,
+    boost_speed_mult,
+    fire_rate_buff_duration,
+    fire_rate_mult,
+    grenade_cooldown,
+    grenade_damage,
+    jump_cooldown,
+    jump_duration,
+    jump_speed,
+    laser_cooldown,
+    laser_damage,
+    laser_length,
+    missile_cooldown,
+    missile_damage,
+    overshield_max,
+    overshield_recharge_cooldown,
+    player_bullet_damage,
+    player_bullet_shapes,
+    player_bullet_size,
+    player_bullet_speed,
+    player_bullets_color,
+    player_shoot_cooldown,
+    shield_duration,
+    shield_recharge_cooldown,
+    slow_speed_mult,
+)
