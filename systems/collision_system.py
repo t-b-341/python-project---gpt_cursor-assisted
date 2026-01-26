@@ -102,12 +102,17 @@ def _handle_laser_beam_collisions(state, dt: float, ctx: dict) -> None:
 
 
 def _handle_enemy_laser_beam_collisions(state, dt: float, ctx: dict) -> None:
-    """Enemy laser beams damage the player."""
+    """Enemy laser beams damage the player. Beams have a deploy phase (deploy_timer) where they
+    grow visually but deal no damage; after deploy, they deal damage for timer duration."""
     line_rect = ctx.get("line_rect_intersection")
     player = state.player_rect
     if not line_rect or player is None:
         return
     for beam in list(getattr(state, "enemy_laser_beams", [])):
+        deploy_timer = beam.get("deploy_timer", 0.0)
+        if deploy_timer > 0:
+            beam["deploy_timer"] = deploy_timer - dt
+            continue  # No damage during deploy; beam is still drawn as growing in rendering
         beam["timer"] = beam.get("timer", 0.2) - dt
         if beam["timer"] <= 0:
             state.enemy_laser_beams.remove(beam)

@@ -437,6 +437,23 @@ def _draw_beams(screen: pygame.Surface, state) -> None:
             )
     for beam in getattr(state, "enemy_laser_beams", []):
         if "start" in beam and "end" in beam:
-            pygame.draw.line(
-                screen, beam.get("color", (200, 80, 255)), beam["start"], beam["end"], beam.get("width", 4)
-            )
+            start, end = beam["start"], beam["end"]
+            deploy_timer = beam.get("deploy_timer", 0.0)
+            deploy_time = max(0.001, beam.get("deploy_time", 1.0))
+            if deploy_timer > 0:
+                # Deployment phase: draw beam growing from enemy toward target
+                frac = 1.0 - (deploy_timer / deploy_time)
+                mid = pygame.Vector2(
+                    start.x + (end.x - start.x) * frac,
+                    start.y + (end.y - start.y) * frac,
+                )
+                color = beam.get("color", (200, 80, 255))
+                # Slightly dim during deploy so it reads as "charging"
+                deploy_color = (color[0] // 2, color[1] // 2, min(255, color[2] // 2 + 128))
+                pygame.draw.line(
+                    screen, deploy_color, start, mid, max(1, beam.get("width", 4) - 1)
+                )
+            else:
+                pygame.draw.line(
+                    screen, beam.get("color", (200, 80, 255)), start, end, beam.get("width", 4)
+                )

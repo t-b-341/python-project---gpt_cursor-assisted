@@ -277,6 +277,7 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> En
         enemy["laser_cooldown"] = t.get("laser_cooldown", 0.0)
         enemy["laser_interval"] = t.get("laser_interval", 3.0)
         enemy["laser_duration"] = t.get("laser_duration", 0.4)
+        enemy["laser_deploy_time"] = t.get("laser_deploy_time", 2.0)
         enemy["laser_damage"] = t.get("laser_damage", 80)
         enemy["laser_length"] = t.get("laser_length", 600)
     if t.get("fires_triple_laser"):
@@ -284,6 +285,7 @@ def make_enemy_from_template(t: dict, hp_scale: float, speed_scale: float) -> En
         enemy["laser_cooldown"] = t.get("laser_cooldown", 0.0)
         enemy["laser_interval"] = t.get("laser_interval", 4.0)
         enemy["laser_duration"] = t.get("laser_duration", 0.5)
+        enemy["laser_deploy_time"] = t.get("laser_deploy_time", 2.0)
         enemy["laser_damage"] = t.get("laser_damage", 120)
         enemy["laser_length"] = t.get("laser_length", 700)
         enemy["laser_spread_deg"] = t.get("laser_spread_deg", 15)

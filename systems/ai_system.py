@@ -127,11 +127,14 @@ def _update_enemy_ai(state, dt: float, ctx: dict) -> None:
                     end_pos = pygame.Vector2(enemy["rect"].centerx + dx * scale, enemy["rect"].centery + dy * scale)
                 else:
                     end_pos = pygame.Vector2(enemy["rect"].centerx + length, enemy["rect"].centery)
+                deploy = enemy.get("laser_deploy_time", 2.0)
                 state.enemy_laser_beams.append({
                     "start": pygame.Vector2(enemy["rect"].center),
                     "end": end_pos,
                     "damage": enemy.get("laser_damage", 80) * 60,  # per second in collision
                     "timer": enemy.get("laser_duration", 0.4),
+                    "deploy_time": deploy,
+                    "deploy_timer": deploy,  # countdown: no damage until 0, then beam is active
                     "color": (180, 100, 255),
                     "width": 4,
                 })
@@ -150,6 +153,7 @@ def _update_enemy_ai(state, dt: float, ctx: dict) -> None:
                 length = enemy.get("laser_length", 700)
                 spread_deg = enemy.get("laser_spread_deg", 15) * (3.14159265 / 180.0)
                 base_angle = math.atan2(dy, dx)
+                deploy = enemy.get("laser_deploy_time", 2.0)
                 for off in (-spread_deg, 0, spread_deg):
                     a = base_angle + off
                     ex = cx + length * math.cos(a)
@@ -159,6 +163,8 @@ def _update_enemy_ai(state, dt: float, ctx: dict) -> None:
                         "end": pygame.Vector2(ex, ey),
                         "damage": enemy.get("laser_damage", 120) * 60,
                         "timer": enemy.get("laser_duration", 0.5),
+                        "deploy_time": deploy,
+                        "deploy_timer": deploy,
                         "color": (200, 80, 255),
                         "width": 6,
                     })

@@ -306,6 +306,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "laser_cooldown": 0.0,
         "laser_interval": 3.0,
         "laser_duration": 0.4,
+        "laser_deploy_time": 2.0,  # 50x slower deployment: beam grows over 2s before dealing damage
         "laser_damage": 80,
         "laser_length": 600,
     },
@@ -325,6 +326,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "laser_cooldown": 0.0,
         "laser_interval": 4.0,
         "laser_duration": 0.5,
+        "laser_deploy_time": 2.0,  # 50x slower deployment: beams grow over 2s before dealing damage
         "laser_damage": 120,
         "laser_length": 700,
         "laser_spread_deg": 15,

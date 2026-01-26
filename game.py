@@ -92,6 +92,7 @@ from allies import (
     update_friendly_ai,
 )
 from state import GameState
+from context import AppContext
 from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
 from systems.movement_system import update as movement_update
@@ -112,20 +113,14 @@ HEIGHT = 1080  # Default placeholder
 
 def main():
     """Main entry point for the game. All mutable game state lives in the GameState instance."""
-    global screen, clock, font, big_font, small_font, WIDTH, HEIGHT
-    global telemetry, telemetry_enabled
-    global difficulty, aiming_mode, use_character_profile, player_class, custom_profile_stats, custom_profile_stats_keys
-    global testing_mode, invulnerability_mode, beam_selection_pattern
+    global trapezoid_blocks, triangle_blocks, destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks
+    global hazard_obstacles, moving_health_zone
     global difficulty_selected, aiming_mode_selected, use_character_profile_selected, character_profile_selected
     global custom_profile_stat_selected, player_class_selected, ui_show_metrics_selected, beam_selection_selected
     global endurance_mode_selected, ui_telemetry_enabled_selected
-    global ui_show_metrics, ui_show_hud, ui_show_health_bars, ui_show_player_health_bar
     global weapon_selection_options
-    global trapezoid_blocks, triangle_blocks, destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks
-    global hazard_obstacles, moving_health_zone
     global boost_meter_max, boost_drain_per_s, boost_regen_per_s, boost_speed_mult
     global friendly_ai_templates, overshield_max, grenade_cooldown, missile_cooldown, ally_drop_cooldown
-    global run_started_at
 
     pygame.init()
 
@@ -147,26 +142,48 @@ def main():
     big_font = pygame.font.SysFont(None, 56)
     small_font = pygame.font.SysFont(None, 20)
 
+    # Load controls from file (now that pygame is initialized)
+    global controls
+    if not controls:
+        controls = load_controls()
+
+    # Application context: screen, fonts, clock, telemetry, difficulty, and other app-level config
+    app_ctx = AppContext(
+        screen=screen,
+        clock=clock,
+        font=font,
+        big_font=big_font,
+        small_font=small_font,
+        width=WIDTH,
+        height=HEIGHT,
+        telemetry_client=None,
+        telemetry_enabled=False,
+        run_started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        controls=controls,
+        difficulty=DIFFICULTY_NORMAL,
+        aiming_mode=AIM_MOUSE,
+        profile_enabled=False,
+        player_class=PLAYER_CLASS_BALANCED,
+        testing_mode=True,
+        invulnerability_mode=False,
+        ui_show_metrics=True,
+        ui_show_hud=True,
+        ui_show_health_bars=True,
+        ui_show_player_health_bar=True,
+    )
+
     # Create GameState as the single source of truth for all mutable game state.
-    # Use GameState() defaults; only set values that depend on display/context.
     game_state = GameState()
-    game_state.player_rect = pygame.Rect((WIDTH - 28) // 2, (HEIGHT - 28) // 2, 28, 28)
+    game_state.player_rect = pygame.Rect((app_ctx.width - 28) // 2, (app_ctx.height - 28) // 2, 28, 28)
     game_state.current_screen = STATE_TITLE
-    game_state.run_started_at = run_started_at
+    game_state.run_started_at = app_ctx.run_started_at
 
     # Local alias for readability where the loop uses "player" frequently.
-    # Must stay in sync: player is game_state.player_rect.
     player = game_state.player_rect
 
     # Initialize pygame mouse visibility
     pygame.mouse.set_visible(True)
-    
-    # Load controls from file (now that pygame is initialized)
-    # This must happen after pygame.init() to avoid warnings
-    global controls
-    if not controls:  # Only load if not already loaded
-        controls = load_controls()
-    
+
     # Filter blocks to prevent overlaps (moved from module level)
     global destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks
     destructible_blocks = filter_blocks_no_overlap(destructible_blocks, [moveable_destructible_blocks, giant_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
@@ -176,11 +193,11 @@ def main():
 
     # Level context for movement_system and collision_system (callables and data; avoids circular imports)
     def _make_level_context():
-        w, h = WIDTH, HEIGHT
+        w, h = app_ctx.width, app_ctx.height
         return {
-            "move_player": lambda p, dx, dy: move_player_with_push(p, dx, dy, blocks),
-            "move_enemy": lambda s, rect, mx, my: move_enemy_with_push(rect, mx, my, blocks, s),
-            "clamp": lambda r: clamp_rect_to_screen(r),
+            "move_player": lambda p, dx, dy: move_player_with_push(p, dx, dy, blocks, w, h),
+            "move_enemy": lambda s, rect, mx, my: move_enemy_with_push(rect, mx, my, blocks, s, w, h),
+            "clamp": lambda r: clamp_rect_to_screen(r, w, h),
             "blocks": blocks,
             "width": w,
             "height": h,
@@ -190,14 +207,13 @@ def main():
             "update_friendly_ai": lambda s, dt: update_friendly_ai(
                 s.friendly_ai, s.enemies, blocks, dt,
                 find_nearest_enemy, vec_toward,
-                lambda rect, mx, my, bl: move_enemy_with_push(rect, mx, my, bl, s),
-                lambda f, t: spawn_friendly_projectile(f, t, s.friendly_projectiles, vec_toward, telemetry, s.run_time),
+                lambda rect, mx, my, bl: move_enemy_with_push(rect, mx, my, bl, s, w, h),
+                lambda f, t: spawn_friendly_projectile(f, t, s.friendly_projectiles, vec_toward, app_ctx.telemetry_client, s.run_time),
                 state=s,
                 player_rect=getattr(s, "player_rect", None),
                 spawn_ally_missile_func=lambda f, t, st: spawn_ally_missile(f, t, st),
             ),
-            # Collision system
-            "kill_enemy": kill_enemy,
+            "kill_enemy": lambda e, s: kill_enemy(e, s, w, h),
             "destructible_blocks": destructible_blocks,
             "moveable_destructible_blocks": moveable_destructible_blocks,
             "giant_blocks": giant_blocks,
@@ -209,23 +225,21 @@ def main():
             "teleporter_pads": teleporter_pads,
             "check_point_in_hazard": check_point_in_hazard,
             "line_rect_intersection": line_rect_intersection,
-            "testing_mode": testing_mode,
-            "invulnerability_mode": invulnerability_mode,
-            "reset_after_death": reset_after_death,
+            "testing_mode": app_ctx.testing_mode,
+            "invulnerability_mode": app_ctx.invulnerability_mode,
+            "reset_after_death": lambda s: reset_after_death(s, w, h),
             "create_pickup_collection_effect": create_pickup_collection_effect,
-            "apply_pickup_effect": apply_pickup_effect,
+            "apply_pickup_effect": lambda pt, s: apply_pickup_effect(pt, s, app_ctx),
             "enemy_projectile_size": enemy_projectile_size,
             "enemy_projectiles_color": enemy_projectiles_color,
             "missile_damage": missile_damage,
-            # AI system
             "find_nearest_threat": find_nearest_threat,
-            "spawn_enemy_projectile": spawn_enemy_projectile,
+            "spawn_enemy_projectile": lambda e, s: spawn_enemy_projectile(e, s, app_ctx.telemetry_client, app_ctx.telemetry_enabled),
             "spawn_enemy_projectile_predictive": spawn_enemy_projectile_predictive,
-            # Spawn system
-            "difficulty": difficulty,
+            "difficulty": app_ctx.difficulty,
             "random_spawn_position": random_spawn_position,
-            "telemetry": telemetry,
-            "telemetry_enabled": telemetry_enabled,
+            "telemetry": app_ctx.telemetry_client,
+            "telemetry_enabled": app_ctx.telemetry_enabled,
             "overshield_recharge_cooldown": overshield_recharge_cooldown,
             "ally_drop_cooldown": ally_drop_cooldown,
         }
@@ -240,8 +254,6 @@ def main():
     # ----------------------------
     # Main loop with safe shutdown
     # ----------------------------
-    # Note: telemetry_enabled and telemetry are module-level variables,
-    # so we can modify them directly without global declaration in the main loop
     # Initialize high scores database
     init_high_scores_db()
 
@@ -251,7 +263,7 @@ def main():
     
     try:
         while running:
-            dt = clock.tick(FPS) / 1000.0  # Delta time in seconds
+            dt = app_ctx.clock.tick(FPS) / 1000.0  # Delta time in seconds
             game_state.run_time += dt
             game_state.survival_time += dt
 
@@ -265,7 +277,7 @@ def main():
             controls_rebinding = game_state.controls_rebinding
 
             # Context for screen handlers (shared by event and render)
-            screen_ctx = {"WIDTH": WIDTH, "HEIGHT": HEIGHT, "font": font, "big_font": big_font, "small_font": small_font, "get_high_scores": get_high_scores, "save_high_score": save_high_score, "difficulty": difficulty}
+            screen_ctx = {"WIDTH": app_ctx.width, "HEIGHT": app_ctx.height, "font": app_ctx.font, "big_font": app_ctx.big_font, "small_font": app_ctx.small_font, "get_high_scores": get_high_scores, "save_high_score": save_high_score, "difficulty": app_ctx.difficulty}
 
             # Event handling
             events = pygame.event.get()
@@ -304,7 +316,7 @@ def main():
                         if result.get("restart"):
                             game_state.menu_section = 0
                         if result.get("restart_to_wave1") or result.get("replay"):
-                            game_state.player_rect.center = (WIDTH // 2, HEIGHT // 2)
+                            game_state.player_rect.center = (app_ctx.width // 2, app_ctx.height // 2)
                             state = STATE_PLAYING
                             spawn_system_start_wave(1, game_state)
                     if state == STATE_PAUSED:
@@ -328,7 +340,7 @@ def main():
                 
                 # Ally direction command: right-click during play sends allies toward mouse position
                 # Direct allies: default right-click, or key if rebound
-                direct_allies_binding = controls.get("direct_allies", MOUSE_BUTTON_RIGHT)
+                direct_allies_binding = app_ctx.controls.get("direct_allies", MOUSE_BUTTON_RIGHT)
                 if state in (STATE_PLAYING, STATE_ENDURANCE):
                     if direct_allies_binding == MOUSE_BUTTON_RIGHT and event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
                         game_state.ally_command_target = (float(event.pos[0]), float(event.pos[1]))
@@ -343,8 +355,8 @@ def main():
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and state == STATE_CONTROLS and controls_rebinding:
                     action = controls_actions[controls_selected]
                     if action == "direct_allies":
-                        controls[action] = MOUSE_BUTTON_RIGHT
-                        save_controls(controls)
+                        app_ctx.controls[action] = MOUSE_BUTTON_RIGHT
+                        save_controls(app_ctx.controls)
                         controls_rebinding = False
 
                 # Handle keyboard events
@@ -361,7 +373,7 @@ def main():
                                     game_state.wave_number - 1,
                                     game_state.survival_time,
                                     game_state.enemies_killed,
-                                    difficulty
+                                    app_ctx.difficulty
                                 )
                             state = STATE_HIGH_SCORES
                             game_state.name_input_active = False
@@ -403,7 +415,7 @@ def main():
                                     game_state.wave_number - 1,
                                     game_state.survival_time,
                                     game_state.enemies_killed,
-                                    difficulty
+                                    app_ctx.difficulty
                                 )
                             state = STATE_HIGH_SCORES
                             game_state.name_input_active = False
@@ -450,7 +462,7 @@ def main():
                                 game_state.time_to_next_wave = 0.0
                                 game_state.unlocked_weapons = {"basic"}
                                 game_state.current_weapon_mode = "basic"
-                                game_state.player_rect.center = (WIDTH // 2, HEIGHT // 2)
+                                game_state.player_rect.center = (app_ctx.width // 2, app_ctx.height // 2)
                                 state = STATE_PLAYING
                                 spawn_system_start_wave(1, game_state)
                             elif choice == "Exit to main menu":
@@ -487,7 +499,7 @@ def main():
                                 game_state.current_screen = STATE_TITLE
                                 game_state.menu_confirm_quit = False
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                difficulty = difficulty_options[difficulty_selected]
+                                app_ctx.difficulty = difficulty_options[difficulty_selected]
                                 menu_section = 1.5  # Go to character profile yes/no (aiming mode removed, default mouse)
                         elif menu_section == 1.5:  # Character profile yes/no
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -497,8 +509,8 @@ def main():
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 0  # Go back to difficulty
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                use_character_profile = use_character_profile_selected == 1
-                                if use_character_profile:
+                                app_ctx.profile_enabled = use_character_profile_selected == 1
+                                if app_ctx.profile_enabled:
                                     menu_section = 2  # Go to profile selection
                                 else:
                                     menu_section = 3  # Skip to options
@@ -551,13 +563,13 @@ def main():
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
                                 ui_show_metrics_selected = (ui_show_metrics_selected + 1) % 2
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                if use_character_profile:
+                                if app_ctx.profile_enabled:
                                     menu_section = 7 if character_profile_selected == 0 else 6
                                 else:
                                     menu_section = 1.5
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ui_show_metrics = ui_show_metrics_selected == 0
-                                ui_show_hud = ui_show_metrics
+                                app_ctx.ui_show_metrics = ui_show_metrics_selected == 0
+                                app_ctx.ui_show_hud = app_ctx.ui_show_metrics
                                 menu_section = 3.5  # Go to telemetry options
                         elif menu_section == 3.5:  # Telemetry options
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -567,8 +579,8 @@ def main():
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 3  # Go back to HUD options
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                telemetry_enabled = ui_telemetry_enabled_selected == 0
-                                if testing_mode:
+                                app_ctx.telemetry_enabled = ui_telemetry_enabled_selected == 0
+                                if app_ctx.testing_mode:
                                     menu_section = 4  # Go to weapon selection
                                 else:
                                     menu_section = 5  # Go to start
@@ -586,34 +598,35 @@ def main():
                                     game_state.laser_beams.clear()
                                 game_state.current_weapon_mode = selected_weapon
                                 beam_selection_pattern = selected_weapon
-                                if testing_mode:
+                                if app_ctx.testing_mode:
                                     menu_section = 4.5  # Go to testing options
                                 else:
                                     menu_section = 5  # Go to start
                         elif menu_section == 4.5:  # Testing options (testing mode only)
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                invulnerability_mode = not invulnerability_mode
+                                app_ctx.invulnerability_mode = not app_ctx.invulnerability_mode
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                invulnerability_mode = not invulnerability_mode
+                                app_ctx.invulnerability_mode = not app_ctx.invulnerability_mode
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 4  # Go back to weapon selection
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                                 menu_section = 5  # Go to start
                         elif menu_section == 5:  # Start game
                             if event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                if testing_mode:
+                                if app_ctx.testing_mode:
                                     menu_section = 4.5
                                 else:
                                     menu_section = 3.5  # Go back to telemetry options
                             elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                                 # Initialize game
-                                if telemetry_enabled:
-                                    telemetry = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
+                                app_ctx.telemetry_enabled = (ui_telemetry_enabled_selected == 0)
+                                if app_ctx.telemetry_enabled:
+                                    app_ctx.telemetry_client = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
                                 else:
-                                    telemetry = NoOpTelemetry()
+                                    app_ctx.telemetry_client = NoOpTelemetry()
                                 
                                 # Apply class stats
-                                stats = player_class_stats[player_class]
+                                stats = player_class_stats[app_ctx.player_class]
                                 game_state.player_max_hp = int(1000 * stats["hp_mult"] * 0.75)  # Reduced by 0.75x
                                 game_state.player_hp = game_state.player_max_hp
                                 game_state.player_speed = int(300 * stats["speed_mult"])
@@ -630,13 +643,15 @@ def main():
                                     previous_game_state = STATE_PLAYING
                                 game_state.current_screen = state
                                 game_state.previous_screen = previous_game_state
-                                # So spawn_system sees current telemetry and difficulty
+                                # So spawn_system and others see current app config
                                 if game_state.level_context:
-                                    game_state.level_context["telemetry"] = telemetry
-                                    game_state.level_context["telemetry_enabled"] = telemetry_enabled
-                                    game_state.level_context["difficulty"] = difficulty
+                                    game_state.level_context["telemetry"] = app_ctx.telemetry_client
+                                    game_state.level_context["telemetry_enabled"] = app_ctx.telemetry_enabled
+                                    game_state.level_context["difficulty"] = app_ctx.difficulty
+                                    game_state.level_context["testing_mode"] = app_ctx.testing_mode
+                                    game_state.level_context["invulnerability_mode"] = app_ctx.invulnerability_mode
 
-                                game_state.run_id = telemetry.start_run(game_state.run_started_at, game_state.player_max_hp) if telemetry_enabled else None
+                                game_state.run_id = app_ctx.telemetry_client.start_run(game_state.run_started_at, game_state.player_max_hp) if app_ctx.telemetry_enabled else None
                                 game_state.wave_reset_log.clear()
                                 game_state.wave_start_reason = "menu_start"
                                 spawn_system_start_wave(game_state.wave_number, game_state)
@@ -645,8 +660,8 @@ def main():
                     if state == STATE_CONTROLS and controls_rebinding:
                         if event.key != pygame.K_ESCAPE:
                             action = controls_actions[controls_selected]
-                            controls[action] = event.key
-                            save_controls(controls)
+                            app_ctx.controls[action] = event.key
+                            save_controls(app_ctx.controls)
                             controls_rebinding = False
                         else:
                             controls_rebinding = False
@@ -721,7 +736,7 @@ def main():
                                 game_state.missile_time_since_used = 0.0
                     
                     # Ally drop (Q key) — multiple allies; do not remove previous
-                    if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == controls.get("ally_drop", pygame.K_q):
+                    if (state == STATE_PLAYING or state == STATE_ENDURANCE) and event.key == app_ctx.controls.get("ally_drop", pygame.K_q):
                         if game_state.ally_drop_timer >= ally_drop_cooldown:
                             # Find tank template
                             tank_template = None
@@ -837,7 +852,7 @@ def main():
                         game_state.jump_velocity = pygame.Vector2(0, 0)
                 
                 # Update hazard obstacles
-                update_hazard_obstacles(dt)
+                update_hazard_obstacles(dt, hazard_obstacles, game_state.current_level, app_ctx.width, app_ctx.height)
                 
                 # Unified entity update (Enemy/Friendly call no-op update by default; hook for future logic)
                 for entity in game_state.enemies:
@@ -907,7 +922,7 @@ def main():
                 shoot_input = mouse_buttons[0] or (aiming_mode == AIM_ARROWS and (keys[pygame.K_LEFT] or keys[pygame.K_RIGHT] or keys[pygame.K_UP] or keys[pygame.K_DOWN]))
                 
                 if shoot_input and game_state.player_time_since_shot >= effective_fire_rate:
-                    spawn_player_bullet_and_log(game_state)
+                    spawn_player_bullet_and_log(game_state, app_ctx)
                     game_state.player_time_since_shot = 0.0
                 
                 # Laser beam weapon
@@ -947,103 +962,103 @@ def main():
             # Rendering
             theme = level_themes.get(game_state.current_level, level_themes[1])
             if state not in (STATE_PLAYING, STATE_ENDURANCE):
-                screen.fill(theme["bg_color"])
+                app_ctx.screen.fill(theme["bg_color"])
 
             if state == STATE_TITLE:
                 # Title screen: same green as options menus (theme already filled above); or "Are you sure?" when ESC pressed
                 if game_state.title_confirm_quit:
-                    draw_centered_text(screen, font, big_font, WIDTH, "Are you sure you want to exit?", HEIGHT // 2 - 40, color=(220, 220, 220))
-                    draw_centered_text(screen, font, big_font, WIDTH, "ENTER or Y to quit", HEIGHT // 2 + 20, (180, 180, 180))
-                    draw_centered_text(screen, font, big_font, WIDTH, "ESC or N to stay", HEIGHT // 2 + 60, (180, 180, 180))
+                    draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Are you sure you want to exit?", app_ctx.height // 2 - 40, color=(220, 220, 220))
+                    draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "ENTER or Y to quit", app_ctx.height // 2 + 20, (180, 180, 180))
+                    draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "ESC or N to stay", app_ctx.height // 2 + 60, (180, 180, 180))
                 else:
-                    draw_centered_text(screen, font, big_font, WIDTH, "GAME", HEIGHT // 2 - 80, color=(220, 220, 220), use_big=True)
-                    draw_centered_text(screen, font, big_font, WIDTH, "Main Menu", HEIGHT // 2 - 30, (180, 180, 180))
-                    draw_centered_text(screen, font, big_font, WIDTH, "Press ENTER or SPACE for options", HEIGHT // 2 + 30, (180, 180, 180))
-                    draw_centered_text(screen, font, big_font, WIDTH, "ESC to quit", HEIGHT // 2 + 70, (180, 180, 180))
+                    draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "GAME", app_ctx.height // 2 - 80, color=(220, 220, 220), use_big=True)
+                    draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Main Menu", app_ctx.height // 2 - 30, (180, 180, 180))
+                    draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Press ENTER or SPACE for options", app_ctx.height // 2 + 30, (180, 180, 180))
+                    draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "ESC to quit", app_ctx.height // 2 + 70, (180, 180, 180))
             elif state == STATE_MENU:
                 # Menu rendering (or same quit-confirm dialog when ESC pressed)
                 if game_state.menu_confirm_quit:
-                    draw_centered_text(screen, font, big_font, WIDTH, "Are you sure you want to exit?", HEIGHT // 2 - 40, color=(220, 220, 220))
-                    draw_centered_text(screen, font, big_font, WIDTH, "ENTER or Y to quit", HEIGHT // 2 + 20, (180, 180, 180))
-                    draw_centered_text(screen, font, big_font, WIDTH, "ESC or N to stay", HEIGHT // 2 + 60, (180, 180, 180))
+                    draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Are you sure you want to exit?", app_ctx.height // 2 - 40, color=(220, 220, 220))
+                    draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "ENTER or Y to quit", app_ctx.height // 2 + 20, (180, 180, 180))
+                    draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "ESC or N to stay", app_ctx.height // 2 + 60, (180, 180, 180))
                 else:
-                    draw_centered_text(screen, font, big_font, WIDTH, "MOUSE AIM SHOOTER", HEIGHT // 4, use_big=True)
-                    y_offset = HEIGHT // 2
+                    draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "MOUSE AIM SHOOTER", app_ctx.height // 4, use_big=True)
+                    y_offset = app_ctx.height // 2
                     if menu_section == 0:
                         # Difficulty selection (options entry: LEFT = back to main menu)
-                        draw_centered_text(screen, font, big_font, WIDTH, "Options — Select Difficulty:", y_offset - 60)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Options — Select Difficulty:", y_offset - 60)
                         for i, diff in enumerate(difficulty_options):
                             color = (255, 255, 0) if i == difficulty_selected else (200, 200, 200)
-                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == difficulty_selected else '  '} {diff}", y_offset + i * 40, color)
-                        draw_centered_text(screen, font, big_font, WIDTH, "UP/DOWN to select, RIGHT/ENTER to continue, LEFT to return to main menu", HEIGHT - 100, (150, 150, 150))
+                            draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, f"{'->' if i == difficulty_selected else '  '} {diff}", y_offset + i * 40, color)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "UP/DOWN to select, RIGHT/ENTER to continue, LEFT to return to main menu", app_ctx.height - 100, (150, 150, 150))
                     elif menu_section == 1.5:
                         # Character profile yes/no
-                        draw_centered_text(screen, font, big_font, WIDTH, "Use Character Profile?", y_offset - 60)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Use Character Profile?", y_offset - 60)
                         options = ["No", "Yes"]
                         for i, opt in enumerate(options):
                             color = (255, 255, 0) if i == use_character_profile_selected else (200, 200, 200)
-                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == use_character_profile_selected else '  '} {opt}", y_offset + i * 40, color)
-                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                            draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, f"{'->' if i == use_character_profile_selected else '  '} {opt}", y_offset + i * 40, color)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", app_ctx.height - 100, (150, 150, 150))
                     elif menu_section == 2:
                         # Character profile selection
-                        draw_centered_text(screen, font, big_font, WIDTH, "Character Profile:", y_offset - 60)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Character Profile:", y_offset - 60)
                         for i, profile in enumerate(character_profile_options):
                             color = (255, 255, 0) if i == character_profile_selected else (200, 200, 200)
-                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == character_profile_selected else '  '} {profile}", y_offset + i * 40, color)
-                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                            draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, f"{'->' if i == character_profile_selected else '  '} {profile}", y_offset + i * 40, color)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", app_ctx.height - 100, (150, 150, 150))
                     elif menu_section == 3:
                         # HUD options
-                        draw_centered_text(screen, font, big_font, WIDTH, "HUD Options:", y_offset - 60)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "HUD Options:", y_offset - 60)
                         options = ["Show Metrics", "Hide Metrics"]
                         for i, opt in enumerate(options):
                             color = (255, 255, 0) if i == ui_show_metrics_selected else (200, 200, 200)
-                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == ui_show_metrics_selected else '  '} {opt}", y_offset + i * 40, color)
-                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                            draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, f"{'->' if i == ui_show_metrics_selected else '  '} {opt}", y_offset + i * 40, color)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", app_ctx.height - 100, (150, 150, 150))
                     elif menu_section == 3.5:
                         # Telemetry options
-                        draw_centered_text(screen, font, big_font, WIDTH, "Telemetry:", y_offset - 60)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Telemetry:", y_offset - 60)
                         options = ["Enabled", "Disabled"]
                         for i, opt in enumerate(options):
                             color = (255, 255, 0) if i == ui_telemetry_enabled_selected else (200, 200, 200)
-                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == ui_telemetry_enabled_selected else '  '} {opt}", y_offset + i * 40, color)
-                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                            draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, f"{'->' if i == ui_telemetry_enabled_selected else '  '} {opt}", y_offset + i * 40, color)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", app_ctx.height - 100, (150, 150, 150))
                     elif menu_section == 4:
                         # Beam/weapon selection (if testing mode)
-                        if testing_mode:
-                            draw_centered_text(screen, font, big_font, WIDTH, "Select Weapon:", y_offset - 60)
+                        if app_ctx.testing_mode:
+                            draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Select Weapon:", y_offset - 60)
                             for i, weapon in enumerate(weapon_selection_options):
                                 color = (255, 255, 0) if i == beam_selection_selected else (200, 200, 200)
-                                draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == beam_selection_selected else '  '} {weapon}", y_offset + i * 30, color)
-                            draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                                draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, f"{'->' if i == beam_selection_selected else '  '} {weapon}", y_offset + i * 30, color)
+                            draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", app_ctx.height - 100, (150, 150, 150))
                         else:
                             menu_section = 5  # Skip to start
                     elif menu_section == 4.5:
                         # Testing options (testing mode only)
-                        draw_centered_text(screen, font, big_font, WIDTH, "Testing Options:", y_offset - 60)
-                        invuln_color = (255, 255, 0) if invulnerability_mode else (200, 200, 200)
-                        draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if invulnerability_mode else '  '} Invulnerability: {'ON' if invulnerability_mode else 'OFF'}", y_offset, invuln_color)
-                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to toggle, LEFT to go back, RIGHT/ENTER to start", HEIGHT - 100, (150, 150, 150))
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Testing Options:", y_offset - 60)
+                        invuln_color = (255, 255, 0) if app_ctx.invulnerability_mode else (200, 200, 200)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, f"{'->' if app_ctx.invulnerability_mode else '  '} Invulnerability: {'ON' if app_ctx.invulnerability_mode else 'OFF'}", y_offset, invuln_color)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Use UP/DOWN to toggle, LEFT to go back, RIGHT/ENTER to start", app_ctx.height - 100, (150, 150, 150))
                     elif menu_section == 5:
                         # Start game
-                        draw_centered_text(screen, font, big_font, WIDTH, "Ready to Start!", y_offset)
-                        draw_centered_text(screen, font, big_font, WIDTH, "Press ENTER or SPACE to begin", y_offset + 60, (150, 150, 150))
-                        draw_centered_text(screen, font, big_font, WIDTH, "Press LEFT to go back", y_offset + 100, (150, 150, 150))
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Ready to Start!", y_offset)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Press ENTER or SPACE to begin", y_offset + 60, (150, 150, 150))
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Press LEFT to go back", y_offset + 100, (150, 150, 150))
                     elif menu_section == 6:
                         # Custom profile creator
-                        draw_centered_text(screen, font, big_font, WIDTH, "Custom Profile Creator:", y_offset - 100)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Custom Profile Creator:", y_offset - 100)
                         for i, stat_name in enumerate(custom_profile_stats_list):
                             stat_key = custom_profile_stats_keys[i]
                             stat_value = custom_profile_stats[stat_key]
                             color = (255, 255, 0) if i == custom_profile_stat_selected else (200, 200, 200)
-                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == custom_profile_stat_selected else '  '} {stat_name}: {stat_value:.1f}x", y_offset + i * 35, color)
-                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select stat, LEFT/RIGHT to adjust, ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                            draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, f"{'->' if i == custom_profile_stat_selected else '  '} {stat_name}: {stat_value:.1f}x", y_offset + i * 35, color)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Use UP/DOWN to select stat, LEFT/RIGHT to adjust, ENTER to continue", app_ctx.height - 100, (150, 150, 150))
                     elif menu_section == 7:
                         # Class selection
-                        draw_centered_text(screen, font, big_font, WIDTH, "Select Class:", y_offset - 60)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Select Class:", y_offset - 60)
                         for i, cls in enumerate(player_class_options):
                             color = (255, 255, 0) if i == player_class_selected else (200, 200, 200)
-                            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == player_class_selected else '  '} {cls}", y_offset + i * 40, color)
-                        draw_centered_text(screen, font, big_font, WIDTH, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", HEIGHT - 100, (150, 150, 150))
+                            draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, f"{'->' if i == player_class_selected else '  '} {cls}", y_offset + i * 40, color)
+                        draw_centered_text(app_ctx.screen, app_ctx.font, app_ctx.big_font, app_ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", app_ctx.height - 100, (150, 150, 150))
             elif state == STATE_PLAYING or state == STATE_ENDURANCE:
                 gameplay_ctx = {
                     "level_themes": level_themes,
@@ -1056,25 +1071,25 @@ def main():
                     "hazard_obstacles": hazard_obstacles,
                     "moving_health_zone": moving_health_zone,
                     "teleporter_pads": teleporter_pads,
-                    "small_font": small_font,
+                    "small_font": app_ctx.small_font,
                     "weapon_names": WEAPON_NAMES,
-                    "WIDTH": WIDTH,
-                    "HEIGHT": HEIGHT,
-                    "font": font,
-                    "big_font": big_font,
-                    "ui_show_hud": ui_show_hud,
-                    "ui_show_metrics": ui_show_metrics,
-                    "ui_show_health_bars": ui_show_health_bars,
+                    "WIDTH": app_ctx.width,
+                    "HEIGHT": app_ctx.height,
+                    "font": app_ctx.font,
+                    "big_font": app_ctx.big_font,
+                    "ui_show_hud": app_ctx.ui_show_hud,
+                    "ui_show_metrics": app_ctx.ui_show_metrics,
+                    "ui_show_health_bars": app_ctx.ui_show_health_bars,
                     "overshield_max": overshield_max,
                     "grenade_cooldown": grenade_cooldown,
                     "missile_cooldown": missile_cooldown,
                     "ally_drop_cooldown": ally_drop_cooldown,
                     "overshield_recharge_cooldown": overshield_recharge_cooldown,
                     "shield_duration": shield_duration,
-                    "aiming_mode": aiming_mode,
+                    "aiming_mode": app_ctx.aiming_mode,
                     "current_state": state,
                 }
-                gameplay_render(screen, game_state, gameplay_ctx)
+                gameplay_render(app_ctx.screen, game_state, gameplay_ctx)
                 
                 # Clean up expired UI tokens (state updates; timers decremented in update loop)
                 for dmg_num in game_state.damage_numbers[:]:
@@ -1084,7 +1099,7 @@ def main():
                     if msg["timer"] <= 0:
                         game_state.weapon_pickup_messages.remove(msg)
             elif state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT) and state in SCREEN_HANDLERS and SCREEN_HANDLERS[state].get("render"):
-                SCREEN_HANDLERS[state]["render"](screen, game_state, screen_ctx)
+                SCREEN_HANDLERS[state]["render"](app_ctx.screen, game_state, screen_ctx)
             elif state == STATE_GAME_OVER:
                 # Game over screen
                 # (Game over rendering would go here)
@@ -1118,8 +1133,8 @@ def main():
     
     finally:
         run_ended_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        if telemetry_enabled and telemetry:
-            telemetry.end_run(
+        if app_ctx.telemetry_enabled and app_ctx.telemetry_client:
+            app_ctx.telemetry_client.end_run(
                 ended_at_iso=run_ended_at,
                 seconds_survived=game_state.run_time,
                 player_hp_end=game_state.player_hp,
@@ -1132,7 +1147,7 @@ def main():
                 deaths=game_state.deaths,
                 max_wave=game_state.wave_number,
             )
-            telemetry.close()
+            app_ctx.telemetry_client.close()
             print(f"Saved run_id={game_state.run_id} to game_telemetry.db")
         pygame.quit()
 
@@ -1179,13 +1194,7 @@ def save_controls(controls: dict[str, int]) -> None:
 # Using a placeholder dict to avoid calling pygame.key.key_code() before pygame.init()
 controls = {}
 
-# ----------------------------
-# Telemetry
-# ----------------------------
-# Telemetry can be disabled to improve performance
-telemetry_enabled = False  # Default: Disabled (will be set by user in menu)
-telemetry = None  # Will be initialized if enabled
-run_started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+# Telemetry and run_started_at are stored in AppContext (built in main()).
 
 # Game state constants are now imported from constants.py
 
@@ -1916,9 +1925,9 @@ collection_effects: list[dict] = []  # effects when pickups are collected
 # ----------------------------
 # Helpers
 # ----------------------------
-def clamp_rect_to_screen(r: pygame.Rect):
-    r.x = max(0, min(r.x, WIDTH - r.w))
-    r.y = max(0, min(r.y, HEIGHT - r.h))
+def clamp_rect_to_screen(r: pygame.Rect, width: int, height: int):
+    r.x = max(0, min(r.x, width - r.w))
+    r.y = max(0, min(r.y, height - r.h))
 
 
 def vec_toward(ax, ay, bx, by) -> pygame.Vector2:
@@ -1960,7 +1969,7 @@ def can_move_rect(rect: pygame.Rect, dx: int, dy: int, other_rects: list[pygame.
         return True
 
 
-def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict]):
+def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict], width: int, height: int):
     """Solid collision + pushing blocks (single block push; no chain pushing)."""
     block_rects = [b["rect"] for b in block_list]
     # Include all moveable blocks: destructible, moveable_destructible, trapezoid, and triangle blocks
@@ -2079,7 +2088,7 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
             player_rect.x -= axis_dx
             player_rect.y -= axis_dy
 
-    clamp_rect_to_screen(player_rect)
+    clamp_rect_to_screen(player_rect, width, height)
 
 
 def _enemy_collides(enemy_rect: pygame.Rect, block_list: list[dict], state: GameState) -> bool:
@@ -2121,7 +2130,7 @@ def _enemy_collides(enemy_rect: pygame.Rect, block_list: list[dict], state: Game
     return False
 
 
-def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict], state: GameState):
+def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict], state: GameState, width: int, height: int):
     """Enemy movement - enemies cannot go through objects and must navigate around them.
     When stuck (both axes blocked), tries sliding along walls to avoid getting stuck."""
     start_x, start_y = enemy_rect.x, enemy_rect.y
@@ -2251,7 +2260,7 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
             enemy_rect.x -= sx
             enemy_rect.y -= sy
 
-    clamp_rect_to_screen(enemy_rect)
+    clamp_rect_to_screen(enemy_rect, width, height)
 
 
 def rect_offscreen(r: pygame.Rect) -> bool:
@@ -2645,14 +2654,12 @@ def resolve_hazard_collision(hazard1: dict, hazard2: dict):
     hazard2["center"] += normal * separation
 
 
-def update_hazard_obstacles(dt: float):
+def update_hazard_obstacles(dt: float, hazard_list: list, current_lvl: int, width: int, height: int):
     """Update all rotating hazard obstacles (paraboloids/trapezoids) with collision physics."""
-    global hazard_obstacles, current_level
-    
     # Update each hazard
-    for hazard in hazard_obstacles:
+    for hazard in hazard_list:
         # Determine shape based on level
-        if current_level >= 2:
+        if current_lvl >= 2:
             hazard["shape"] = "trapezoid"
         else:
             hazard["shape"] = "paraboloid"
@@ -2722,10 +2729,10 @@ def update_hazard_obstacles(dt: float):
             )
     
     # Check collisions between hazards
-    for i in range(len(hazard_obstacles)):
-        for j in range(i + 1, len(hazard_obstacles)):
-            if check_hazard_collision(hazard_obstacles[i], hazard_obstacles[j]):
-                resolve_hazard_collision(hazard_obstacles[i], hazard_obstacles[j])
+    for i in range(len(hazard_list)):
+        for j in range(i + 1, len(hazard_list)):
+            if check_hazard_collision(hazard_list[i], hazard_list[j]):
+                resolve_hazard_collision(hazard_list[i], hazard_list[j])
 
 
 def spawn_pickup(pickup_type: str):
@@ -2766,7 +2773,7 @@ def spawn_pickup(pickup_type: str):
     # If we couldn't find a non-overlapping position, skip spawning this pickup
 
 
-def spawn_weapon_in_center(weapon_type: str, state: GameState):
+def spawn_weapon_in_center(weapon_type: str, state: GameState, width: int, height: int):
     """Spawn a weapon pickup in the center of the screen (level completion reward)."""
     # Do not spawn basic beam as a pickup
     if weapon_type == "basic":
@@ -2774,8 +2781,8 @@ def spawn_weapon_in_center(weapon_type: str, state: GameState):
     # Weapon colors are now imported from config_weapons.py
     weapon_pickup_size = (80, 80)  # Bigger for level completion rewards (2x from 40x40)
     weapon_pickup_rect = pygame.Rect(
-        WIDTH // 2 - weapon_pickup_size[0] // 2,
-        HEIGHT // 2 - weapon_pickup_size[1] // 2,
+        width // 2 - weapon_pickup_size[0] // 2,
+        height // 2 - weapon_pickup_size[1] // 2,
         weapon_pickup_size[0],
         weapon_pickup_size[1]
     )
@@ -2892,11 +2899,11 @@ def update_pickup_effects(dt: float, state: GameState):
 # Rendering helper functions are now imported from rendering.py
 
 
-def spawn_player_bullet_and_log(state: GameState):
+def spawn_player_bullet_and_log(state: GameState, app_ctx: AppContext):
     if state.player_rect is None:
         return
     # Determine aiming direction based on aiming mode
-    if aiming_mode == AIM_ARROWS:
+    if app_ctx.aiming_mode == AIM_ARROWS:
         # Arrow key aiming
         keys = pygame.key.get_pressed()
         dx = 0
@@ -2990,8 +2997,8 @@ def spawn_player_bullet_and_log(state: GameState):
             })
     state.shots_fired += 1
 
-    if telemetry_enabled and telemetry:
-        telemetry.log_shot(
+    if app_ctx.telemetry_enabled and app_ctx.telemetry_client:
+        app_ctx.telemetry_client.log_shot(
             ShotEvent(
                 t=state.run_time,
                 origin_x=state.player_rect.centerx,
@@ -3004,7 +3011,7 @@ def spawn_player_bullet_and_log(state: GameState):
         )
 
         # Log bullet metadata
-        telemetry.log_bullet_metadata(
+        app_ctx.telemetry_client.log_bullet_metadata(
             BulletMetadataEvent(
                 t=state.run_time,
                 bullet_type="player",
@@ -3016,7 +3023,7 @@ def spawn_player_bullet_and_log(state: GameState):
         )
 
 
-def spawn_enemy_projectile(enemy: dict, state: GameState):
+def spawn_enemy_projectile(enemy: dict, state: GameState, telemetry_client=None, telemetry_enabled: bool = False):
     """Spawn projectile from enemy targeting nearest threat (player or friendly AI)."""
     if state.player_rect is None:
         return
@@ -3054,8 +3061,8 @@ def spawn_enemy_projectile(enemy: dict, state: GameState):
     })
     
     # Log enemy projectile metadata
-    if telemetry_enabled and telemetry:
-        telemetry.log_bullet_metadata(
+    if telemetry_enabled and telemetry_client:
+        telemetry_client.log_bullet_metadata(
             BulletMetadataEvent(
                 t=state.run_time,
                 bullet_type="enemy",
@@ -3138,7 +3145,7 @@ def spawn_ally_missile(friendly: dict, target_enemy: dict, state: GameState) -> 
         })
 
 
-def kill_enemy(enemy: dict, state: GameState) -> None:
+def kill_enemy(enemy: dict, state: GameState, width: int, height: int) -> None:
     """Handle enemy death: drop weapon, update score, remove from list, and clean up projectiles."""
     is_boss = enemy.get("is_boss", False)
     
@@ -3192,7 +3199,7 @@ def kill_enemy(enemy: dict, state: GameState) -> None:
         if state.current_level in WEAPON_UNLOCK_ORDER:
             weapon_to_unlock = WEAPON_UNLOCK_ORDER[state.current_level]
             if weapon_to_unlock not in state.unlocked_weapons:
-                spawn_weapon_in_center(weapon_to_unlock, state)
+                spawn_weapon_in_center(weapon_to_unlock, state, width, height)
     else:
         # Regular enemies drop weapons randomly (except suicide enemies which despawn)
         if not enemy.get("is_suicide"):
@@ -3206,7 +3213,7 @@ def kill_enemy(enemy: dict, state: GameState) -> None:
     state.score += calculate_kill_score(state.wave_number, state.run_time)
 
 
-def apply_pickup_effect(pickup_type: str, state: GameState):
+def apply_pickup_effect(pickup_type: str, state: GameState, app_ctx: AppContext):
     """Apply the effect of a collected pickup."""
     if pickup_type == "boost":
         state.boost_meter = min(boost_meter_max, state.boost_meter + 45.0)
@@ -3255,8 +3262,8 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
         state.current_weapon_mode = "giant"
         # Log weapon switch from pickup
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry and state.player_rect:
-                telemetry.log_player_action(PlayerActionEvent(
+            if app_ctx.telemetry_enabled and app_ctx.telemetry_client and state.player_rect:
+                app_ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
                     x=state.player_rect.centerx,
@@ -3278,8 +3285,8 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "color": WEAPON_DISPLAY_COLORS.get("triple", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry and state.player_rect:
-                telemetry.log_player_action(PlayerActionEvent(
+            if app_ctx.telemetry_enabled and app_ctx.telemetry_client and state.player_rect:
+                app_ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
                     x=state.player_rect.centerx,
@@ -3301,8 +3308,8 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "color": WEAPON_DISPLAY_COLORS.get("bouncing", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry and state.player_rect:
-                telemetry.log_player_action(PlayerActionEvent(
+            if app_ctx.telemetry_enabled and app_ctx.telemetry_client and state.player_rect:
+                app_ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
                     x=state.player_rect.centerx,
@@ -3324,8 +3331,8 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "color": WEAPON_DISPLAY_COLORS.get("rocket", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry and state.player_rect:
-                telemetry.log_player_action(PlayerActionEvent(
+            if app_ctx.telemetry_enabled and app_ctx.telemetry_client and state.player_rect:
+                app_ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
                     x=state.player_rect.centerx,
@@ -3345,8 +3352,8 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "color": WEAPON_DISPLAY_COLORS.get("laser", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry and state.player_rect:
-                telemetry.log_player_action(PlayerActionEvent(
+            if app_ctx.telemetry_enabled and app_ctx.telemetry_client and state.player_rect:
+                app_ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
                     x=state.player_rect.centerx,
@@ -3368,8 +3375,8 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
             "color": WEAPON_DISPLAY_COLORS.get("basic", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
-            if telemetry_enabled and telemetry and state.player_rect:
-                telemetry.log_player_action(PlayerActionEvent(
+            if app_ctx.telemetry_enabled and app_ctx.telemetry_client and state.player_rect:
+                app_ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
                     action_type="weapon_switch",
                     x=state.player_rect.centerx,
@@ -3384,7 +3391,7 @@ def apply_pickup_effect(pickup_type: str, state: GameState):
 # render_hud_text is now imported from rendering.py
 
 
-def reset_after_death(state: GameState):
+def reset_after_death(state: GameState, width: int, height: int):
     state.player_hp = state.player_max_hp
     state.player_health_regen_rate = 0.0  # Reset health regeneration rate
     state.random_damage_multiplier = 1.0  # Reset random damage multiplier
@@ -3423,9 +3430,9 @@ def reset_after_death(state: GameState):
 
     player = state.player_rect
     if player is not None:
-        player.x = (WIDTH - player.w) // 2
-        player.y = (HEIGHT - player.h) // 2
-        clamp_rect_to_screen(player)
+        player.x = (width - player.w) // 2
+        player.y = (height - player.h) // 2
+        clamp_rect_to_screen(player, width, height)
 
     state.player_bullets.clear()
     state.enemy_projectiles.clear()
