@@ -181,6 +181,9 @@ class GameState:
     beam_selection_selected: int = 3
     endurance_mode_selected: int = 0
     ui_telemetry_enabled_selected: int = 1
+    shader_options_selected_row: int = 0  # main menu shader section (0..5)
+    pause_shader_options_row: int = 0     # pause submenu shader row (0..3)
+    pause_submenu: str | None = None      # "shaders" when in pause shader options, else None
     custom_profile_stats: dict = field(default_factory=lambda: {"hp_mult": 1.0, "speed_mult": 1.0, "damage_mult": 1.0, "firerate_mult": 1.0})
     beam_selection_pattern: str = "giant"
 

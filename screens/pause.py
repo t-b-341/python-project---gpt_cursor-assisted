@@ -12,8 +12,50 @@ def handle_events(events, game_state, ctx):
     Returns dict: {"screen": str|None, "quit": bool, "restart": bool, "restart_to_wave1": bool}.
     """
     out = {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False}
+    app_ctx = ctx.get("app_ctx") if isinstance(ctx, dict) else None
+    cfg = getattr(app_ctx, "config", None) if app_ctx else None
+    submenu = getattr(game_state, "pause_submenu", None)
+
     for event in events:
         if event.type != pygame.KEYDOWN:
+            continue
+        if submenu == "shaders":
+            row = getattr(game_state, "pause_shader_options_row", 0)
+            _pp = ["none", "pause_dim_vignette"]
+            _gp = ["none", "gameplay_subtle_vignette", "gameplay_retro"]
+            if event.key == pygame.K_ESCAPE:
+                game_state.pause_submenu = None
+                break
+            if event.key in (pygame.K_UP, pygame.K_w):
+                game_state.pause_shader_options_row = (row - 1) % 4
+            elif event.key in (pygame.K_DOWN, pygame.K_s):
+                game_state.pause_shader_options_row = (row + 1) % 4
+            elif event.key in (pygame.K_LEFT, pygame.K_a) and cfg is not None:
+                if row == 0:
+                    cfg.enable_gameplay_shaders = not cfg.enable_gameplay_shaders
+                elif row == 1:
+                    cfg.enable_pause_shaders = not cfg.enable_pause_shaders
+                elif row == 2:
+                    cur = getattr(cfg, "gameplay_shader_profile", "none")
+                    i = (_gp.index(cur) if cur in _gp else 0) - 1
+                    cfg.gameplay_shader_profile = _gp[i % len(_gp)]
+                elif row == 3:
+                    cur = getattr(cfg, "pause_shader_profile", "none")
+                    i = (_pp.index(cur) if cur in _pp else 0) - 1
+                    cfg.pause_shader_profile = _pp[i % len(_pp)]
+            elif event.key in (pygame.K_RIGHT, pygame.K_d) and cfg is not None:
+                if row == 0:
+                    cfg.enable_gameplay_shaders = not cfg.enable_gameplay_shaders
+                elif row == 1:
+                    cfg.enable_pause_shaders = not cfg.enable_pause_shaders
+                elif row == 2:
+                    cur = getattr(cfg, "gameplay_shader_profile", "none")
+                    i = (_gp.index(cur) if cur in _gp else 0) + 1
+                    cfg.gameplay_shader_profile = _gp[i % len(_gp)]
+                elif row == 3:
+                    cur = getattr(cfg, "pause_shader_profile", "none")
+                    i = (_pp.index(cur) if cur in _pp else 0) + 1
+                    cfg.pause_shader_profile = _pp[i % len(_pp)]
             continue
         if event.key == pygame.K_ESCAPE:
             target = game_state.previous_screen or STATE_PLAYING
@@ -35,6 +77,8 @@ def handle_events(events, game_state, ctx):
             elif choice == "Restart (Wave 1)":
                 out["restart_to_wave1"] = True
                 out["screen"] = STATE_PLAYING
+            elif choice == "Shader options":
+                game_state.pause_submenu = "shaders"
             elif choice == "Exit to main menu":
                 out["screen"] = STATE_MENU
             elif choice == "Quit":
@@ -53,6 +97,28 @@ def render(render_ctx: RenderContext, game_state, screen_ctx) -> None:
     overlay.set_alpha(128)
     overlay.fill((0, 0, 0))
     screen.blit(overlay, (0, 0))
+
+    submenu = getattr(game_state, "pause_submenu", None)
+    if submenu == "shaders":
+        app_ctx = screen_ctx.get("app_ctx") if isinstance(screen_ctx, dict) else None
+        cfg = getattr(app_ctx, "config", None) if app_ctx else None
+        row = getattr(game_state, "pause_shader_options_row", 0)
+        if cfg is not None:
+            lines = [
+                f"Gameplay Shaders: {'On' if getattr(cfg, 'enable_gameplay_shaders', False) else 'Off'}",
+                f"Pause Shaders: {'On' if getattr(cfg, 'enable_pause_shaders', False) else 'Off'}",
+                f"Gameplay Profile: {getattr(cfg, 'gameplay_shader_profile', 'none')}",
+                f"Pause Profile: {getattr(cfg, 'pause_shader_profile', 'none')}",
+            ]
+        else:
+            lines = ["Gameplay Shaders", "Pause Shaders", "Gameplay Profile", "Pause Profile"]
+        draw_centered_text(screen, font, big_font, WIDTH, "Shader options", HEIGHT // 2 - 120, use_big=True)
+        for i, line in enumerate(lines):
+            color = (255, 255, 0) if i == row else (200, 200, 200)
+            draw_centered_text(screen, font, big_font, WIDTH, f"{'->' if i == row else '  '} {line}", HEIGHT // 2 - 60 + i * 40, color)
+        draw_centered_text(screen, font, big_font, WIDTH, "LEFT/RIGHT change value, ESC back", HEIGHT - 80, (150, 150, 150))
+        return
+
     draw_centered_text(screen, font, big_font, WIDTH, "PAUSED", HEIGHT // 2 - 100, use_big=True)
     y_offset = HEIGHT // 2
     for i, option in enumerate(pause_options):

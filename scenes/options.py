@@ -122,7 +122,7 @@ class OptionsScene:
                     game_state.menu_section = 3
                 elif event.key in (pygame.K_RIGHT, pygame.K_d, pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                     cfg.enable_telemetry = game_state.ui_telemetry_enabled_selected == 0
-                    game_state.menu_section = 4 if cfg.testing_mode else 5
+                    game_state.menu_section = 3.6
             elif game_state.menu_section == 4:
                 if event.key in (pygame.K_UP, pygame.K_w):
                     game_state.beam_selection_selected = (game_state.beam_selection_selected - 1) % len(weapon_selection_options)
@@ -147,9 +147,64 @@ class OptionsScene:
                     game_state.menu_section = 4
                 elif event.key in (pygame.K_RIGHT, pygame.K_d, pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                     game_state.menu_section = 5
+            elif game_state.menu_section == 3.6:
+                _menu_profiles = ["none", "menu_crt", "menu_neon"]
+                _pause_profiles = ["none", "pause_dim_vignette"]
+                _gameplay_profiles = ["none", "gameplay_subtle_vignette", "gameplay_retro"]
+                row = getattr(game_state, "shader_options_selected_row", 0)
+                nrows = 7
+                if event.key in (pygame.K_UP, pygame.K_w):
+                    game_state.shader_options_selected_row = (row - 1) % nrows
+                elif event.key in (pygame.K_DOWN, pygame.K_s):
+                    game_state.shader_options_selected_row = (row + 1) % nrows
+                elif event.key in (pygame.K_LEFT, pygame.K_a):
+                    if row == 6:
+                        game_state.menu_section = 3.5
+                    elif row == 0:
+                        cfg.enable_menu_shaders = not cfg.enable_menu_shaders
+                    elif row == 1:
+                        cfg.enable_pause_shaders = not cfg.enable_pause_shaders
+                    elif row == 2:
+                        cfg.enable_gameplay_shaders = not cfg.enable_gameplay_shaders
+                    elif row == 3:
+                        cur = getattr(cfg, "menu_shader_profile", "none")
+                        i = (_menu_profiles.index(cur) if cur in _menu_profiles else 0) - 1
+                        cfg.menu_shader_profile = _menu_profiles[i % len(_menu_profiles)]
+                    elif row == 4:
+                        cur = getattr(cfg, "pause_shader_profile", "none")
+                        i = (_pause_profiles.index(cur) if cur in _pause_profiles else 0) - 1
+                        cfg.pause_shader_profile = _pause_profiles[i % len(_pause_profiles)]
+                    elif row == 5:
+                        cur = getattr(cfg, "gameplay_shader_profile", "none")
+                        i = (_gameplay_profiles.index(cur) if cur in _gameplay_profiles else 0) - 1
+                        cfg.gameplay_shader_profile = _gameplay_profiles[i % len(_gameplay_profiles)]
+                elif event.key in (pygame.K_RIGHT, pygame.K_d):
+                    if row == 0:
+                        cfg.enable_menu_shaders = not cfg.enable_menu_shaders
+                    elif row == 1:
+                        cfg.enable_pause_shaders = not cfg.enable_pause_shaders
+                    elif row == 2:
+                        cfg.enable_gameplay_shaders = not cfg.enable_gameplay_shaders
+                    elif row == 3:
+                        cur = getattr(cfg, "menu_shader_profile", "none")
+                        i = (_menu_profiles.index(cur) if cur in _menu_profiles else 0) + 1
+                        cfg.menu_shader_profile = _menu_profiles[i % len(_menu_profiles)]
+                    elif row == 4:
+                        cur = getattr(cfg, "pause_shader_profile", "none")
+                        i = (_pause_profiles.index(cur) if cur in _pause_profiles else 0) + 1
+                        cfg.pause_shader_profile = _pause_profiles[i % len(_pause_profiles)]
+                    elif row == 5:
+                        cur = getattr(cfg, "gameplay_shader_profile", "none")
+                        i = (_gameplay_profiles.index(cur) if cur in _gameplay_profiles else 0) + 1
+                        cfg.gameplay_shader_profile = _gameplay_profiles[i % len(_gameplay_profiles)]
+                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                    if row == 6:
+                        game_state.menu_section = 3.5
+                    else:
+                        game_state.menu_section = 4 if cfg.testing_mode else 5
             elif game_state.menu_section == 5:
                 if event.key in (pygame.K_LEFT, pygame.K_a):
-                    game_state.menu_section = 4.5 if cfg.testing_mode else 3.5
+                    game_state.menu_section = 3.6
                 elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                     out["screen"] = STATE_PLAYING
                     out["start_game"] = True
@@ -206,6 +261,23 @@ class OptionsScene:
                 c = (255, 255, 0) if i == game_state.ui_telemetry_enabled_selected else (200, 200, 200)
                 draw_centered_text(screen, font, big_font, w, f"{'->' if i == game_state.ui_telemetry_enabled_selected else '  '} {opt}", y + i * 40, c)
             draw_centered_text(screen, font, big_font, w, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", h - 100, (150, 150, 150))
+        elif ms == 3.6:
+            draw_centered_text(screen, font, big_font, w, "Shader options", y - 120)
+            row = getattr(game_state, "shader_options_selected_row", 0)
+            _mp, _pp, _gp = ["none", "menu_crt", "menu_neon"], ["none", "pause_dim_vignette"], ["none", "gameplay_subtle_vignette", "gameplay_retro"]
+            lines = [
+                f"Menu Shaders: {'On' if getattr(cfg, 'enable_menu_shaders', False) else 'Off'}",
+                f"Pause Shaders: {'On' if getattr(cfg, 'enable_pause_shaders', False) else 'Off'}",
+                f"Gameplay Shaders: {'On' if getattr(cfg, 'enable_gameplay_shaders', False) else 'Off'}",
+                f"Menu Profile: {getattr(cfg, 'menu_shader_profile', 'none')}",
+                f"Pause Profile: {getattr(cfg, 'pause_shader_profile', 'none')}",
+                f"Gameplay Profile: {getattr(cfg, 'gameplay_shader_profile', 'none')}",
+                "Back to Telemetry",
+            ]
+            for i, line in enumerate(lines):
+                c = (255, 255, 0) if i == row else (200, 200, 200)
+                draw_centered_text(screen, font, big_font, w, f"{'->' if i == row else '  '} {line}", y - 60 + i * 32, c)
+            draw_centered_text(screen, font, big_font, w, "UP/DOWN row, LEFT/RIGHT change value, ENTER continue, Back=row 7 LEFT/ENTER", h - 80, (150, 150, 150))
         elif ms == 4:
             if cfg.testing_mode:
                 draw_centered_text(screen, font, big_font, w, "Select Weapon:", y - 60)
