@@ -169,6 +169,23 @@ class GameState:
     controls_selected: int = 0
     controls_rebinding: bool = False
 
+    # Pre-game menu selection indices (moved from module-level globals)
+    difficulty_selected: int = 1
+    aiming_mode_selected: int = 0
+    use_character_profile_selected: int = 0
+    character_profile_selected: int = 0
+    custom_profile_stat_selected: int = 0
+    player_class_selected: int = 0
+    ui_show_metrics_selected: int = 0
+    beam_selection_selected: int = 3
+    endurance_mode_selected: int = 0
+    ui_telemetry_enabled_selected: int = 1
+    custom_profile_stats: dict = field(default_factory=lambda: {"hp_mult": 1.0, "speed_mult": 1.0, "damage_mult": 1.0, "firerate_mult": 1.0})
+    beam_selection_pattern: str = "giant"
+
+    # Level data: teleporter pads (set when level is built)
+    teleporter_pads: list = field(default_factory=list)
+
     # Telemetry run tracking
     run_id: Any = None
     run_started_at: str = ""

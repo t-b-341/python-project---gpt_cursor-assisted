@@ -200,14 +200,6 @@ HEIGHT = 1080
 
 def _create_app():
     """Build ctx, game_state, scene_stack and loop invariants. Used by GameApp."""
-    global teleporter_pads
-    global difficulty_selected, aiming_mode_selected, use_character_profile_selected, character_profile_selected
-    global custom_profile_stat_selected, player_class_selected, ui_show_metrics_selected, beam_selection_selected
-    global endurance_mode_selected, ui_telemetry_enabled_selected
-    global weapon_selection_options
-    global boost_meter_max, boost_drain_per_s, boost_regen_per_s, boost_speed_mult
-    global friendly_ai_templates, overshield_max, grenade_cooldown, missile_cooldown, ally_drop_cooldown
-
     # Resolve physics backend before any geometry/physics use (--python-physics or USE_PYTHON_PHYSICS=1 to force Python)
     force_python = "--python-physics" in sys.argv or os.environ.get("USE_PYTHON_PHYSICS", "").strip() == "1"
     _physics_impl, using_c_physics = resolve_physics(force_python=force_python)
@@ -235,9 +227,7 @@ def _create_app():
     small_font = get_font("main", 20)
 
     # Load controls from file (now that pygame is initialized)
-    global controls
-    if not controls:
-        controls = load_controls()
+    controls = load_controls()
 
     # Application context: screen, fonts, clock, telemetry, and centralized config
     cfg = GameConfig(
@@ -289,7 +279,7 @@ def _create_app():
     level.giant_blocks = filter_blocks_no_overlap(level.giant_blocks, [level.destructible_blocks, level.moveable_blocks, level.super_giant_blocks, level.trapezoid_blocks, level.triangle_blocks], game_state.player_rect)
     level.super_giant_blocks = filter_blocks_no_overlap(level.super_giant_blocks, [level.destructible_blocks, level.moveable_blocks, level.giant_blocks, level.trapezoid_blocks, level.triangle_blocks], game_state.player_rect)
     game_state.level = level
-    teleporter_pads = _place_teleporter_pads(level, ctx.width, ctx.height)
+    game_state.teleporter_pads = _place_teleporter_pads(level, ctx.width, ctx.height)
 
     # Level context for movement_system and collision_system (callables and data; avoids circular imports)
     def _make_level_context():
@@ -330,7 +320,7 @@ def _create_app():
             "triangle_blocks": lv.triangle_blocks,
             "hazard_obstacles": lv.hazard_obstacles,
             "moving_health_zone": lv.moving_health_zone,
-            "teleporter_pads": teleporter_pads,
+            "teleporter_pads": game_state.teleporter_pads,
             "check_point_in_hazard": check_point_in_hazard,
             "line_rect_intersection": line_rect_intersection,
             "testing_mode": ctx.config.testing_mode,
@@ -554,13 +544,6 @@ def _create_app():
 
 def _run_loop(app):
     """Run the main loop. app holds .ctx, .game_state, .scene_stack and loop params."""
-    global difficulty_selected, aiming_mode_selected, use_character_profile_selected, character_profile_selected
-    global custom_profile_stat_selected, player_class_selected, ui_show_metrics_selected, beam_selection_selected
-    global endurance_mode_selected, ui_telemetry_enabled_selected
-    global weapon_selection_options
-    global boost_meter_max, boost_drain_per_s, boost_regen_per_s, boost_speed_mult
-    global friendly_ai_templates, overshield_max, grenade_cooldown, missile_cooldown, ally_drop_cooldown
-    global custom_profile_stats, beam_selection_pattern
     ctx = app.ctx
     game_state = app.game_state
     scene_stack = app.scene_stack
@@ -772,113 +755,113 @@ def _run_loop(app):
                                 game_state.menu_confirm_quit = False
                         elif menu_section == 0:  # Difficulty selection (first options screen: back arrow = return to title/main menu)
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                difficulty_selected = (difficulty_selected - 1) % len(difficulty_options)
+                                game_state.difficulty_selected = (game_state.difficulty_selected - 1) % len(difficulty_options)
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                difficulty_selected = (difficulty_selected + 1) % len(difficulty_options)
+                                game_state.difficulty_selected = (game_state.difficulty_selected + 1) % len(difficulty_options)
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 state = STATE_TITLE
                                 game_state.current_screen = STATE_TITLE
                                 game_state.menu_confirm_quit = False
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.config.difficulty = difficulty_options[difficulty_selected]
+                                ctx.config.difficulty = difficulty_options[game_state.difficulty_selected]
                                 menu_section = 1.5  # Go to character profile yes/no (aiming mode removed, default mouse)
                         elif menu_section == 1.5:  # Character profile yes/no
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                use_character_profile_selected = (use_character_profile_selected - 1) % 2
+                                game_state.use_character_profile_selected = (game_state.use_character_profile_selected - 1) % 2
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                use_character_profile_selected = (use_character_profile_selected + 1) % 2
+                                game_state.use_character_profile_selected = (game_state.use_character_profile_selected + 1) % 2
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 0  # Go back to difficulty
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.config.profile_enabled = use_character_profile_selected == 1
+                                ctx.config.profile_enabled = game_state.use_character_profile_selected == 1
                                 if ctx.config.profile_enabled:
                                     menu_section = 2  # Go to profile selection
                                 else:
                                     menu_section = 3  # Skip to options
                         elif menu_section == 2:  # Character profile selection
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                character_profile_selected = (character_profile_selected - 1) % len(character_profile_options)
+                                game_state.character_profile_selected = (game_state.character_profile_selected - 1) % len(character_profile_options)
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                character_profile_selected = (character_profile_selected + 1) % len(character_profile_options)
+                                game_state.character_profile_selected = (game_state.character_profile_selected + 1) % len(character_profile_options)
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 1.5  # Go back
                             elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                if character_profile_selected == 0:
+                                if game_state.character_profile_selected == 0:
                                     menu_section = 7  # Go to class selection
-                                elif character_profile_selected == 1:
+                                elif game_state.character_profile_selected == 1:
                                     menu_section = 6  # Go to custom profile creator
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
-                                if character_profile_selected == 0:
+                                if game_state.character_profile_selected == 0:
                                     menu_section = 7  # Go to class selection
-                                elif character_profile_selected == 1:
+                                elif game_state.character_profile_selected == 1:
                                     menu_section = 6  # Go to custom profile creator
                         elif menu_section == 6:  # Custom profile creator
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                custom_profile_stat_selected = (custom_profile_stat_selected - 1) % len(custom_profile_stats_list)
+                                game_state.custom_profile_stat_selected = (game_state.custom_profile_stat_selected - 1) % len(custom_profile_stats_list)
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                custom_profile_stat_selected = (custom_profile_stat_selected + 1) % len(custom_profile_stats_list)
+                                game_state.custom_profile_stat_selected = (game_state.custom_profile_stat_selected + 1) % len(custom_profile_stats_list)
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                                stat_key = custom_profile_stats_keys[custom_profile_stat_selected]
-                                custom_profile_stats[stat_key] = max(0.5, custom_profile_stats[stat_key] - 0.1)
+                                stat_key = custom_profile_stats_keys[game_state.custom_profile_stat_selected]
+                                game_state.custom_profile_stats[stat_key] = max(0.5, game_state.custom_profile_stats[stat_key] - 0.1)
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
                                 menu_section = 3  # Continue to options
                             elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
-                                stat_key = custom_profile_stats_keys[custom_profile_stat_selected]
-                                custom_profile_stats[stat_key] = min(3.0, custom_profile_stats[stat_key] + 0.1)
+                                stat_key = custom_profile_stats_keys[game_state.custom_profile_stat_selected]
+                                game_state.custom_profile_stats[stat_key] = min(3.0, game_state.custom_profile_stats[stat_key] + 0.1)
                             elif event.key == pygame.K_MINUS:
-                                stat_key = custom_profile_stats_keys[custom_profile_stat_selected]
-                                custom_profile_stats[stat_key] = max(0.5, custom_profile_stats[stat_key] - 0.1)
+                                stat_key = custom_profile_stats_keys[game_state.custom_profile_stat_selected]
+                                game_state.custom_profile_stats[stat_key] = max(0.5, game_state.custom_profile_stats[stat_key] - 0.1)
                         elif menu_section == 7:  # Class selection
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                player_class_selected = (player_class_selected - 1) % len(player_class_options)
+                                game_state.player_class_selected = (game_state.player_class_selected - 1) % len(player_class_options)
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                player_class_selected = (player_class_selected + 1) % len(player_class_options)
+                                game_state.player_class_selected = (game_state.player_class_selected + 1) % len(player_class_options)
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 2  # Go back
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.config.player_class = player_class_options[player_class_selected]
+                                ctx.config.player_class = player_class_options[game_state.player_class_selected]
                                 menu_section = 3  # Go to options
                         elif menu_section == 3:  # HUD options
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                ui_show_metrics_selected = (ui_show_metrics_selected - 1) % 2
+                                game_state.ui_show_metrics_selected = (game_state.ui_show_metrics_selected - 1) % 2
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                ui_show_metrics_selected = (ui_show_metrics_selected + 1) % 2
+                                game_state.ui_show_metrics_selected = (game_state.ui_show_metrics_selected + 1) % 2
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 if ctx.config.profile_enabled:
-                                    menu_section = 7 if character_profile_selected == 0 else 6
+                                    menu_section = 7 if game_state.character_profile_selected == 0 else 6
                                 else:
                                     menu_section = 1.5
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.config.show_metrics = ui_show_metrics_selected == 0
+                                ctx.config.show_metrics = game_state.ui_show_metrics_selected == 0
                                 ctx.config.show_hud = ctx.config.show_metrics
                                 menu_section = 3.5  # Go to telemetry options
                         elif menu_section == 3.5:  # Telemetry options
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                ui_telemetry_enabled_selected = (ui_telemetry_enabled_selected - 1) % 2
+                                game_state.ui_telemetry_enabled_selected = (game_state.ui_telemetry_enabled_selected - 1) % 2
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                ui_telemetry_enabled_selected = (ui_telemetry_enabled_selected + 1) % 2
+                                game_state.ui_telemetry_enabled_selected = (game_state.ui_telemetry_enabled_selected + 1) % 2
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 3  # Go back to HUD options
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                ctx.config.enable_telemetry = ui_telemetry_enabled_selected == 0
+                                ctx.config.enable_telemetry = game_state.ui_telemetry_enabled_selected == 0
                                 if ctx.config.testing_mode:
                                     menu_section = 4  # Go to weapon selection
                                 else:
                                     menu_section = 5  # Go to start
                         elif menu_section == 4:  # Weapon selection (testing mode)
                             if event.key == pygame.K_UP or event.key == pygame.K_w:
-                                beam_selection_selected = (beam_selection_selected - 1) % len(weapon_selection_options)
+                                game_state.beam_selection_selected = (game_state.beam_selection_selected - 1) % len(weapon_selection_options)
                             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                                beam_selection_selected = (beam_selection_selected + 1) % len(weapon_selection_options)
+                                game_state.beam_selection_selected = (game_state.beam_selection_selected + 1) % len(weapon_selection_options)
                             elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
                                 menu_section = 3  # Go back
                             elif event.key == pygame.K_RIGHT or event.key == pygame.K_d or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                selected_weapon = weapon_selection_options[beam_selection_selected]
+                                selected_weapon = weapon_selection_options[game_state.beam_selection_selected]
                                 game_state.unlocked_weapons.add(selected_weapon)
                                 if game_state.current_weapon_mode == "laser" and selected_weapon != "laser":
                                     game_state.laser_beams.clear()
                                 game_state.current_weapon_mode = selected_weapon
-                                beam_selection_pattern = selected_weapon
+                                game_state.beam_selection_pattern = selected_weapon
                                 if ctx.config.testing_mode:
                                     menu_section = 4.5  # Go to testing options
                                 else:
@@ -916,7 +899,7 @@ def _run_loop(app):
                                 game_state.player_shoot_cooldown = ctx.config.player_base_shoot_cooldown / stats["firerate_mult"]
                                 
                                 # Set state and persist to game_state so "state = game_state.current_screen" in the play block doesn't overwrite with MENU
-                                if endurance_mode_selected == 1:
+                                if game_state.endurance_mode_selected == 1:
                                     state = STATE_ENDURANCE
                                     previous_game_state = STATE_ENDURANCE
                                     game_state.lives = 999
@@ -1067,47 +1050,47 @@ def _run_loop(app):
                         # Difficulty selection (options entry: LEFT = back to main menu)
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Options — Select Difficulty:", y_offset - 60)
                         for i, diff in enumerate(difficulty_options):
-                            color = (255, 255, 0) if i == difficulty_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == difficulty_selected else '  '} {diff}", y_offset + i * 40, color)
+                            color = (255, 255, 0) if i == game_state.difficulty_selected else (200, 200, 200)
+                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.difficulty_selected else '  '} {diff}", y_offset + i * 40, color)
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "UP/DOWN to select, RIGHT/ENTER to continue, LEFT to return to main menu", ctx.height - 100, (150, 150, 150))
                     elif menu_section == 1.5:
                         # Character profile yes/no
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use Character Profile?", y_offset - 60)
                         options = ["No", "Yes"]
                         for i, opt in enumerate(options):
-                            color = (255, 255, 0) if i == use_character_profile_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == use_character_profile_selected else '  '} {opt}", y_offset + i * 40, color)
+                            color = (255, 255, 0) if i == game_state.use_character_profile_selected else (200, 200, 200)
+                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.use_character_profile_selected else '  '} {opt}", y_offset + i * 40, color)
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
                     elif menu_section == 2:
                         # Character profile selection
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Character Profile:", y_offset - 60)
                         for i, profile in enumerate(character_profile_options):
-                            color = (255, 255, 0) if i == character_profile_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == character_profile_selected else '  '} {profile}", y_offset + i * 40, color)
+                            color = (255, 255, 0) if i == game_state.character_profile_selected else (200, 200, 200)
+                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.character_profile_selected else '  '} {profile}", y_offset + i * 40, color)
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
                     elif menu_section == 3:
                         # HUD options
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "HUD Options:", y_offset - 60)
                         options = ["Show Metrics", "Hide Metrics"]
                         for i, opt in enumerate(options):
-                            color = (255, 255, 0) if i == ui_show_metrics_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == ui_show_metrics_selected else '  '} {opt}", y_offset + i * 40, color)
+                            color = (255, 255, 0) if i == game_state.ui_show_metrics_selected else (200, 200, 200)
+                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.ui_show_metrics_selected else '  '} {opt}", y_offset + i * 40, color)
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
                     elif menu_section == 3.5:
                         # Telemetry options
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Telemetry:", y_offset - 60)
                         options = ["Enabled", "Disabled"]
                         for i, opt in enumerate(options):
-                            color = (255, 255, 0) if i == ui_telemetry_enabled_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == ui_telemetry_enabled_selected else '  '} {opt}", y_offset + i * 40, color)
+                            color = (255, 255, 0) if i == game_state.ui_telemetry_enabled_selected else (200, 200, 200)
+                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.ui_telemetry_enabled_selected else '  '} {opt}", y_offset + i * 40, color)
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
                     elif menu_section == 4:
                         # Beam/weapon selection (if testing mode)
                         if ctx.config.testing_mode:
                             draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Select Weapon:", y_offset - 60)
                             for i, weapon in enumerate(weapon_selection_options):
-                                color = (255, 255, 0) if i == beam_selection_selected else (200, 200, 200)
-                                draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == beam_selection_selected else '  '} {weapon}", y_offset + i * 30, color)
+                                color = (255, 255, 0) if i == game_state.beam_selection_selected else (200, 200, 200)
+                                draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.beam_selection_selected else '  '} {weapon}", y_offset + i * 30, color)
                             draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
                         else:
                             menu_section = 5  # Skip to start
@@ -1127,16 +1110,16 @@ def _run_loop(app):
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Custom Profile Creator:", y_offset - 100)
                         for i, stat_name in enumerate(custom_profile_stats_list):
                             stat_key = custom_profile_stats_keys[i]
-                            stat_value = custom_profile_stats[stat_key]
-                            color = (255, 255, 0) if i == custom_profile_stat_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == custom_profile_stat_selected else '  '} {stat_name}: {stat_value:.1f}x", y_offset + i * 35, color)
+                            stat_value = game_state.custom_profile_stats[stat_key]
+                            color = (255, 255, 0) if i == game_state.custom_profile_stat_selected else (200, 200, 200)
+                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.custom_profile_stat_selected else '  '} {stat_name}: {stat_value:.1f}x", y_offset + i * 35, color)
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select stat, LEFT/RIGHT to adjust, ENTER to continue", ctx.height - 100, (150, 150, 150))
                     elif menu_section == 7:
                         # Class selection
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Select Class:", y_offset - 60)
                         for i, cls in enumerate(player_class_options):
-                            color = (255, 255, 0) if i == player_class_selected else (200, 200, 200)
-                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == player_class_selected else '  '} {cls}", y_offset + i * 40, color)
+                            color = (255, 255, 0) if i == game_state.player_class_selected else (200, 200, 200)
+                            draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == game_state.player_class_selected else '  '} {cls}", y_offset + i * 40, color)
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
             elif state == STATE_PLAYING or state == STATE_ENDURANCE:
                 lv = game_state.level
@@ -1150,7 +1133,7 @@ def _run_loop(app):
                     "super_giant_blocks": lv.super_giant_blocks if lv else [],
                     "hazard_obstacles": lv.hazard_obstacles if lv else [],
                     "moving_health_zone": lv.moving_health_zone if lv else None,
-                    "teleporter_pads": teleporter_pads,
+                    "teleporter_pads": game_state.teleporter_pads,
                     "small_font": ctx.small_font,
                     "weapon_names": WEAPON_NAMES,
                     "WIDTH": ctx.width,
@@ -1972,7 +1955,7 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, leve
         
         # Check teleporter pads (nothing overlaps except player)
         if not collision:
-            for pad in teleporter_pads:
+            for pad in state.teleporter_pads:
                 if enemy_rect.colliderect(pad["rect"]):
                     collision = True
                     break
@@ -2068,7 +2051,7 @@ def random_spawn_position(size: tuple[int, int], state: GameState, max_attempts:
                 continue
         if any(candidate.colliderect(p["rect"]) for p in state.pickups):
             continue
-        if any(candidate.colliderect(pad["rect"]) for pad in teleporter_pads):
+        if any(candidate.colliderect(pad["rect"]) for pad in state.teleporter_pads):
             continue
         return candidate
     return pygame.Rect(max(0, WIDTH // 2 - w), max(0, HEIGHT // 2 - h), w, h)
