@@ -160,6 +160,7 @@ from context import AppContext
 from config import GameConfig
 from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
+from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene
 from systems.registry import SIMULATION_SYSTEMS
 from systems.spawn_system import start_wave as spawn_system_start_wave
 from systems.input_system import handle_gameplay_input
@@ -443,7 +444,51 @@ def main():
             if isinstance(e, dict) and "damage_flash_timer" in e:
                 e["damage_flash_timer"] = max(0.0, e["damage_flash_timer"] - sim_dt)
 
+    SCENE_STATES = (STATE_PLAYING, STATE_ENDURANCE, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT)
+
+    def _sync_scene_stack(stk: SceneStack, s: str, gs: GameState) -> None:
+        """Keep scene stack in sync with current_screen when in gameplay/pause/high-scores/name-input."""
+        if s not in SCENE_STATES:
+            return
+        cur = stk.current()
+        if s in (STATE_PLAYING, STATE_ENDURANCE):
+            if cur is None:
+                stk.push(GameplayScene(s))
+                return
+            while cur and cur.state_id() not in (STATE_PLAYING, STATE_ENDURANCE):
+                stk.pop()
+                cur = stk.current()
+            if cur is None:
+                stk.push(GameplayScene(s))
+            elif cur.state_id() != s:
+                stk.pop()
+                stk.push(GameplayScene(s))
+            return
+        if cur is None:
+            stk.push(GameplayScene(gs.previous_screen or STATE_PLAYING))
+            cur = stk.current()
+        if s == STATE_PAUSED:
+            if cur.state_id() != STATE_PAUSED:
+                stk.push(PauseScene())
+        elif s == STATE_NAME_INPUT:
+            while cur and cur.state_id() not in (STATE_PLAYING, STATE_ENDURANCE):
+                stk.pop()
+                cur = stk.current()
+            if cur is None:
+                stk.push(GameplayScene(STATE_PLAYING))
+            if not stk.current() or stk.current().state_id() != STATE_NAME_INPUT:
+                stk.push(NameInputScene())
+        elif s == STATE_HIGH_SCORES:
+            while cur and cur.state_id() not in (STATE_PLAYING, STATE_ENDURANCE):
+                stk.pop()
+                cur = stk.current()
+            if cur is None:
+                stk.push(GameplayScene(STATE_PLAYING))
+            if not stk.current() or stk.current().state_id() != STATE_HIGH_SCORES:
+                stk.push(HighScoreScene())
+
     running = True
+    scene_stack = SceneStack()
     try:
         while running:
             dt = ctx.clock.tick(FPS) / 1000.0  # Wall-clock delta for this frame
@@ -453,6 +498,7 @@ def main():
 
             # Sync flow state from GameState for use in this iteration (single source of truth is game_state)
             state = game_state.current_screen
+            _sync_scene_stack(scene_stack, state, game_state)
             previous_game_state = game_state.previous_screen
             menu_section = game_state.menu_section
             pause_selected = game_state.pause_selected
@@ -471,9 +517,12 @@ def main():
 
             handled_by_screen = False
             if running and state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT):
-                h = SCREEN_HANDLERS.get(state)
-                if h and h.get("handle_events"):
-                    result = h["handle_events"](events, game_state, screen_ctx)
+                current_scene = scene_stack.current()
+                if current_scene:
+                    result = current_scene.handle_input(events, game_state, screen_ctx)
+                else:
+                    h = SCREEN_HANDLERS.get(state)
+                    result = h["handle_events"](events, game_state, screen_ctx) if h and h.get("handle_events") else {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False, "replay": False}
                     if result.get("quit"):
                         running = False
                     if result.get("restart") or result.get("restart_to_wave1") or result.get("replay"):
@@ -483,11 +532,15 @@ def main():
                         if result.get("restart_to_wave1") or result.get("replay"):
                             state = STATE_PLAYING
                             spawn_system_start_wave(1, game_state)
+                            scene_stack.clear()
+                            scene_stack.push(GameplayScene(STATE_PLAYING))
                     if state == STATE_PAUSED:
                         pause_selected = game_state.pause_selected
                     if result.get("screen") is not None:
                         state = result["screen"]
                         game_state.current_screen = state
+                        if state == STATE_MENU:
+                            scene_stack.clear()
                     handled_by_screen = True
 
             for event in events:
@@ -599,6 +652,7 @@ def main():
                                 spawn_system_start_wave(1, game_state)
                             elif choice == "Exit to main menu":
                                 state = STATE_MENU
+                                scene_stack.clear()
                             elif choice == "Quit":
                                 running = False
                     
@@ -774,6 +828,8 @@ def main():
                                     previous_game_state = STATE_PLAYING
                                 game_state.current_screen = state
                                 game_state.previous_screen = previous_game_state
+                                scene_stack.clear()
+                                scene_stack.push(GameplayScene(state))
                                 # So spawn_system and others see current app config
                                 if game_state.level_context:
                                     game_state.level_context["telemetry"] = ctx.telemetry_client
@@ -1029,9 +1085,13 @@ def main():
                 for msg in game_state.weapon_pickup_messages[:]:
                     if msg["timer"] <= 0:
                         game_state.weapon_pickup_messages.remove(msg)
-            elif state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT) and state in SCREEN_HANDLERS and SCREEN_HANDLERS[state].get("render"):
+            elif state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT):
                 render_ctx = RenderContext.from_app_ctx(ctx)
-                SCREEN_HANDLERS[state]["render"](render_ctx, game_state, screen_ctx)
+                current_scene = scene_stack.current()
+                if current_scene:
+                    current_scene.render(render_ctx, game_state, screen_ctx)
+                elif state in SCREEN_HANDLERS and SCREEN_HANDLERS[state].get("render"):
+                    SCREEN_HANDLERS[state]["render"](render_ctx, game_state, screen_ctx)
             elif state == STATE_GAME_OVER:
                 # Game over screen
                 # (Game over rendering would go here)
