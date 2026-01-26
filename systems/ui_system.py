@@ -1,47 +1,65 @@
 """
 HUD/UI rendering during gameplay.
-Draws health bars, score, metrics, cooldown bars, damage numbers, defeat/pickup messages, wave countdown.
-Reads state only; does not modify it.
+Split into render_hud (health, score, metrics, cooldown bars) and render_overlays
+(damage numbers, defeat/pickup messages, wave countdown). Read state only.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pygame
 
 from constants import STATE_PLAYING, AIM_ARROWS
-from rendering import draw_health_bar, draw_centered_text, render_hud_text
+from rendering import RenderContext, draw_health_bar, draw_centered_text, render_hud_text
 
 if TYPE_CHECKING:
     from state import GameState
 
 
-def render(state: "GameState", screen: pygame.Surface, ctx: dict) -> None:
-    """Draw all gameplay HUD/UI on top of the scene. ctx: font, big_font, small_font, WIDTH, HEIGHT, ui_show_hud, ui_show_metrics, ui_show_health_bars, overshield_max, grenade_cooldown, missile_cooldown, ally_drop_cooldown, overshield_recharge_cooldown, shield_duration, aiming_mode, current_state."""
-    if not ctx:
+def render_hud(state: "GameState", ctx: dict, render_ctx: RenderContext) -> None:
+    """Draw HUD layer: entity health bars, score, metrics, and cooldown bars."""
+    if not ctx or not render_ctx:
         return
-    font = ctx.get("font")
-    big_font = ctx.get("big_font")
-    small_font = ctx.get("small_font")
-    WIDTH = ctx.get("WIDTH", 1920)
-    HEIGHT = ctx.get("HEIGHT", 1080)
+    screen = render_ctx.screen
+    font, big_font, small_font = render_ctx.font, render_ctx.big_font, render_ctx.small_font
+    WIDTH, HEIGHT = render_ctx.width, render_ctx.height
     ui_show_health_bars = ctx.get("ui_show_health_bars", True)
     ui_show_hud = ctx.get("ui_show_hud", True)
     ui_show_metrics = ctx.get("ui_show_metrics", True)
     if not font or not big_font or not small_font:
         return
-
     _draw_entity_health_bars(screen, state, ui_show_health_bars)
     if ui_show_hud:
         _draw_score(screen, state, big_font, WIDTH)
         if ui_show_metrics:
             _draw_metrics_and_bars(screen, state, ctx, font, small_font, WIDTH, HEIGHT)
+
+
+def render_overlays(state: "GameState", ctx: dict, render_ctx: RenderContext) -> None:
+    """Draw overlay layer: damage numbers, defeat/pickup messages, wave countdown, wave-reset debug."""
+    if not ctx or not render_ctx:
+        return
+    screen = render_ctx.screen
+    font, big_font, small_font = render_ctx.font, render_ctx.big_font, render_ctx.small_font
+    WIDTH, HEIGHT = render_ctx.width, render_ctx.height
+    ui_show_metrics = ctx.get("ui_show_metrics", True)
+    if not font or not small_font:
+        return
     _draw_damage_numbers(screen, state, font, small_font)
     _draw_defeat_messages(screen, state, small_font, WIDTH, HEIGHT)
     _draw_weapon_pickup_messages(screen, state, font, WIDTH, HEIGHT)
     _draw_wave_countdown(screen, state, font, big_font, WIDTH, HEIGHT)
     if ui_show_metrics:
         _draw_wave_reset_debug(screen, state, small_font, WIDTH, HEIGHT)
+
+
+def render(state: "GameState", screen: pygame.Surface, ctx: dict) -> None:
+    """Draw all gameplay HUD/UI (HUD + overlays). Backward compat: builds RenderContext from (screen, ctx)."""
+    if not ctx:
+        return
+    render_ctx = RenderContext.from_screen_and_ctx(screen, ctx)
+    render_hud(state, ctx, render_ctx)
+    render_overlays(state, ctx, render_ctx)
 
 
 def _draw_entity_health_bars(screen: pygame.Surface, state, show: bool) -> None:

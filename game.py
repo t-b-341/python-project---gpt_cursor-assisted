@@ -74,7 +74,7 @@ from config_weapons import (
     WEAPON_DISPLAY_COLORS,
     WEAPON_UNLOCK_ORDER,
 )
-from rendering import draw_centered_text
+from rendering import RenderContext, draw_centered_text
 from enemies import (
     find_nearest_threat,
     make_enemy_from_template,
@@ -929,7 +929,8 @@ def main():
                     if msg["timer"] <= 0:
                         game_state.weapon_pickup_messages.remove(msg)
             elif state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT) and state in SCREEN_HANDLERS and SCREEN_HANDLERS[state].get("render"):
-                SCREEN_HANDLERS[state]["render"](ctx, game_state, screen_ctx)
+                render_ctx = RenderContext.from_app_ctx(ctx)
+                SCREEN_HANDLERS[state]["render"](render_ctx, game_state, screen_ctx)
             elif state == STATE_GAME_OVER:
                 # Game over screen
                 # (Game over rendering would go here)

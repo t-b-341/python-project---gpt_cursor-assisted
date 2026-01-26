@@ -1,10 +1,52 @@
 """
 Rendering helper functions - pure drawing utilities extracted from game.py.
 These functions handle drawing textures, projectiles, health bars, and text.
+
+RenderContext holds screen, fonts, and layout; render functions accept it to avoid
+repeated lookups. Build from AppContext via RenderContext.from_app_ctx(app_ctx).
 """
+from __future__ import annotations
+
 import math
+from dataclasses import dataclass
+from typing import Any
 
 import pygame
+
+
+@dataclass
+class RenderContext:
+    """Screen, fonts, and layout constants for a single frame. Build from AppContext for consistency."""
+    screen: pygame.Surface
+    font: pygame.font.Font
+    big_font: pygame.font.Font
+    small_font: pygame.font.Font
+    width: int
+    height: int
+
+    @classmethod
+    def from_app_ctx(cls, app_ctx: Any) -> RenderContext:
+        """Build a RenderContext from AppContext (screen, fonts, width, height)."""
+        return cls(
+            screen=app_ctx.screen,
+            font=app_ctx.font,
+            big_font=app_ctx.big_font,
+            small_font=app_ctx.small_font,
+            width=app_ctx.width,
+            height=app_ctx.height,
+        )
+
+    @classmethod
+    def from_screen_and_ctx(cls, screen: pygame.Surface, ctx: dict) -> RenderContext:
+        """Build from (screen, ctx) when app_ctx is not available. ctx must have font, big_font, small_font, WIDTH, HEIGHT."""
+        return cls(
+            screen=screen,
+            font=ctx.get("font") or pygame.font.SysFont(None, 28),
+            big_font=ctx.get("big_font") or pygame.font.SysFont(None, 56),
+            small_font=ctx.get("small_font") or pygame.font.SysFont(None, 20),
+            width=ctx.get("WIDTH", 1920),
+            height=ctx.get("HEIGHT", 1080),
+        )
 
 
 # Module-level caches for rendering optimization
@@ -218,37 +260,50 @@ def render_hud_text(screen: pygame.Surface, font: pygame.font.Font, text: str, y
     return y + 24
 
 
-# Caches for trapezoid/triangle block surfaces (used by render_gameplay)
+# Caches for trapezoid/triangle block surfaces (used by render_background)
 _trapezoid_surface_cache: dict = {}
 _triangle_surface_cache: dict = {}
 
 
-def render_gameplay(state, screen: pygame.Surface, ctx: dict) -> None:
-    """Central entry for gameplay/world rendering. Read-only: does not modify state.
-
-    Draw order: (1) background, (2) terrain/obstacles, (3) pickups, (4) projectiles,
-    (5) allies and enemies, (6) effects (explosions, missiles), (7) player, (8) beams.
-    HUD/UI is drawn by the caller via ui_system after this returns.
-
-    ctx must contain: level_themes, trapezoid_blocks, triangle_blocks, destructible_blocks,
-    moveable_destructible_blocks, giant_blocks, super_giant_blocks, hazard_obstacles,
-    moving_health_zone, small_font, weapon_names.
-    """
+def render_background(state: Any, ctx: dict, render_ctx: RenderContext) -> None:
+    """Draw background (theme fill), terrain/obstacles, and pickups. First layer of the frame."""
     if not ctx:
         return
     level_themes = ctx.get("level_themes", {})
     default_theme = level_themes.get(1, {})
     theme = level_themes.get(getattr(state, "current_level", 1), default_theme)
     bg = theme.get("bg_color", (0, 0, 0))
-    screen.fill(bg)
+    render_ctx.screen.fill(bg)
+    _draw_terrain(render_ctx.screen, state, ctx)
+    _draw_pickups(render_ctx.screen, state, ctx)
 
-    _draw_terrain(screen, state, ctx)
-    _draw_pickups(screen, state, ctx)
-    _draw_projectiles(screen, state)
-    _draw_allies_and_enemies(screen, state)
-    _draw_effects(screen, state)
-    _draw_player(screen, state)
-    _draw_beams(screen, state)
+
+def render_entities(state: Any, ctx: dict, render_ctx: RenderContext) -> None:
+    """Draw entities: allies, enemies, and player. Mid-layer of the frame."""
+    _draw_allies_and_enemies(render_ctx.screen, state)
+    _draw_player(render_ctx.screen, state)
+
+
+def render_projectiles(state: Any, ctx: dict, render_ctx: RenderContext) -> None:
+    """Draw projectiles, particles (explosions, missiles), and beams. On top of entities."""
+    _draw_projectiles(render_ctx.screen, state)
+    _draw_effects(render_ctx.screen, state)
+    _draw_beams(render_ctx.screen, state)
+
+
+def render_gameplay(state: Any, screen: pygame.Surface, ctx: dict) -> None:
+    """Legacy world-only entry point: background, entities, projectiles. Prefer screens.gameplay.render (five-phase pipeline).
+
+    Draw order: (1) background+terrain+pickups, (2) allies+enemies+player, (3) projectiles+effects+beams.
+    For full frame, caller must also call render_hud and render_overlays (e.g. from systems.ui_system).
+    ctx must contain: level_themes, trapezoid_blocks, ..., small_font, weapon_names (see render_background/_draw_*).
+    """
+    if not ctx:
+        return
+    rctx = RenderContext.from_screen_and_ctx(screen, ctx)
+    render_background(state, ctx, rctx)
+    render_entities(state, ctx, rctx)
+    render_projectiles(state, ctx, rctx)
 
 
 def _draw_terrain(screen: pygame.Surface, state, ctx: dict) -> None:

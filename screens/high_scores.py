@@ -1,9 +1,9 @@
-"""High scores screen: handle_events and render. Uses AppContext for display/fonts."""
+"""High scores screen: handle_events and render. Uses RenderContext for display/fonts."""
 from __future__ import annotations
 
 import pygame
 from constants import STATE_PLAYING
-from context import AppContext
+from rendering import RenderContext
 
 
 def handle_events(events, game_state, ctx):
@@ -22,14 +22,14 @@ def handle_events(events, game_state, ctx):
     return out
 
 
-def render(app_ctx: AppContext, game_state, screen_ctx) -> None:
-    """Draw high scores list. app_ctx: AppContext; screen_ctx must provide get_high_scores."""
-    screen = app_ctx.screen
-    WIDTH = app_ctx.width
-    HEIGHT = app_ctx.height
-    font = app_ctx.font
-    big_font = app_ctx.big_font
-    small_font = app_ctx.small_font
+def render(render_ctx: RenderContext, game_state, screen_ctx) -> None:
+    """Draw high scores list. render_ctx: screen, fonts, size; screen_ctx must provide get_high_scores."""
+    screen = render_ctx.screen
+    WIDTH = render_ctx.width
+    HEIGHT = render_ctx.height
+    font = render_ctx.font
+    big_font = render_ctx.big_font
+    small_font = render_ctx.small_font
     get_high_scores = screen_ctx.get("get_high_scores")
     if not get_high_scores:
         return

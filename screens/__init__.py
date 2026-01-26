@@ -1,7 +1,8 @@
 """
 Screen handlers for menu, gameplay, pause, high scores, name input, etc.
-Each screen provides handle_events(events, game_state, screen_ctx) and render(app_ctx, game_state, screen_ctx).
-app_ctx is AppContext (screen, fonts, width, height, etc.); screen_ctx is a dict with get_high_scores, save_high_score, etc.
+Each screen provides handle_events(events, game_state, screen_ctx) and render(render_ctx, game_state, screen_ctx).
+render_ctx is RenderContext (screen, fonts, width, height); screen_ctx is a dict with get_high_scores, save_high_score, etc.
+Gameplay render is invoked directly from game.py (not via this registry).
 """
 
 from . import pause
