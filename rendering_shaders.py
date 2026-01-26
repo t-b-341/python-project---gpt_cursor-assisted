@@ -14,6 +14,8 @@ except ImportError:
     moderngl = None  # type: ignore[assignment]
     HAS_MODERNGL = False
 
+_gl_start_time = time.perf_counter()
+
 # Module-level GL cache for post-process path
 _gl_ctx = None
 _gl_program = None
@@ -45,14 +47,14 @@ void main() {
 _GL_FRAGMENT_SHADER = """
 #version 330
 uniform sampler2D u_frame_texture;
+uniform float u_time;
 in vec2 v_uv;
 out vec4 fragColor;
 void main() {
-    vec4 c = texture(u_frame_texture, v_uv);
-    float contrast = 1.2;
-    c.rgb = (c.rgb - 0.5) * contrast + 0.5;
-    c.rgb += vec3(0.06, 0.0, 0.1);
-    fragColor = clamp(c, 0.0, 1.0);
+    float t = 0.5 + 0.5 * sin(u_time * 0.5);
+    vec3 base = texture(u_frame_texture, v_uv).rgb;
+    vec3 out_color = mix(base, base * 1.2, t * 0.3);
+    fragColor = vec4(clamp(out_color, 0.0, 1.0), 1.0);
 }
 """
 
@@ -126,6 +128,9 @@ def _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx) -> boo
         _gl_fbo.clear(0.0, 0.0, 0.0, 1.0)
         _gl_texture.use(0)
         _gl_program["u_frame_texture"] = 0
+        now = time.perf_counter()
+        elapsed = float(now - _gl_start_time)
+        _gl_program["u_time"] = elapsed
         _gl_vao.render(moderngl.TRIANGLE_STRIP)
         data = _gl_fbo.read(components=4)
         out_surf = pygame.image.frombuffer(data, (width, height), "RGBA")
