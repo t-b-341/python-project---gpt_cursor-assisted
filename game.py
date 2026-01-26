@@ -111,6 +111,7 @@ from geometry_utils import (
 )
 from level_utils import filter_blocks_no_overlap, clone_enemies_from_templates
 from hazards import hazard_obstacles, update_hazard_obstacles, check_point_in_hazard
+from level_state import LevelState
 
 # Placeholder WIDTH/HEIGHT for module-level geometry (trapezoids, etc.). Runtime dimensions live in AppContext (ctx.width, ctx.height).
 WIDTH = 1920
@@ -124,8 +125,7 @@ HEIGHT = 1080
 
 def main():
     """Main entry point for the game. All mutable game state lives in the GameState instance."""
-    global trapezoid_blocks, triangle_blocks, destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks
-    global hazard_obstacles, moving_health_zone
+    global teleporter_pads
     global difficulty_selected, aiming_mode_selected, use_character_profile_selected, character_profile_selected
     global custom_profile_stat_selected, player_class_selected, ui_show_metrics_selected, beam_selection_selected
     global endurance_mode_selected, ui_telemetry_enabled_selected
@@ -196,44 +196,47 @@ def main():
     # Initialize pygame mouse visibility
     pygame.mouse.set_visible(True)
 
-    # Filter blocks to prevent overlaps (moved from module level)
-    global destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks
-    destructible_blocks = filter_blocks_no_overlap(destructible_blocks, [moveable_destructible_blocks, giant_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
-    moveable_destructible_blocks = filter_blocks_no_overlap(moveable_destructible_blocks, [destructible_blocks, giant_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
-    giant_blocks = filter_blocks_no_overlap(giant_blocks, [destructible_blocks, moveable_destructible_blocks, super_giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
-    super_giant_blocks = filter_blocks_no_overlap(super_giant_blocks, [destructible_blocks, moveable_destructible_blocks, giant_blocks, trapezoid_blocks, triangle_blocks], game_state.player_rect)
+    # Build level geometry and store in game_state.level
+    level = build_level_geometry(ctx.width, ctx.height)
+    level.destructible_blocks = filter_blocks_no_overlap(level.destructible_blocks, [level.moveable_blocks, level.giant_blocks, level.super_giant_blocks, level.trapezoid_blocks, level.triangle_blocks], game_state.player_rect)
+    level.moveable_blocks = filter_blocks_no_overlap(level.moveable_blocks, [level.destructible_blocks, level.giant_blocks, level.super_giant_blocks, level.trapezoid_blocks, level.triangle_blocks], game_state.player_rect)
+    level.giant_blocks = filter_blocks_no_overlap(level.giant_blocks, [level.destructible_blocks, level.moveable_blocks, level.super_giant_blocks, level.trapezoid_blocks, level.triangle_blocks], game_state.player_rect)
+    level.super_giant_blocks = filter_blocks_no_overlap(level.super_giant_blocks, [level.destructible_blocks, level.moveable_blocks, level.giant_blocks, level.trapezoid_blocks, level.triangle_blocks], game_state.player_rect)
+    game_state.level = level
+    teleporter_pads = _place_teleporter_pads(level, ctx.width, ctx.height)
 
     # Level context for movement_system and collision_system (callables and data; avoids circular imports)
     def _make_level_context():
         w, h = ctx.width, ctx.height
+        lv = game_state.level
         return {
-            "move_player": lambda p, dx, dy: move_player_with_push(p, dx, dy, blocks, w, h),
-            "move_enemy": lambda s, rect, mx, my: move_enemy_with_push(rect, mx, my, blocks, s, w, h),
+            "move_player": lambda p, dx, dy: move_player_with_push(p, dx, dy, lv, w, h),
+            "move_enemy": lambda s, rect, mx, my: move_enemy_with_push(rect, mx, my, lv, s, w, h),
             "clamp": lambda r: clamp_rect_to_screen(r, w, h),
-            "blocks": blocks,
+            "blocks": lv.static_blocks,
             "width": w,
             "height": h,
             "main_area_rect": pygame.Rect(int(w * 0.25), int(h * 0.25), int(w * 0.5), int(h * 0.5)),
             "rect_offscreen": lambda r: r.right < 0 or r.left > w or r.bottom < 0 or r.top > h,
             "vec_toward": vec_toward,
             "update_friendly_ai": lambda s, dt: update_friendly_ai(
-                s.friendly_ai, s.enemies, blocks, dt,
+                s.friendly_ai, s.enemies, lv.static_blocks, dt,
                 find_nearest_enemy, vec_toward,
-                lambda rect, mx, my, bl: move_enemy_with_push(rect, mx, my, bl, s, w, h),
+                lambda rect, mx, my, bl: move_enemy_with_push(rect, mx, my, lv, s, w, h),
                 lambda f, t: spawn_friendly_projectile(f, t, s.friendly_projectiles, vec_toward, ctx.telemetry_client, s.run_time),
                 state=s,
                 player_rect=getattr(s, "player_rect", None),
                 spawn_ally_missile_func=lambda f, t, st: spawn_ally_missile(f, t, st),
             ),
             "kill_enemy": lambda e, s: kill_enemy(e, s, w, h),
-            "destructible_blocks": destructible_blocks,
-            "moveable_destructible_blocks": moveable_destructible_blocks,
-            "giant_blocks": giant_blocks,
-            "super_giant_blocks": super_giant_blocks,
-            "trapezoid_blocks": trapezoid_blocks,
-            "triangle_blocks": triangle_blocks,
-            "hazard_obstacles": hazard_obstacles,
-            "moving_health_zone": moving_health_zone,
+            "destructible_blocks": lv.destructible_blocks,
+            "moveable_destructible_blocks": lv.moveable_blocks,
+            "giant_blocks": lv.giant_blocks,
+            "super_giant_blocks": lv.super_giant_blocks,
+            "trapezoid_blocks": lv.trapezoid_blocks,
+            "triangle_blocks": lv.triangle_blocks,
+            "hazard_obstacles": lv.hazard_obstacles,
+            "moving_health_zone": lv.moving_health_zone,
             "teleporter_pads": teleporter_pads,
             "check_point_in_hazard": check_point_in_hazard,
             "line_rect_intersection": line_rect_intersection,
@@ -854,7 +857,8 @@ def main():
                         game_state.jump_velocity = pygame.Vector2(0, 0)
                 
                 # Update hazard obstacles
-                update_hazard_obstacles(dt, hazard_obstacles, game_state.current_level, ctx.width, ctx.height)
+                if game_state.level:
+                    update_hazard_obstacles(dt, game_state.level.hazard_obstacles, game_state.current_level, ctx.width, ctx.height)
                 
                 # Unified entity update (Enemy/Friendly call no-op update by default; hook for future logic)
                 for entity in game_state.enemies:
@@ -1062,16 +1066,17 @@ def main():
                             draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, f"{'->' if i == player_class_selected else '  '} {cls}", y_offset + i * 40, color)
                         draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Use UP/DOWN to select, LEFT to go back, RIGHT/ENTER to continue", ctx.height - 100, (150, 150, 150))
             elif state == STATE_PLAYING or state == STATE_ENDURANCE:
+                lv = game_state.level
                 gameplay_ctx = {
                     "level_themes": level_themes,
-                    "trapezoid_blocks": trapezoid_blocks,
-                    "triangle_blocks": triangle_blocks,
-                    "destructible_blocks": destructible_blocks,
-                    "moveable_destructible_blocks": moveable_destructible_blocks,
-                    "giant_blocks": giant_blocks,
-                    "super_giant_blocks": super_giant_blocks,
-                    "hazard_obstacles": hazard_obstacles,
-                    "moving_health_zone": moving_health_zone,
+                    "trapezoid_blocks": lv.trapezoid_blocks if lv else [],
+                    "triangle_blocks": lv.triangle_blocks if lv else [],
+                    "destructible_blocks": lv.destructible_blocks if lv else [],
+                    "moveable_destructible_blocks": lv.moveable_blocks if lv else [],
+                    "giant_blocks": lv.giant_blocks if lv else [],
+                    "super_giant_blocks": lv.super_giant_blocks if lv else [],
+                    "hazard_obstacles": lv.hazard_obstacles if lv else [],
+                    "moving_health_zone": lv.moving_health_zone if lv else None,
                     "teleporter_pads": teleporter_pads,
                     "small_font": ctx.small_font,
                     "weapon_names": WEAPON_NAMES,
@@ -1323,231 +1328,225 @@ wave_beam_time_since_shot = 999.0
 wave_beam_pattern_index = 0  # Current wave pattern (cycles through patterns)
 
 # hazard_obstacles imported from hazards.py
+# Level geometry is built in build_level_geometry() and stored in game_state.level (LevelState).
 
-# ----------------------------
-# World blocks
-# ----------------------------
-# Removed all moveable indestructible blocks - keeping only:
-# - moveable_destructible_blocks (destructible, movable)
-# - destructible_blocks (unmovable, destructible)
-# - trapezoid_blocks (unmovable, indestructible) - new border layout
-# - triangle_blocks (unmovable, indestructible) - decorative border elements
+# Teleporter pads: set in main() via _place_teleporter_pads(level, w, h). Other modules may reference this.
+TELEPORTER_SIZE = 42  # 1.5 * player size (28)
+teleporter_pads: list = []
 
-blocks = []  # Empty - no moveable indestructible blocks
 
-# Destructible blocks: 50% destructible (with HP), 50% indestructible (no HP), all moveable
-destructible_blocks = [
-    # First 6 blocks: Destructible (with HP)
-    {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 500, "max_hp": 500, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 600, "max_hp": 600, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(1100, 300, 90, 90), "color": (180, 120, 180), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    # Last 6 blocks: Indestructible (no HP)
-    {"rect": pygame.Rect(1300, 500, 70, 70), "color": (120, 180, 120), "is_moveable": True},
-    {"rect": pygame.Rect(1000, 800, 80, 60), "color": (200, 120, 100), "is_moveable": True},
-    {"rect": pygame.Rect(400, 1000, 100, 50), "color": (150, 150, 220), "is_moveable": True},
-    {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "is_moveable": True},
-    {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "is_moveable": True},
-    {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "is_moveable": True},
-]
+def build_level_geometry(width: int, height: int) -> LevelState:
+    """Build all level blocks, trapezoids, triangles, zones. Used once at startup; result stored in game_state.level."""
+    static_blocks: list = []
+    destructible_blocks = [
+        {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 500, "max_hp": 500, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 600, "max_hp": 600, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(1100, 300, 90, 90), "color": (180, 120, 180), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(1300, 500, 70, 70), "color": (120, 180, 120), "is_moveable": True},
+        {"rect": pygame.Rect(1000, 800, 80, 60), "color": (200, 120, 100), "is_moveable": True},
+        {"rect": pygame.Rect(400, 1000, 100, 50), "color": (150, 150, 220), "is_moveable": True},
+        {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "is_moveable": True},
+        {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "is_moveable": True},
+        {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "is_moveable": True},
+    ]
+    moveable_destructible_blocks = [
+        {"rect": pygame.Rect(350, 400, 120, 120), "color": (200, 100, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(850, 500, 120, 120), "color": (100, 200, 100), "hp": 350, "max_hp": 350, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(650, 700, 120, 120), "color": (200, 150, 100), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(1050, 300, 120, 120), "color": (200, 120, 150), "is_moveable": True},
+        {"rect": pygame.Rect(200, 600, 120, 120), "color": (150, 150, 200), "is_moveable": True},
+        {"rect": pygame.Rect(500, 900, 120, 120), "color": (200, 100, 150), "is_moveable": True},
+    ]
+    giant_blocks = [
+        {"rect": pygame.Rect(200, 200, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
+        {"rect": pygame.Rect(1000, 400, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
+        {"rect": pygame.Rect(600, 800, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
+    ]
+    super_giant_blocks = [
+        {"rect": pygame.Rect(500, 300, 300, 300), "color": (60, 60, 100), "is_moveable": False, "size": "super_giant"},
+        {"rect": pygame.Rect(1200, 700, 300, 300), "color": (60, 60, 100), "is_moveable": False, "size": "super_giant"},
+    ]
+    trapezoid_blocks = []
+    triangle_blocks = []
 
-# Moveable destructible blocks: Reduced amount, bigger size
-moveable_destructible_blocks = [
-    # First 3 blocks: Destructible (with HP) - bigger and fewer
-    {"rect": pygame.Rect(350, 400, 120, 120), "color": (200, 100, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(850, 500, 120, 120), "color": (100, 200, 100), "hp": 350, "max_hp": 350, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(650, 700, 120, 120), "color": (200, 150, 100), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    # Last 3 blocks: Indestructible (no HP) - bigger and fewer
-    {"rect": pygame.Rect(1050, 300, 120, 120), "color": (200, 120, 150), "is_moveable": True},
-    {"rect": pygame.Rect(200, 600, 120, 120), "color": (150, 150, 200), "is_moveable": True},
-    {"rect": pygame.Rect(500, 900, 120, 120), "color": (200, 100, 150), "is_moveable": True},
-]
-
-# Giant and super giant blocks (unmovable, indestructible)
-giant_blocks: list[dict] = [
-    # Giant blocks (200x200)
-    {"rect": pygame.Rect(200, 200, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
-    {"rect": pygame.Rect(1000, 400, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
-    {"rect": pygame.Rect(600, 800, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
-]
-
-super_giant_blocks: list[dict] = [
-    # Super giant blocks (300x300)
-    {"rect": pygame.Rect(500, 300, 300, 300), "color": (60, 60, 100), "is_moveable": False, "size": "super_giant"},
-    {"rect": pygame.Rect(1200, 700, 300, 300), "color": (60, 60, 100), "is_moveable": False, "size": "super_giant"},
-]
-
-# Border geometry: trapezoids and triangles (unmovable, indestructible)
-# Layout: 3 trapezoids left (spaced), 2 trapezoids right (adjacent), 
-#         5 trapezoids with 2 triangles each on top, line of triangles on bottom
-trapezoid_blocks = []
-triangle_blocks = []  # New: triangles for decorative border elements
-
-# Calculate spacing for left side (3 trapezoids with gaps)
-left_trap_height = HEIGHT // 4  # Each trapezoid takes 1/4 of screen height
-left_gap = 50  # Gap between trapezoids
-left_trap_width = 100  # Width of trapezoid hanging into screen
-
-# Left side: 3 trapezoids with spaces
-for i in range(3):
-    y_start = i * (left_trap_height + left_gap)
-    y_end = y_start + left_trap_height
-    trap_rect = pygame.Rect(-60, y_start, left_trap_width + 60, y_end - y_start)
+    left_trap_height = height // 4
+    left_gap = 50
+    left_trap_width = 100
+    for i in range(3):
+        y_start = i * (left_trap_height + left_gap)
+        y_end = y_start + left_trap_height
+        trap_rect = pygame.Rect(-60, y_start, left_trap_width + 60, y_end - y_start)
+        trapezoid_blocks.append({
+            "points": [(-60, y_start), (left_trap_width, y_start + 20), (left_trap_width, y_end - 20), (-60, y_end)],
+            "bounding_rect": trap_rect, "rect": trap_rect, "color": (140, 110, 170), "is_moveable": True, "side": "left"
+        })
+    right_trap_height = height // 3
+    right_trap_width = 100
+    right_y1 = 0
+    gap_size = 150
+    right_y2 = right_trap_height + gap_size
+    trap_rect1 = pygame.Rect(width - right_trap_width, right_y1, right_trap_width + 60, right_trap_height)
     trapezoid_blocks.append({
-        "points": [(-60, y_start), (left_trap_width, y_start + 20), (left_trap_width, y_end - 20), (-60, y_end)],
-        "bounding_rect": trap_rect,
-        "rect": trap_rect,  # Add rect for pushing support
-        "color": (140, 110, 170),
-        "is_moveable": True,
-        "side": "left"
+        "points": [(width - right_trap_width, right_y1 + 20), (width + 60, right_y1), (width + 60, right_y1 + right_trap_height), (width - right_trap_width, right_y1 + right_trap_height - 20)],
+        "bounding_rect": trap_rect1, "rect": trap_rect1, "color": (110, 130, 190), "is_moveable": True, "side": "right"
     })
-
-# Right side: 2 trapezoids with space between them and triangles for player access
-right_trap_height = HEIGHT // 3  # Smaller trapezoids to create space
-right_trap_width = 100
-right_y1 = 0
-gap_size = 150  # Space between trapezoids for player access
-right_y2 = right_trap_height + gap_size  # Larger gap
-
-trap_rect1 = pygame.Rect(WIDTH - right_trap_width, right_y1, right_trap_width + 60, right_trap_height)
-trapezoid_blocks.append({
-    "points": [(WIDTH - right_trap_width, right_y1 + 20), (WIDTH + 60, right_y1), (WIDTH + 60, right_y1 + right_trap_height), (WIDTH - right_trap_width, right_y1 + right_trap_height - 20)],
-    "bounding_rect": trap_rect1,
-    "rect": trap_rect1,  # Add rect for pushing support
-    "color": (110, 130, 190),
-    "is_moveable": True,
-    "side": "right"
-})
-
-# Add triangles in the gap to allow player access to outer map area
-gap_center_y = right_y1 + right_trap_height + gap_size // 2
-triangle_size = 40
-# Left triangle (pointing right, allows passage)
-tri_rect_gap1 = pygame.Rect(WIDTH - right_trap_width - triangle_size, gap_center_y - triangle_size // 2, triangle_size, triangle_size)
-triangle_blocks.append({
-    "points": [(WIDTH - right_trap_width - triangle_size, gap_center_y), (WIDTH - right_trap_width, gap_center_y - triangle_size // 2), (WIDTH - right_trap_width, gap_center_y + triangle_size // 2)],
-    "bounding_rect": tri_rect_gap1,
-    "rect": tri_rect_gap1,
-    "color": (120, 140, 200),
-    "is_moveable": True,
-    "side": "right"
-})
-# Right triangle (pointing left, decorative)
-tri_rect_gap2 = pygame.Rect(WIDTH - triangle_size // 2, gap_center_y - triangle_size // 2, triangle_size, triangle_size)
-triangle_blocks.append({
-    "points": [(WIDTH, gap_center_y - triangle_size // 2), (WIDTH, gap_center_y + triangle_size // 2), (WIDTH - triangle_size // 2, gap_center_y)],
-    "bounding_rect": tri_rect_gap2,
-    "rect": tri_rect_gap2,
-    "color": (120, 140, 200),
-    "is_moveable": True,
-    "side": "right"
-})
-
-# Bottom right trapezoid - extends to bottom of screen
-bottom_right_trap_height = HEIGHT - right_y2  # Extend to bottom of screen
-trap_rect2 = pygame.Rect(WIDTH - right_trap_width, right_y2, right_trap_width + 60, bottom_right_trap_height)
-trapezoid_blocks.append({
-    "points": [(WIDTH - right_trap_width, right_y2 + 20), (WIDTH + 60, right_y2), (WIDTH + 60, HEIGHT), (WIDTH - right_trap_width, HEIGHT - 20)],
-    "bounding_rect": trap_rect2,
-    "rect": trap_rect2,  # Add rect for pushing support
-    "color": (110, 130, 190),
-    "is_moveable": True,
-    "side": "right"
-})
-
-# Top: 5 trapezoids with 2 triangles each on top
-top_trap_width = WIDTH // 5.5
-top_trap_height = 80
-top_trap_spacing = (WIDTH - 5 * top_trap_width) / 6  # Even spacing
-
-for i in range(5):
-    x_start = top_trap_spacing + i * (top_trap_width + top_trap_spacing)
-    x_end = x_start + top_trap_width
-    
-    # Trapezoid hanging down
-    trap_rect = pygame.Rect(x_start, -60, x_end - x_start, top_trap_height + 60)
+    gap_center_y = right_y1 + right_trap_height + gap_size // 2
+    ts = 40
+    tri_rect_gap1 = pygame.Rect(width - right_trap_width - ts, gap_center_y - ts // 2, ts, ts)
+    triangle_blocks.append({
+        "points": [(width - right_trap_width - ts, gap_center_y), (width - right_trap_width, gap_center_y - ts // 2), (width - right_trap_width, gap_center_y + ts // 2)],
+        "bounding_rect": tri_rect_gap1, "rect": tri_rect_gap1, "color": (120, 140, 200), "is_moveable": True, "side": "right"
+    })
+    tri_rect_gap2 = pygame.Rect(width - ts // 2, gap_center_y - ts // 2, ts, ts)
+    triangle_blocks.append({
+        "points": [(width, gap_center_y - ts // 2), (width, gap_center_y + ts // 2), (width - ts // 2, gap_center_y)],
+        "bounding_rect": tri_rect_gap2, "rect": tri_rect_gap2, "color": (120, 140, 200), "is_moveable": True, "side": "right"
+    })
+    bottom_right_trap_height = height - right_y2
+    trap_rect2 = pygame.Rect(width - right_trap_width, right_y2, right_trap_width + 60, bottom_right_trap_height)
     trapezoid_blocks.append({
-        "points": [(x_start, -60), (x_end, -60), (x_end - 20, top_trap_height), (x_start + 20, top_trap_height)],
-        "bounding_rect": trap_rect,
-        "rect": trap_rect,  # Add rect for pushing support
-        "color": (100, 120, 180),
-        "is_moveable": True,
-        "side": "top"
+        "points": [(width - right_trap_width, right_y2 + 20), (width + 60, right_y2), (width + 60, height), (width - right_trap_width, height - 20)],
+        "bounding_rect": trap_rect2, "rect": trap_rect2, "color": (110, 130, 190), "is_moveable": True, "side": "right"
     })
-    
-    # 2 triangles on top of each trapezoid
-    triangle_center_x = (x_start + x_end) // 2
-    triangle_size = 30
-    
-    # Triangle 1 (left)
-    tri_rect1 = pygame.Rect(triangle_center_x - triangle_size, -100, triangle_size, 40)
-    triangle_blocks.append({
-        "points": [(triangle_center_x - triangle_size, -60), (triangle_center_x, -100), (triangle_center_x - triangle_size // 2, -60)],
-        "bounding_rect": tri_rect1,
-        "rect": tri_rect1,  # Add rect for pushing support
-        "color": (120, 140, 200),
-        "is_moveable": True,
-        "side": "top"
-    })
-    
-    # Triangle 2 (right)
-    tri_rect2 = pygame.Rect(triangle_center_x, -100, triangle_size, 40)
-    triangle_blocks.append({
-        "points": [(triangle_center_x + triangle_size // 2, -60), (triangle_center_x, -100), (triangle_center_x + triangle_size, -60)],
-        "bounding_rect": tri_rect2,
-        "rect": tri_rect2,  # Add rect for pushing support
-        "color": (120, 140, 200),
-        "is_moveable": True,
-        "side": "top"
-    })
+    top_trap_width = width // 5.5
+    top_trap_height = 80
+    top_trap_spacing = (width - 5 * top_trap_width) / 6
+    for i in range(5):
+        x_start = top_trap_spacing + i * (top_trap_width + top_trap_spacing)
+        x_end = x_start + top_trap_width
+        trap_rect = pygame.Rect(x_start, -60, x_end - x_start, top_trap_height + 60)
+        trapezoid_blocks.append({
+            "points": [(x_start, -60), (x_end, -60), (x_end - 20, top_trap_height), (x_start + 20, top_trap_height)],
+            "bounding_rect": trap_rect, "rect": trap_rect, "color": (100, 120, 180), "is_moveable": True, "side": "top"
+        })
+        tc = (x_start + x_end) // 2
+        tsz = 30
+        tri_rect1 = pygame.Rect(tc - tsz, -100, tsz, 40)
+        triangle_blocks.append({
+            "points": [(tc - tsz, -60), (tc, -100), (tc - tsz // 2, -60)],
+            "bounding_rect": tri_rect1, "rect": tri_rect1, "color": (120, 140, 200), "is_moveable": True, "side": "top"
+        })
+        tri_rect2 = pygame.Rect(tc, -100, tsz, 40)
+        triangle_blocks.append({
+            "points": [(tc + tsz // 2, -60), (tc, -100), (tc + tsz, -60)],
+            "bounding_rect": tri_rect2, "rect": tri_rect2, "color": (120, 140, 200), "is_moveable": True, "side": "top"
+        })
+    bottom_triangle_count = 10
+    btw = width // bottom_triangle_count
+    bth = 40
+    for i in range(bottom_triangle_count):
+        x_center = i * btw + btw // 2
+        tri_rect = pygame.Rect(x_center - btw // 2, height, btw, bth)
+        triangle_blocks.append({
+            "points": [(x_center - btw // 2, height), (x_center, height + bth), (x_center + btw // 2, height)],
+            "bounding_rect": tri_rect, "rect": tri_rect, "color": (120, 100, 160), "is_moveable": True, "side": "bottom"
+        })
+    destructible_blocks.extend([
+        {"rect": pygame.Rect(240, 360, 70, 70), "color": (160, 110, 210), "is_moveable": True},
+        {"rect": pygame.Rect(400, 520, 60, 60), "color": (110, 210, 160), "is_moveable": True},
+        {"rect": pygame.Rect(560, 680, 80, 50), "color": (210, 160, 110), "is_moveable": True},
+        {"rect": pygame.Rect(720, 840, 70, 70), "color": (160, 160, 210), "is_moveable": True},
+        {"rect": pygame.Rect(880, 1000, 60, 60), "color": (210, 210, 110), "is_moveable": True},
+        {"rect": pygame.Rect(1040, 1160, 80, 50), "color": (190, 130, 190), "is_moveable": True},
+        {"rect": pygame.Rect(1200, 1320, 70, 70), "color": (130, 190, 130), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(1360, 1160, 60, 60), "color": (210, 130, 110), "hp": 500, "max_hp": 500, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(1520, 1000, 80, 50), "color": (160, 160, 230), "hp": 600, "max_hp": 600, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(1680, 840, 70, 70), "color": (230, 210, 130), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(1840, 680, 60, 60), "color": (200, 160, 210), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+        {"rect": pygame.Rect(200, 840, 80, 50), "color": (110, 210, 210), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    ])
+    moving_health_zone = {
+        "rect": pygame.Rect(width // 4 - 75, height // 4 - 75, 150, 150),
+        "heal_rate": 20.0, "color": (100, 255, 100, 80), "name": "Moving Healing Zone", "zone_id": 1,
+        "velocity": 30.0, "target": None,
+    }
+    max_health_zone_attempts = 100
+    for _ in range(max_health_zone_attempts):
+        hz_overlaps = False
+        for bl in [destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks]:
+            for block in bl:
+                if moving_health_zone["rect"].colliderect(block["rect"]):
+                    hz_overlaps = True
+                    break
+            if hz_overlaps:
+                break
+        if not hz_overlaps:
+            for tb in trapezoid_blocks:
+                if moving_health_zone["rect"].colliderect(tb.get("bounding_rect", tb.get("rect"))):
+                    hz_overlaps = True
+                    break
+        if not hz_overlaps:
+            for tr in triangle_blocks:
+                if moving_health_zone["rect"].colliderect(tr.get("bounding_rect", tr.get("rect"))):
+                    hz_overlaps = True
+                    break
+        if not hz_overlaps:
+            break
+        new_x = random.randint(100, width - 250)
+        new_y = random.randint(100, height - 250)
+        moving_health_zone["rect"].center = (new_x, new_y)
 
-# Bottom: Line of triangles across the bottom
-bottom_triangle_count = 10
-bottom_triangle_width = WIDTH // bottom_triangle_count
-bottom_triangle_height = 40
+    return LevelState(
+        static_blocks=static_blocks,
+        trapezoid_blocks=trapezoid_blocks,
+        triangle_blocks=triangle_blocks,
+        destructible_blocks=destructible_blocks,
+        moveable_blocks=moveable_destructible_blocks,
+        giant_blocks=giant_blocks,
+        super_giant_blocks=super_giant_blocks,
+        hazard_obstacles=hazard_obstacles,
+        moving_health_zone=moving_health_zone,
+    )
 
-for i in range(bottom_triangle_count):
-    x_center = i * bottom_triangle_width + bottom_triangle_width // 2
-    tri_rect = pygame.Rect(x_center - bottom_triangle_width // 2, HEIGHT, bottom_triangle_width, bottom_triangle_height)
-    triangle_blocks.append({
-        "points": [(x_center - bottom_triangle_width // 2, HEIGHT), (x_center, HEIGHT + bottom_triangle_height), (x_center + bottom_triangle_width // 2, HEIGHT)],
-        "bounding_rect": tri_rect,
-        "rect": tri_rect,  # Add rect for pushing support
-        "color": (120, 100, 160),
-        "is_moveable": True,
-        "side": "bottom"
-    })
 
-# Add more blocks: 50% destructible, 50% indestructible, all moveable
-destructible_blocks.extend([
-    # First 6 blocks: Indestructible (no HP)
-    {"rect": pygame.Rect(240, 360, 70, 70), "color": (160, 110, 210), "is_moveable": True},
-    {"rect": pygame.Rect(400, 520, 60, 60), "color": (110, 210, 160), "is_moveable": True},
-    {"rect": pygame.Rect(560, 680, 80, 50), "color": (210, 160, 110), "is_moveable": True},
-    {"rect": pygame.Rect(720, 840, 70, 70), "color": (160, 160, 210), "is_moveable": True},
-    {"rect": pygame.Rect(880, 1000, 60, 60), "color": (210, 210, 110), "is_moveable": True},
-    {"rect": pygame.Rect(1040, 1160, 80, 50), "color": (190, 130, 190), "is_moveable": True},
-    # Last 6 blocks: Destructible (with HP)
-    {"rect": pygame.Rect(1200, 1320, 70, 70), "color": (130, 190, 130), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(1360, 1160, 60, 60), "color": (210, 130, 110), "hp": 500, "max_hp": 500, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(1520, 1000, 80, 50), "color": (160, 160, 230), "hp": 600, "max_hp": 600, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(1680, 840, 70, 70), "color": (230, 210, 130), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(1840, 680, 60, 60), "color": (200, 160, 210), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-    {"rect": pygame.Rect(200, 840, 80, 50), "color": (110, 210, 210), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-])
+def _place_teleporter_pads(level: LevelState, width: int, height: int) -> list:
+    """Place two linked teleporter pads so they don't overlap level geometry or each other."""
+    pad_a = {"rect": pygame.Rect(0, 0, TELEPORTER_SIZE, TELEPORTER_SIZE), "linked_rect": None}
+    pad_b = {"rect": pygame.Rect(0, 0, TELEPORTER_SIZE, TELEPORTER_SIZE), "linked_rect": None}
+    pad_a["linked_rect"] = pad_b["rect"]
+    pad_b["linked_rect"] = pad_a["rect"]
+    pads = [pad_a, pad_b]
+    max_attempts = 100
+    d = level.destructible_blocks
+    m = level.moveable_blocks
+    g = level.giant_blocks
+    sg = level.super_giant_blocks
+    tb = level.trapezoid_blocks
+    tr = level.triangle_blocks
+    zone = level.moving_health_zone
+    for idx, pad in enumerate(pads):
+        for _ in range(max_attempts):
+            overlaps = False
+            if idx == 0:
+                pad["rect"].center = (random.randint(80, width // 2 - 60), random.randint(80, height // 2 - 60))
+            else:
+                pad["rect"].center = (random.randint(width // 2 + 60, width - 80), random.randint(height // 2 + 60, height - 80))
+            for bl in [d, m, g, sg]:
+                for block in bl:
+                    if pad["rect"].colliderect(block["rect"]):
+                        overlaps = True
+                        break
+                if overlaps:
+                    break
+            if not overlaps:
+                for t in tb:
+                    if pad["rect"].colliderect(t.get("bounding_rect", t.get("rect"))):
+                        overlaps = True
+                        break
+            if not overlaps:
+                for t in tr:
+                    if pad["rect"].colliderect(t.get("bounding_rect", t.get("rect"))):
+                        overlaps = True
+                        break
+            if not overlaps and zone and not pad["rect"].colliderect(zone["rect"]):
+                other = pads[1 - idx]
+                if not pad["rect"].colliderect(other["rect"]):
+                    break
+    return pads
 
-# Single moving health recovery zone
-moving_health_zone = {
-    "rect": pygame.Rect(WIDTH // 4 - 75, HEIGHT // 4 - 75, 150, 150),  # Offset from center (boss spawn)
-    "heal_rate": 20.0,
-    "color": (100, 255, 100, 80),
-    "name": "Moving Healing Zone",
-    "zone_id": 1,
-    "velocity": 30.0,  # Movement speed in pixels per second (scalar)
-    "target": None,  # Target position to move towards
-}
 
 # Track which zones player is currently in (for telemetry)
 player_current_zones = set()  # Set of zone names player is in
@@ -1574,93 +1573,6 @@ missiles: list[dict] = []  # List of active missiles {rect, vel, target_enemy, s
 missile_time_since_used = 999.0  # Time since last missile
 missile_explosion_radius = 100  # Explosion radius
 missile_speed = 400  # Missile movement speed
-
-# Filter blocks to prevent them from spawning within 10x player size radius from player
-# This must be done after all blocks are defined
-# NOTE: This code runs at module level but player is None until main() is called
-# The actual filtering will happen in main() after player is initialized
-# player_center = pygame.Vector2(player.center)  # Moved to main()
-# player_size = max(player.w, player.h)  # Use larger dimension (28)
-# min_block_distance = player_size * 10  # 10x player size = 280 pixels
-
-# Filter blocks to prevent overlaps (allies checked at runtime in random_spawn_position)
-# Note: trapezoid_blocks and triangle_blocks are border elements and don't need overlap filtering
-# NOTE: This filtering will be done in main() after player is initialized
-# destructible_blocks = filter_blocks_no_overlap(...)  # Moved to main()
-# moveable_destructible_blocks = filter_blocks_no_overlap(...)  # Moved to main()
-# giant_blocks = filter_blocks_no_overlap(...)  # Moved to main()
-# super_giant_blocks = filter_blocks_no_overlap(...)  # Moved to main()
-
-# Ensure health zone doesn't overlap with blocks
-health_zone_overlaps = True
-max_health_zone_attempts = 100
-for _ in range(max_health_zone_attempts):
-    health_zone_overlaps = False
-    # Check if health zone overlaps with any blocks
-    for block_list in [destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks]:
-        for block in block_list:
-            if moving_health_zone["rect"].colliderect(block["rect"]):
-                health_zone_overlaps = True
-                break
-        if health_zone_overlaps:
-            break
-    # Also check trapezoid and triangle blocks
-    if not health_zone_overlaps:
-        for tb in trapezoid_blocks:
-            if moving_health_zone["rect"].colliderect(tb.get("bounding_rect", tb.get("rect"))):
-                health_zone_overlaps = True
-                break
-    if not health_zone_overlaps:
-        for tr in triangle_blocks:
-            if moving_health_zone["rect"].colliderect(tr.get("bounding_rect", tr.get("rect"))):
-                health_zone_overlaps = True
-                break
-    
-    if not health_zone_overlaps:
-        break  # Found a good position
-    
-    # Try a new random position for health zone
-    new_x = random.randint(100, WIDTH - 250)
-    new_y = random.randint(100, HEIGHT - 250)
-    moving_health_zone["rect"].center = (new_x, new_y)
-
-# Teleporter pads: one per half of map, nothing overlaps except player (like health zone). ~1.5x player (42).
-TELEPORTER_SIZE = 42  # 1.5 * player size (28)
-teleporter_pad_a = {"rect": pygame.Rect(0, 0, TELEPORTER_SIZE, TELEPORTER_SIZE), "linked_rect": None}
-teleporter_pad_b = {"rect": pygame.Rect(0, 0, TELEPORTER_SIZE, TELEPORTER_SIZE), "linked_rect": None}
-teleporter_pad_a["linked_rect"] = teleporter_pad_b["rect"]
-teleporter_pad_b["linked_rect"] = teleporter_pad_a["rect"]
-teleporter_pads = [teleporter_pad_a, teleporter_pad_b]
-for idx, pad in enumerate(teleporter_pads):
-    for _ in range(max_health_zone_attempts):
-        overlaps = False
-        if idx == 0:
-            # Top-left quadrant
-            pad["rect"].center = (random.randint(80, WIDTH // 2 - 60), random.randint(80, HEIGHT // 2 - 60))
-        else:
-            # Bottom-right quadrant
-            pad["rect"].center = (random.randint(WIDTH // 2 + 60, WIDTH - 80), random.randint(HEIGHT // 2 + 60, HEIGHT - 80))
-        for block_list in [destructible_blocks, moveable_destructible_blocks, giant_blocks, super_giant_blocks]:
-            for block in block_list:
-                if pad["rect"].colliderect(block["rect"]):
-                    overlaps = True
-                    break
-            if overlaps:
-                break
-        if not overlaps:
-            for tb in trapezoid_blocks:
-                if pad["rect"].colliderect(tb.get("bounding_rect", tb.get("rect"))):
-                    overlaps = True
-                    break
-        if not overlaps:
-            for tr in triangle_blocks:
-                if pad["rect"].colliderect(tr.get("bounding_rect", tr.get("rect"))):
-                    overlaps = True
-                    break
-        if not overlaps and not pad["rect"].colliderect(moving_health_zone["rect"]):
-            other = teleporter_pads[1 - idx]
-            if not pad["rect"].colliderect(other["rect"]):
-                break
 
 # ----------------------------
 # Enemy templates are now imported from config_enemies.py
@@ -1760,20 +1672,17 @@ collection_effects: list[dict] = []  # effects when pickups are collected
 # ----------------------------
 # Helpers (geometry/physics moved to geometry_utils)
 # ----------------------------
-def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict], width: int, height: int):
+def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, level: LevelState, width: int, height: int):
     """Solid collision + pushing blocks (single block push; no chain pushing)."""
+    block_list = level.static_blocks
     block_rects = [b["rect"] for b in block_list]
-    # Include all moveable blocks: destructible, moveable_destructible, trapezoid, and triangle blocks
-    destructible_rects = [b["rect"] for b in destructible_blocks]
-    moveable_destructible_rects = [b["rect"] for b in moveable_destructible_blocks]
-    trapezoid_rects = [tb["rect"] for tb in trapezoid_blocks]  # Now use rect instead of bounding_rect
-    triangle_rects = [tr["rect"] for tr in triangle_blocks]  # Now use rect instead of bounding_rect
-    # Include giant and super giant blocks (unmovable) - player cannot pass through
-    giant_block_rects = [gb["rect"] for gb in giant_blocks]
-    super_giant_block_rects = [sgb["rect"] for sgb in super_giant_blocks]
-    # Friendly AI rects removed - player can now fly through allies
-    # friendly_ai_rects = [f["rect"] for f in friendly_ai if f.get("hp", 1) > 0]
-    all_collision_rects = block_rects + destructible_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects + giant_block_rects + super_giant_block_rects  # Removed friendly_ai_rects
+    destructible_rects = [b["rect"] for b in level.destructible_blocks]
+    moveable_destructible_rects = [b["rect"] for b in level.moveable_blocks]
+    trapezoid_rects = [tb["rect"] for tb in level.trapezoid_blocks]
+    triangle_rects = [tr["rect"] for tr in level.triangle_blocks]
+    giant_block_rects = [gb["rect"] for gb in level.giant_blocks]
+    super_giant_block_rects = [sgb["rect"] for sgb in level.super_giant_blocks]
+    all_collision_rects = block_rects + destructible_rects + moveable_destructible_rects + trapezoid_rects + triangle_rects + giant_block_rects + super_giant_block_rects
 
     for axis_dx, axis_dy in [(move_x, 0), (0, move_y)]:
         if axis_dx == 0 and axis_dy == 0:
@@ -1784,26 +1693,22 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
 
         hit_block = None
         hit_is_unpushable = False
-        # Check regular blocks first
         for b in block_list:
             if player_rect.colliderect(b["rect"]):
                 hit_block = b
                 break
-        # Check destructible blocks (now moveable)
         if hit_block is None:
-            for b in destructible_blocks:
+            for b in level.destructible_blocks:
                 if player_rect.colliderect(b["rect"]):
                     hit_block = b
                     break
-        # Check moveable destructible blocks
         if hit_block is None:
-            for b in moveable_destructible_blocks:
+            for b in level.moveable_blocks:
                 if player_rect.colliderect(b["rect"]):
                     hit_block = b
                     break
-        # Check trapezoid blocks (now moveable) - use point-in-polygon for accurate collision
         if hit_block is None:
-            for tb in trapezoid_blocks:
+            for tb in level.trapezoid_blocks:
                 # First check bounding rect for performance
                 if player_rect.colliderect(tb.get("bounding_rect", tb.get("rect"))):
                     # Use point-in-polygon for accurate collision with trapezoid shape
@@ -1819,15 +1724,13 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
                         if player_rect.colliderect(tb["rect"]):
                             hit_block = tb
                             break
-        # Check triangle blocks (now moveable)
         if hit_block is None:
-            for tr in triangle_blocks:
+            for tr in level.triangle_blocks:
                 if player_rect.colliderect(tr["rect"]):
                     hit_block = tr
                     break
-        # Check hazard obstacles (paraboloids/trapezoids) - player cannot pass through or push
         if hit_block is None:
-            for hazard in hazard_obstacles:
+            for hazard in level.hazard_obstacles:
                 if hazard.get("points") and len(hazard["points"]) > 2:
                     # Use point-in-polygon check for accurate collision
                     player_center = pygame.Vector2(player_rect.center)
@@ -1835,15 +1738,14 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
                         hit_block = hazard
                         hit_is_unpushable = True  # Hazards are unmovable
                         break
-        # Check giant and super giant blocks (unmovable) - player cannot pass through or push
         if hit_block is None:
-            for gb in giant_blocks:
+            for gb in level.giant_blocks:
                 if player_rect.colliderect(gb["rect"]):
                     hit_block = gb
-                    hit_is_unpushable = True  # Can't push giant blocks
+                    hit_is_unpushable = True
                     break
         if hit_block is None:
-            for sgb in super_giant_blocks:
+            for sgb in level.super_giant_blocks:
                 if player_rect.colliderect(sgb["rect"]):
                     hit_block = sgb
                     hit_is_unpushable = True  # Can't push super giant blocks
@@ -1882,33 +1784,33 @@ def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, bl
     clamp_rect_to_screen(player_rect, width, height)
 
 
-def _enemy_collides(enemy_rect: pygame.Rect, block_list: list[dict], state: GameState) -> bool:
+def _enemy_collides(enemy_rect: pygame.Rect, level: LevelState, state: GameState) -> bool:
     """Return True if enemy_rect collides with any solid object."""
-    for b in block_list:
+    for b in level.static_blocks:
         if enemy_rect.colliderect(b["rect"]):
             return True
-    for b in destructible_blocks:
+    for b in level.destructible_blocks:
         if enemy_rect.colliderect(b["rect"]):
             return True
-    for b in moveable_destructible_blocks:
+    for b in level.moveable_blocks:
         if enemy_rect.colliderect(b["rect"]):
             return True
-    for gb in giant_blocks:
+    for gb in level.giant_blocks:
         if enemy_rect.colliderect(gb["rect"]):
             return True
-    for sgb in super_giant_blocks:
+    for sgb in level.super_giant_blocks:
         if enemy_rect.colliderect(sgb["rect"]):
             return True
-    for tb in trapezoid_blocks:
+    for tb in level.trapezoid_blocks:
         if enemy_rect.colliderect(tb.get("bounding_rect", tb.get("rect"))):
             return True
-    for tr in triangle_blocks:
+    for tr in level.triangle_blocks:
         if enemy_rect.colliderect(tr.get("bounding_rect", tr.get("rect"))):
             return True
     for pickup in state.pickups:
         if enemy_rect.colliderect(pickup["rect"]):
             return True
-    if enemy_rect.colliderect(moving_health_zone["rect"]):
+    if level.moving_health_zone and enemy_rect.colliderect(level.moving_health_zone["rect"]):
         return True
     if state.player_rect is not None and enemy_rect.colliderect(state.player_rect):
         return True
@@ -1921,7 +1823,7 @@ def _enemy_collides(enemy_rect: pygame.Rect, block_list: list[dict], state: Game
     return False
 
 
-def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict], state: GameState, width: int, height: int):
+def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, level: LevelState, state: GameState, width: int, height: int):
     """Enemy movement - enemies cannot go through objects and must navigate around them.
     When stuck (both axes blocked), tries sliding along walls to avoid getting stuck."""
     start_x, start_y = enemy_rect.x, enemy_rect.y
@@ -1933,67 +1835,49 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
         enemy_rect.x += axis_dx
         enemy_rect.y += axis_dy
 
-        # Check collisions with all objects - enemies cannot pass through anything
         collision = False
-        
-        # Check regular blocks
-        for b in block_list:
+        for b in level.static_blocks:
             if enemy_rect.colliderect(b["rect"]):
                 collision = True
                 break
-        
-        # Check destructible blocks
         if not collision:
-            for b in destructible_blocks:
+            for b in level.destructible_blocks:
                 if enemy_rect.colliderect(b["rect"]):
                     collision = True
                     break
-        
-        # Check moveable destructible blocks
         if not collision:
-            for b in moveable_destructible_blocks:
+            for b in level.moveable_blocks:
                 if enemy_rect.colliderect(b["rect"]):
                     collision = True
                     break
-        
-        # Check giant blocks (unmovable)
         if not collision:
-            for gb in giant_blocks:
+            for gb in level.giant_blocks:
                 if enemy_rect.colliderect(gb["rect"]):
                     collision = True
                     break
-        
-        # Check super giant blocks (unmovable)
         if not collision:
-            for sgb in super_giant_blocks:
+            for sgb in level.super_giant_blocks:
                 if enemy_rect.colliderect(sgb["rect"]):
                     collision = True
                     break
-        
-        # Check trapezoid blocks
         if not collision:
-            for tb in trapezoid_blocks:
+            for tb in level.trapezoid_blocks:
                 if enemy_rect.colliderect(tb.get("bounding_rect", tb.get("rect"))):
                     collision = True
                     break
         
-        # Check triangle blocks
         if not collision:
-            for tr in triangle_blocks:
+            for tr in level.triangle_blocks:
                 if enemy_rect.colliderect(tr.get("bounding_rect", tr.get("rect"))):
                     collision = True
                     break
-        
-        # Check pickups (enemies cannot collect pickups - only collision detection)
         if not collision:
             for pickup in state.pickups:
                 if enemy_rect.colliderect(pickup["rect"]):
                     collision = True
                     break
-        
-        # Check health zone
-        if not collision:
-            if enemy_rect.colliderect(moving_health_zone["rect"]):
+        if not collision and level.moving_health_zone:
+            if enemy_rect.colliderect(level.moving_health_zone["rect"]):
                 collision = True
         
         # Check teleporter pads (nothing overlaps except player)
@@ -2046,7 +1930,7 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
                 continue
             enemy_rect.x += sx
             enemy_rect.y += sy
-            if not _enemy_collides(enemy_rect, block_list, state):
+            if not _enemy_collides(enemy_rect, level, state):
                 break
             enemy_rect.x -= sx
             enemy_rect.y -= sy
@@ -2057,51 +1941,46 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
 def random_spawn_position(size: tuple[int, int], state: GameState, max_attempts: int = 25) -> pygame.Rect:
     """Find a spawn position not overlapping player or blocks. Player spawn takes priority."""
     w, h = size
+    lev = getattr(state, "level", None)
     if state.player_rect is None:
         player_center = pygame.Vector2(WIDTH // 2, HEIGHT // 2)
         player_size = 28
     else:
         player_center = pygame.Vector2(state.player_rect.center)
-        player_size = max(state.player_rect.w, state.player_rect.h)  # Use larger dimension for player size
-    min_distance = player_size * 10  # 10x player size radius
+        player_size = max(state.player_rect.w, state.player_rect.h)
+    min_distance = player_size * 10
 
     for _ in range(max_attempts):
         x = random.randint(0, WIDTH - w)
         y = random.randint(0, HEIGHT - h)
         candidate = pygame.Rect(x, y, w, h)
         candidate_center = pygame.Vector2(candidate.center)
-
-        # Check if too close to player (10x player size radius)
         if candidate_center.distance_to(player_center) < min_distance:
             continue
-
-        # Player spawn takes priority - don't spawn blocks on player
         if state.player_rect is not None and candidate.colliderect(state.player_rect):
             continue
-        if any(candidate.colliderect(b["rect"]) for b in blocks):
-            continue
-        if any(candidate.colliderect(b["rect"]) for b in moveable_destructible_blocks):
-            continue
-        if any(candidate.colliderect(b["rect"]) for b in destructible_blocks):
-            continue
-        if any(candidate.colliderect(b["rect"]) for b in giant_blocks):
-            continue
-        if any(candidate.colliderect(b["rect"]) for b in super_giant_blocks):
-            continue
-        if any(candidate.colliderect(tb["bounding_rect"]) for tb in trapezoid_blocks):
-            continue
-        if any(candidate.colliderect(tr["bounding_rect"]) for tr in triangle_blocks):
-            continue
+        if lev is not None:
+            if any(candidate.colliderect(b["rect"]) for b in lev.static_blocks):
+                continue
+            if any(candidate.colliderect(b["rect"]) for b in lev.moveable_blocks):
+                continue
+            if any(candidate.colliderect(b["rect"]) for b in lev.destructible_blocks):
+                continue
+            if any(candidate.colliderect(b["rect"]) for b in lev.giant_blocks):
+                continue
+            if any(candidate.colliderect(b["rect"]) for b in lev.super_giant_blocks):
+                continue
+            if any(candidate.colliderect(tb["bounding_rect"]) for tb in lev.trapezoid_blocks):
+                continue
+            if any(candidate.colliderect(tr["bounding_rect"]) for tr in lev.triangle_blocks):
+                continue
+            if lev.moving_health_zone and candidate.colliderect(lev.moving_health_zone["rect"]):
+                continue
         if any(candidate.colliderect(p["rect"]) for p in state.pickups):
             continue
-        # Prevent spawning in health recovery zone
-        if candidate.colliderect(moving_health_zone["rect"]):
-            continue
-        # Prevent spawning on teleporter pads (nothing overlaps except player)
         if any(candidate.colliderect(pad["rect"]) for pad in teleporter_pads):
             continue
         return candidate
-    # fallback: top-left corner inside bounds
     return pygame.Rect(max(0, WIDTH // 2 - w), max(0, HEIGHT // 2 - h), w, h)
 
 
@@ -2277,22 +2156,20 @@ def check_wave_beam_collision(points: list[pygame.Vector2], rect: pygame.Rect, w
     return (closest_hit, closest_dist)
 
 
-def spawn_pickup(pickup_type: str):
-    # Make pickups bigger (2x size)
-    size = (64, 64)  # Doubled from 32x32
-    max_attempts = 50  # Increased attempts to avoid overlaps
+def spawn_pickup(pickup_type: str, state: GameState):
+    """Spawn a pickup at a non-overlapping position. Uses state.level for geometry when available."""
+    size = (64, 64)
+    max_attempts = 50
     for _ in range(max_attempts):
         r = random_spawn_position(size, state)
-        # Check if pickup overlaps with existing pickups
         overlaps = False
         for existing_pickup in state.pickups:
             if r.colliderect(existing_pickup["rect"]):
                 overlaps = True
                 break
-        # Check if pickup overlaps with health zone
-        if r.colliderect(moving_health_zone["rect"]):
+        if state.level and state.level.moving_health_zone and r.colliderect(state.level.moving_health_zone["rect"]):
             overlaps = True
-        
+
         if not overlaps:
             # All pickups look the same (mystery) - randomized color so player doesn't know what they're getting
             mystery_colors = [
@@ -2304,15 +2181,14 @@ def spawn_pickup(pickup_type: str):
                 (255, 255, 100),  # yellow
             ]
             color = random.choice(mystery_colors)
-            pickups.append({
+            state.pickups.append({
                 "type": pickup_type,
                 "rect": r,
                 "color": color,
-                "timer": 15.0,  # pickup despawns after 15 seconds
-                "age": 0.0,  # current age for visual effects
+                "timer": 15.0,
+                "age": 0.0,
             })
-            return  # Successfully spawned, exit function
-    # If we couldn't find a non-overlapping position, skip spawning this pickup
+            return
 
 
 def spawn_weapon_in_center(weapon_type: str, state: GameState, width: int, height: int):

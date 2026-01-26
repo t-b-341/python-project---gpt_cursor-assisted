@@ -1,8 +1,12 @@
 """Game state container for all mutable game state."""
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import pygame
+
+from level_state import LevelState
 
 
 @dataclass
@@ -162,6 +166,9 @@ class GameState:
     # Telemetry run tracking
     run_id: Any = None
     run_started_at: str = ""
+
+    # Level geometry (set when level is built in main)
+    level: Optional[LevelState] = None
 
     # Level context for systems (set by main/game loop): move_player, move_enemy, clamp, blocks, width, height, rect_offscreen, vec_toward, update_friendly_ai
     level_context: Any = None
