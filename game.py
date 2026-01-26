@@ -9,9 +9,11 @@ import json
 import math
 import os
 import random
+import shutil
 import sys
 import warnings
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pygame
 import sqlite3
@@ -373,8 +375,20 @@ def main():
     # Initialize high scores database
     init_high_scores_db()
 
-    # Main menu (title + pre-game options) uses ambient music
-    play_music("ambient", loop=True)
+    # Ensure in-game.ogg is available: copy from project root to assets/music/ if missing
+    _project_root = Path(__file__).resolve().parent
+    _music_dir = _project_root / "assets" / "music"
+    _in_game_dst = _music_dir / "in-game.ogg"
+    _in_game_src = _project_root / "in-game.ogg"
+    if not _in_game_dst.exists() and _in_game_src.exists():
+        try:
+            _music_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(_in_game_src, _in_game_dst)
+        except OSError:
+            pass
+
+    # Main menu (title + pre-game options) uses ambient2 music
+    play_music("ambient2", loop=True)
 
     # Optional GPU shader toggle: ask in-program (do not require moderngl to be installed)
     try:
@@ -571,13 +585,14 @@ def main():
                         spawn_system_start_wave(1, game_state)
                         scene_stack.clear()
                         scene_stack.push(GameplayScene(STATE_PLAYING))
+                        play_music("in-game", loop=True)
                 if state == STATE_PAUSED:
                     pause_selected = game_state.pause_selected
                 if result.get("screen") is not None:
                     state = result["screen"]
                     game_state.current_screen = state
                     if state == STATE_MENU:
-                        play_music("ambient", loop=True)
+                        play_music("ambient2", loop=True)
                         scene_stack.clear()
                 handled_by_screen = True
 
@@ -688,8 +703,9 @@ def main():
                                 game_state.reset_run(ctx, center_player=True)
                                 state = STATE_PLAYING
                                 spawn_system_start_wave(1, game_state)
+                                play_music("in-game", loop=True)
                             elif choice == "Exit to main menu":
-                                play_music("ambient", loop=True)
+                                play_music("ambient2", loop=True)
                                 state = STATE_MENU
                                 scene_stack.clear()
                             elif choice == "Quit":
@@ -843,8 +859,9 @@ def main():
                                 else:
                                     menu_section = 3.5  # Go back to telemetry options
                             elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                # Initialize game (stop menu music when leaving main menu)
+                                # Initialize game: stop menu music, start in-game music
                                 stop_music()
+                                play_music("in-game", loop=True)
                                 if ctx.config.enable_telemetry:
                                     ctx.telemetry_client = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
                                 else:
