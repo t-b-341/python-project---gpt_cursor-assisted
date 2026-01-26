@@ -43,3 +43,6 @@ class AppContext:
 
     # Centralized game options (difficulty, player class, aim mode, toggles)
     config: GameConfig = field(default_factory=GameConfig)
+
+    # Physics backend: True if C-accelerated game_physics is in use, False if Python fallback
+    using_c_physics: bool = False

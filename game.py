@@ -7,19 +7,14 @@ warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
 import random
 import json
 import os
+import sys
 
 import pygame
 import sqlite3
 from datetime import datetime, timezone
 
-# Try to import C extension for performance, fallback to Python if not available
-# Note: game_physics module is built from game_physics.c - see BUILD_INSTRUCTIONS.md
-try:
-    import game_physics  # type: ignore
-    USE_C_EXTENSION = True
-except ImportError:
-    USE_C_EXTENSION = False
-    print("Note: C extension not available, using Python fallback (slower)")
+# Physics (C extension or Python fallback) is resolved in main() via physics_loader.resolve_physics().
+# Other code uses geometry_utils.vec_toward / can_move_rect, which call physics_loader.get_physics().
 
 # GPU acceleration (optional - falls back to CPU if unavailable)
 try:
@@ -102,6 +97,7 @@ from systems.spawn_system import update as spawn_update, start_wave as spawn_sys
 from systems.ai_system import update as ai_update
 from systems.input_system import handle_gameplay_input
 from controls_io import _key_name_to_code, load_controls, save_controls
+from physics_loader import resolve_physics
 from geometry_utils import (
     clamp_rect_to_screen,
     vec_toward,
@@ -134,6 +130,10 @@ def main():
     global weapon_selection_options
     global boost_meter_max, boost_drain_per_s, boost_regen_per_s, boost_speed_mult
     global friendly_ai_templates, overshield_max, grenade_cooldown, missile_cooldown, ally_drop_cooldown
+
+    # Resolve physics backend before any geometry/physics use (--python-physics or USE_PYTHON_PHYSICS=1 to force Python)
+    force_python = "--python-physics" in sys.argv or os.environ.get("USE_PYTHON_PHYSICS", "").strip() == "1"
+    _physics_impl, using_c_physics = resolve_physics(force_python=force_python)
 
     pygame.init()
 
@@ -188,6 +188,7 @@ def main():
         run_started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         controls=controls,
         config=cfg,
+        using_c_physics=using_c_physics,
     )
 
     # Create GameState as the single source of truth for all mutable game state.

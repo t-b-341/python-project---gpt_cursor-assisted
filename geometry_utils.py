@@ -1,4 +1,8 @@
-"""Generic geometry and physics helpers. Used by game.py and other modules."""
+"""Generic geometry and physics helpers. Used by game.py and other modules.
+
+Physics (vec_toward, can_move_rect) is provided by physics_loader. The game must
+call physics_loader.resolve_physics() at startup before using these functions.
+"""
 from __future__ import annotations
 
 import pygame
@@ -6,13 +10,6 @@ import pygame
 # Screen dimensions used by rect_offscreen and can_move_rect (set by game.main() at runtime)
 _screen_width = 1920
 _screen_height = 1080
-
-try:
-    import game_physics  # type: ignore
-    _USE_C_EXTENSION = True
-except ImportError:
-    game_physics = None  # type: ignore
-    _USE_C_EXTENSION = False
 
 
 def set_screen_dimensions(width: int, height: int) -> None:
@@ -27,8 +24,10 @@ def clamp_rect_to_screen(r: pygame.Rect, width: int, height: int) -> None:
 
 
 def vec_toward(ax, ay, bx, by) -> pygame.Vector2:
-    if _USE_C_EXTENSION and game_physics is not None:
-        x, y = game_physics.vec_toward(ax, ay, bx, by)
+    from physics_loader import get_physics
+    p = get_physics()
+    if p is not None and hasattr(p, "vec_toward"):
+        x, y = p.vec_toward(ax, ay, bx, by)
         return pygame.Vector2(x, y)
     v = pygame.Vector2(bx - ax, by - ay)
     if v.length_squared() == 0:
@@ -48,8 +47,10 @@ def line_rect_intersection(start: pygame.Vector2, end: pygame.Vector2, rect: pyg
 
 
 def can_move_rect(rect: pygame.Rect, dx: int, dy: int, other_rects: list[pygame.Rect]) -> bool:
-    if _USE_C_EXTENSION and game_physics is not None:
-        return game_physics.can_move_rect(
+    from physics_loader import get_physics
+    p = get_physics()
+    if p is not None and hasattr(p, "can_move_rect"):
+        return p.can_move_rect(
             rect.x, rect.y, rect.w, rect.h, dx, dy, other_rects, _screen_width, _screen_height
         )
     test = rect.move(dx, dy)
