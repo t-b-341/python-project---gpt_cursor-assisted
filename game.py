@@ -3420,17 +3420,17 @@ def reset_after_death(state: GameState, width: int, height: int):
     state.shield_duration_remaining = 0.0
     state.shield_cooldown_remaining = 0.0
 
+    # Respawn at death position: do not move player_rect (player stays where they died).
+    # Optionally keep on-screen if they died in a weird spot:
     player = state.player_rect
     if player is not None:
-        player.x = (width - player.w) // 2
-        player.y = (height - player.h) // 2
         clamp_rect_to_screen(player, width, height)
 
     state.player_bullets.clear()
     state.enemy_projectiles.clear()
     state.friendly_projectiles.clear()
     # Do not clear friendly_ai or call start_wave: keep current wave and enemies.
-    # Respawn = player back at center, projectiles/explosions cleared; enemies and wave continue.
+    # Respawn = player at death position (unchanged), projectiles/explosions cleared; enemies and wave continue.
 
 
 if __name__ == "__main__":
