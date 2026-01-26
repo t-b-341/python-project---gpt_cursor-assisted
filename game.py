@@ -164,7 +164,7 @@ from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameIn
 from systems.registry import SIMULATION_SYSTEMS
 from systems.spawn_system import start_wave as spawn_system_start_wave
 from systems.input_system import handle_gameplay_input
-from systems.audio_system import init_mixer, sync_from_config, play_sfx
+from systems.audio_system import init_mixer, sync_from_config, play_sfx, play_music, stop_music
 try:
     from telemetry.perf import record_frame as _perf_record_frame
 except ImportError:
@@ -373,6 +373,9 @@ def main():
     # Initialize high scores database
     init_high_scores_db()
 
+    # Main menu (title + pre-game options) uses ambient music
+    play_music("ambient", loop=True)
+
     # Optional GPU shader toggle: ask in-program (do not require moderngl to be installed)
     try:
         import moderngl  # noqa: F401  # type: ignore[import-untyped]
@@ -574,6 +577,7 @@ def main():
                     state = result["screen"]
                     game_state.current_screen = state
                     if state == STATE_MENU:
+                        play_music("ambient", loop=True)
                         scene_stack.clear()
                 handled_by_screen = True
 
@@ -685,6 +689,7 @@ def main():
                                 state = STATE_PLAYING
                                 spawn_system_start_wave(1, game_state)
                             elif choice == "Exit to main menu":
+                                play_music("ambient", loop=True)
                                 state = STATE_MENU
                                 scene_stack.clear()
                             elif choice == "Quit":
@@ -838,7 +843,8 @@ def main():
                                 else:
                                     menu_section = 3.5  # Go back to telemetry options
                             elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                                # Initialize game
+                                # Initialize game (stop menu music when leaving main menu)
+                                stop_music()
                                 if ctx.config.enable_telemetry:
                                     ctx.telemetry_client = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
                                 else:
