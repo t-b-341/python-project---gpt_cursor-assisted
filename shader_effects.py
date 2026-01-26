@@ -707,6 +707,9 @@ SHADER_PROFILES: dict[str, list[EffectDef]] = {
 }
 
 
+_warned_missing_keys: set[str] = set()
+
+
 def _build_stack_from_profile(
     profile_name: str,
     registry: dict[str, Callable[[], PostProcessEffect]],
@@ -714,6 +717,9 @@ def _build_stack_from_profile(
 ) -> list[PostProcessEffect]:
     """Return a list of effect instances for the given profile. Uses SHADER_PROFILES if profiles is None."""
     profs = profiles if profiles is not None else SHADER_PROFILES
+    if profile_name and profile_name != "none" and profile_name not in profs:
+        print(f"[shader] unknown profile {profile_name!r}, using empty stack")
+        return []
     defs = profs.get(profile_name, []) if profile_name else []
     out: list[PostProcessEffect] = []
     for d in defs:
@@ -722,6 +728,9 @@ def _build_stack_from_profile(
         else:
             key, params = d[0], d[1] if len(d) > 1 else {}
         if key not in registry:
+            if key not in _warned_missing_keys:
+                _warned_missing_keys.add(key)
+                print(f"[shader] effect key {key!r} not in registry, skipping")
             continue
         eff = registry[key]()
         for k, v in params.items():
