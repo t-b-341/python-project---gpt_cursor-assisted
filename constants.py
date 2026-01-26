@@ -125,6 +125,9 @@ laser_length = 800
 laser_damage = 50
 laser_cooldown = 0.3
 
+# All unlocked-weapon shots deal 1.75x damage
+UNLOCKED_WEAPON_DAMAGE_MULT = 1.75
+
 # ----------------------------
 # Physics constants
 # ----------------------------

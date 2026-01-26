@@ -116,24 +116,21 @@ def handle_gameplay_input(events, game_state, ctx) -> None:
                         game_state.dropped_ally = friendly
                     game_state.ally_drop_timer = 0.0
 
-            if event.key == pygame.K_1 and "basic" in game_state.unlocked_weapons:
-                game_state.previous_weapon_mode = game_state.current_weapon_mode
-                game_state.current_weapon_mode = "basic"
-            elif event.key == pygame.K_2 and "triple" in game_state.unlocked_weapons:
+            if event.key == pygame.K_1 and "triple" in game_state.unlocked_weapons:
                 game_state.previous_weapon_mode = game_state.current_weapon_mode
                 if game_state.previous_weapon_mode == "laser":
                     game_state.laser_beams.clear()
                 game_state.current_weapon_mode = "triple"
+            elif event.key == pygame.K_2 and "laser" in game_state.unlocked_weapons:
+                game_state.previous_weapon_mode = game_state.current_weapon_mode
+                if game_state.previous_weapon_mode == "laser":
+                    game_state.laser_beams.clear()
+                game_state.current_weapon_mode = "laser"
             elif event.key == pygame.K_3 and "giant" in game_state.unlocked_weapons:
                 game_state.previous_weapon_mode = game_state.current_weapon_mode
                 if game_state.previous_weapon_mode == "laser":
                     game_state.laser_beams.clear()
                 game_state.current_weapon_mode = "giant"
-            elif event.key == pygame.K_4 and "laser" in game_state.unlocked_weapons:
-                game_state.previous_weapon_mode = game_state.current_weapon_mode
-                if game_state.previous_weapon_mode == "laser":
-                    game_state.laser_beams.clear()
-                game_state.current_weapon_mode = "laser"
 
             dash_key = controls.get("dash", pygame.K_SPACE)
             if event.key == dash_key:

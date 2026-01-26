@@ -327,8 +327,8 @@ def main():
                         game_state.survival_time = 0.0
                         game_state.wave_active = False
                         game_state.time_to_next_wave = 0.0
-                        game_state.unlocked_weapons = {"basic"}
-                        game_state.current_weapon_mode = "basic"
+                        game_state.unlocked_weapons = {"basic", "giant", "triple", "laser"}
+                        game_state.current_weapon_mode = "giant"
                         if result.get("restart"):
                             game_state.menu_section = 0
                         if result.get("restart_to_wave1") or result.get("replay"):
@@ -463,8 +463,8 @@ def main():
                                 game_state.survival_time = 0.0
                                 game_state.wave_active = False
                                 game_state.time_to_next_wave = 0.0
-                                game_state.unlocked_weapons = {"basic"}
-                                game_state.current_weapon_mode = "basic"
+                                game_state.unlocked_weapons = {"basic", "giant", "triple", "laser"}
+                                game_state.current_weapon_mode = "giant"
                                 game_state.player_rect.center = (ctx.width // 2, ctx.height // 2)
                                 state = STATE_PLAYING
                                 spawn_system_start_wave(1, game_state)
@@ -704,9 +704,10 @@ def main():
                         mx, my = pygame.mouse.get_pos()
                         direction = vec_toward(pl.centerx, pl.centery, mx, my)
                     end_pos = pygame.Vector2(pl.center) + direction * laser_length
+                    laser_dmg = int(laser_damage * UNLOCKED_WEAPON_DAMAGE_MULT) if "laser" in game_state.unlocked_weapons else laser_damage
                     game_state.laser_beams.append({
                         "start": pygame.Vector2(pl.center), "end": end_pos,
-                        "color": (255, 50, 50), "width": 5, "damage": laser_damage, "timer": 0.1,
+                        "color": (255, 50, 50), "width": 5, "damage": laser_dmg, "timer": 0.1,
                     })
                     game_state.laser_time_since_shot = 0.0
 
@@ -1060,7 +1061,7 @@ wave_damage_taken = 0  # Track damage taken in current wave
 testing_mode = True  # Set to True to enable weapon selection menu and testing options
 invulnerability_mode = False  # Set to True to make player invulnerable (testing mode only)
 beam_selection_selected = 3  # 0 = laser, 1 = triple, 2 = giant, 3 = basic (default)
-beam_selection_pattern = "basic"  # Default weapon pattern
+beam_selection_pattern = "giant"  # Default weapon pattern
 
 # Level system - 3 levels, each with 3 waves (boss on wave 3)
 current_level = 1
@@ -1170,9 +1171,9 @@ weapon_pickup_messages: list[dict] = []  # List of {weapon_name, timer, color} f
 
 # Weapon mode system (keys 1-6 to switch)
 # "basic" = normal bullets, "triple" = triple shot, "giant" = giant bullets, "laser" = laser beam
-current_weapon_mode = "basic"
-previous_weapon_mode = "basic"  # Track for telemetry
-unlocked_weapons: set[str] = {"basic"}  # Weapons player has unlocked (starts with basic only)
+current_weapon_mode = "giant"
+previous_weapon_mode = "giant"  # Track for telemetry
+unlocked_weapons: set[str] = {"basic", "giant", "triple", "laser"}  # Keys 1=triple, 2=laser, 3=giant
 
 # Laser beam system - constants imported from constants.py
 laser_beams: list[dict] = []  # List of active laser beams
@@ -1514,10 +1515,9 @@ pickup_spawn_timer = 0.0
 
 # Weapon key mapping (uses pygame constants, so must stay here)
 WEAPON_KEY_MAP = {
-    pygame.K_1: "basic",
-    pygame.K_2: "triple",
+    pygame.K_1: "triple",
+    pygame.K_2: "laser",
     pygame.K_3: "giant",
-    pygame.K_4: "laser",
 }
 
 # Visual effects for pickups
@@ -2048,9 +2048,8 @@ def spawn_pickup(pickup_type: str, state: GameState):
 
 
 def spawn_weapon_in_center(weapon_type: str, state: GameState, width: int, height: int):
-    """Spawn a weapon pickup in the center of the screen (level completion reward)."""
-    # Do not spawn basic beam as a pickup
-    if weapon_type == "basic":
+    """Spawn a weapon pickup in the center of the screen (level completion reward). Only giant is dropped."""
+    if weapon_type not in ("giant", "giant_bullets"):
         return
     # Weapon colors are now imported from config_weapons.py
     weapon_pickup_size = (80, 80)  # Bigger for level completion rewards (2x from 40x40)
@@ -2072,45 +2071,34 @@ def spawn_weapon_in_center(weapon_type: str, state: GameState, width: int, heigh
 
 
 def spawn_weapon_drop(enemy: dict, state: GameState):
-    """Spawn a weapon drop from a killed enemy."""
-    enemy_type = enemy.get("type", "grunt")
-    weapon_drop_map = {
-        "grunt": "basic",
-        "stinky": "basic",
-        "heavy": "triple",
-        "baka": "triple",
-        "neko neko desu": "giant",
-        "BIG NEKU": "giant",
-        "bouncer": "triple",
+    """Spawn a drop from a killed enemy: giant (only weapon drop), health, armor, sprint, speed, or dash_recharge."""
+    # 30% chance to drop something
+    if random.random() >= 0.3:
+        return
+    drop_types = ["giant", "health", "armor", "sprint", "speed", "dash_recharge"]
+    pickup_type = random.choice(drop_types)
+    size = (56, 56)
+    r = pygame.Rect(
+        enemy["rect"].centerx - size[0] // 2,
+        enemy["rect"].centery - size[1] // 2,
+        size[0], size[1]
+    )
+    drop_colors = {
+        "giant": WEAPON_DISPLAY_COLORS.get("giant", (255, 200, 0)),
+        "health": (255, 80, 80),
+        "armor": (100, 150, 255),
+        "sprint": (100, 255, 150),
+        "speed": (255, 220, 100),
+        "dash_recharge": (200, 100, 255),
     }
-    # 30% chance to drop weapon (exclude basic beam)
-    if random.random() < 0.3 and enemy_type in weapon_drop_map:
-        weapon_type = weapon_drop_map[enemy_type]
-        # Skip basic beam - do not drop it as a pickup
-        if weapon_type == "basic":
-            return
-        # Spawn weapon pickup at enemy location (2x size)
-        weapon_pickup_size = (56, 56)  # Doubled from 28x28
-        weapon_pickup_rect = pygame.Rect(
-            enemy["rect"].centerx - weapon_pickup_size[0] // 2,
-            enemy["rect"].centery - weapon_pickup_size[1] // 2,
-            weapon_pickup_size[0],
-            weapon_pickup_size[1]
-        )
-        weapon_colors_map = {
-            "basic": (200, 200, 200),
-            "triple": (100, 200, 255),
-            "giant": (255, 200, 0),
-            "laser": (255, 50, 50),
-        }
-        state.pickups.append({
-            "type": weapon_type,
-            "rect": weapon_pickup_rect,
-            "color": WEAPON_DISPLAY_COLORS.get(weapon_type, (180, 100, 255)),
-            "timer": 10.0,  # Weapon pickups last 10 seconds
-            "age": 0.0,
-            "is_weapon_drop": True,  # Mark as weapon drop
-        })
+    state.pickups.append({
+        "type": pickup_type,
+        "rect": r,
+        "color": drop_colors.get(pickup_type, (180, 100, 255)),
+        "timer": 10.0,
+        "age": 0.0,
+        "is_weapon_drop": pickup_type == "giant",
+    })
 
 
 # Rendering helper functions are now imported from rendering.py
@@ -2239,6 +2227,9 @@ def spawn_player_bullet_and_log(state: GameState, ctx: AppContext):
         
         # Apply weapon damage multiplier
         effective_damage = int(base_damage * weapon_config["damage_multiplier"])
+        # Unlocked-weapon shots deal 1.75x damage
+        if state.current_weapon_mode in state.unlocked_weapons:
+            effective_damage = int(effective_damage * UNLOCKED_WEAPON_DAMAGE_MULT)
         
         # Apply random damage multiplier (from random_damage pickup)
         effective_damage = int(effective_damage * state.random_damage_multiplier)
@@ -2487,8 +2478,12 @@ def kill_enemy(enemy: dict, state: GameState, width: int, height: int) -> None:
 
 def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
     """Apply the effect of a collected pickup."""
-    if pickup_type == "boost":
+    if pickup_type in ("boost", "sprint"):
         state.boost_meter = min(boost_meter_max, state.boost_meter + 45.0)
+    elif pickup_type in ("armor", "overshield"):
+        state.overshield = min(overshield_max, state.overshield + 25)
+    elif pickup_type == "dash_recharge":
+        state.jump_cooldown_timer = jump_cooldown  # Dash ready immediately
     elif pickup_type == "firerate":
         state.fire_rate_buff_t = fire_rate_buff_duration
     elif pickup_type == "health":
@@ -2610,8 +2605,6 @@ def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
                     duration=None,
                     success=True
                 ))
-    elif pickup_type == "overshield":
-        state.overshield = min(overshield_max, state.overshield + 25)
 
 
 # render_hud_text is now imported from rendering.py

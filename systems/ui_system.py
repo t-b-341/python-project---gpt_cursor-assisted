@@ -101,30 +101,30 @@ def _draw_metrics_and_bars(
         multiplier_color = (255, 255, 0) if state.random_damage_multiplier > 1.0 else (255, 150, 150)
         y_pos = render_hud_text(screen, font, f"DMG MULT: {state.random_damage_multiplier:.2f}x", y_pos, multiplier_color)
 
+    health_bar_x = 10
     health_bar_y = HEIGHT - 80
     health_bar_height = 20
     health_bar_width = 300
 
     if state.overshield > 0:
-        overshield_bar_y = health_bar_y - 25
-        overshield_bar_height = 15
-        overshield_fill = int((state.overshield / overshield_max) * health_bar_width)
-        pygame.draw.rect(screen, (60, 60, 60), (10, overshield_bar_y, health_bar_width, overshield_bar_height))
-        pygame.draw.rect(screen, (255, 150, 0), (10, overshield_bar_y, overshield_fill, overshield_bar_height))
-        pygame.draw.rect(screen, (20, 20, 20), (10, overshield_bar_y, health_bar_width, overshield_bar_height), 2)
+        overshield_bar_y = health_bar_y - (health_bar_height + 4)
+        overshield_fill = int((state.overshield / max(1, overshield_max)) * health_bar_width)
+        pygame.draw.rect(screen, (60, 60, 60), (health_bar_x, overshield_bar_y, health_bar_width, health_bar_height))
+        pygame.draw.rect(screen, (255, 150, 0), (health_bar_x, overshield_bar_y, overshield_fill, health_bar_height))
+        pygame.draw.rect(screen, (20, 20, 20), (health_bar_x, overshield_bar_y, health_bar_width, health_bar_height), 2)
         overshield_text = small_font.render(f"Armor: {int(state.overshield)}/{int(overshield_max)}", True, (255, 255, 255))
-        screen.blit(overshield_text, (15, overshield_bar_y + 2))
+        screen.blit(overshield_text, (health_bar_x + 5, overshield_bar_y + 2))
 
     health_fill = int((state.player_hp / state.player_max_hp) * health_bar_width)
-    pygame.draw.rect(screen, (60, 60, 60), (10, health_bar_y, health_bar_width, health_bar_height))
-    pygame.draw.rect(screen, (100, 255, 100), (10, health_bar_y, health_fill, health_bar_height))
-    pygame.draw.rect(screen, (20, 20, 20), (10, health_bar_y, health_bar_width, health_bar_height), 2)
+    pygame.draw.rect(screen, (60, 60, 60), (health_bar_x, health_bar_y, health_bar_width, health_bar_height))
+    pygame.draw.rect(screen, (100, 255, 100), (health_bar_x, health_bar_y, health_fill, health_bar_height))
+    pygame.draw.rect(screen, (20, 20, 20), (health_bar_x, health_bar_y, health_bar_width, health_bar_height), 2)
     health_text = small_font.render(f"HP: {int(state.player_hp)}/{int(state.player_max_hp)}", True, (255, 255, 255))
-    screen.blit(health_text, (15, health_bar_y + 2))
+    screen.blit(health_text, (health_bar_x + 5, health_bar_y + 2))
 
     bar_y = HEIGHT - 30
     bar_height = 20
-    bar_width = 200
+    bar_width = min(200, (WIDTH - 60) // 5)
 
     grenade_progress = min(1.0, state.grenade_time_since_used / grenade_cooldown)
     grenade_x = 10

@@ -78,10 +78,10 @@ WEAPON_DISPLAY_COLORS = {
 # ----------------------------
 # Weapon Unlock Order
 # ----------------------------
-# Weapons unlock in order when bosses are defeated
+# Weapons unlock in order when bosses are defeated (only giant is dropped)
 WEAPON_UNLOCK_ORDER = {
-    1: "triple",
+    1: "giant",
     2: "giant",
 }
 
-# Note: "basic" is available from start, "laser" is pickup-only
+# Note: triple/laser/basic are not dropped; only giant. Key 1 = triple, 2 = giant, 3 = laser.

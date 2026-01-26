@@ -72,9 +72,9 @@ class GameState:
     boost_meter: float = 100.0
     
     # Weapon and combat state
-    current_weapon_mode: str = "basic"
-    previous_weapon_mode: str = "basic"
-    unlocked_weapons: set = field(default_factory=lambda: {"basic"})
+    current_weapon_mode: str = "giant"
+    previous_weapon_mode: str = "giant"
+    unlocked_weapons: set = field(default_factory=lambda: {"basic", "giant", "triple", "laser"})
     laser_time_since_shot: float = 999.0
     wave_beam_time_since_shot: float = 999.0
     wave_beam_pattern_index: int = 0
