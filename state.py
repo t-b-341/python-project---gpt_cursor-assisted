@@ -1,4 +1,5 @@
-"""Game state container for all mutable game state."""
+"""Game state container for all mutable game state.
+Level geometry in .level (LevelState); ECS in ecs_entities, create_entity, get_entities_with."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

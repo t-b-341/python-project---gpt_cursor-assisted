@@ -1,6 +1,6 @@
 """
 Gameplay screen: runs during STATE_PLAYING and STATE_ENDURANCE.
-Orchestrates movement, collision, spawn, AI, and telemetry systems.
+Orchestrates movement, collision, spawn, AI, and telemetry via systems.GAMEPLAY_SYSTEMS.
 Rendering: five phases (background, entities, projectiles, HUD, overlays).
 Uses AppContext for screen; gameplay_ctx dict for level/HUD data.
 """

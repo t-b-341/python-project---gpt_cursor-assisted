@@ -1,4 +1,5 @@
-"""Level geometry container. Holds all block lists and zone data for a level."""
+"""Level geometry container. Holds all block lists and zone data for a level.
+Populated at level build; read by collision_system, movement_system, spawn_system."""
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,6 +1,9 @@
 """
 Main game entry point. Runs the game loop, handles menus, gameplay, and screen transitions.
 All mutable game state lives in GameState; app-level resources and config in AppContext.
+Level geometry in state.level (LevelState). Gameplay input via handle_gameplay_input;
+per-frame logic in _update_simulation (movement/collision/spawn/ai). Overlay screens use
+SCREEN_HANDLERS and RenderContext.from_app_ctx(ctx).
 """
 import json
 import math
