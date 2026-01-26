@@ -109,7 +109,7 @@ controls_actions = ["move_left", "move_right", "move_up", "move_down", "boost", 
 # ----------------------------
 # Weapon constants
 # ----------------------------
-weapon_selection_options = ["rocket", "bouncing", "laser", "triple", "giant", "basic"]
+weapon_selection_options = ["laser", "triple", "giant", "basic"]
 
 # Note: WEAPON_KEY_MAP uses pygame constants and must remain in game.py
 

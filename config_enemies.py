@@ -149,7 +149,6 @@ ENEMY_TEMPLATES: list[dict] = [
         "projectile_color": (255, 150, 150),
         "projectile_shape": "square",
         "speed": 85,
-        "bouncing_projectiles": True,
         "enemy_size_class": "large",
     },
     {

@@ -769,27 +769,17 @@ def main():
                         if event.key == pygame.K_1 and "basic" in game_state.unlocked_weapons:
                             game_state.previous_weapon_mode = game_state.current_weapon_mode
                             game_state.current_weapon_mode = "basic"
-                        elif event.key == pygame.K_2 and "rocket" in game_state.unlocked_weapons:
-                            game_state.previous_weapon_mode = game_state.current_weapon_mode
-                            if game_state.previous_weapon_mode == "laser":
-                                game_state.laser_beams.clear()
-                            game_state.current_weapon_mode = "rocket"
-                        elif event.key == pygame.K_3 and "triple" in game_state.unlocked_weapons:
+                        elif event.key == pygame.K_2 and "triple" in game_state.unlocked_weapons:
                             game_state.previous_weapon_mode = game_state.current_weapon_mode
                             if game_state.previous_weapon_mode == "laser":
                                 game_state.laser_beams.clear()
                             game_state.current_weapon_mode = "triple"
-                        elif event.key == pygame.K_4 and "bouncing" in game_state.unlocked_weapons:
-                            game_state.previous_weapon_mode = game_state.current_weapon_mode
-                            if game_state.previous_weapon_mode == "laser":
-                                game_state.laser_beams.clear()
-                            game_state.current_weapon_mode = "bouncing"
-                        elif event.key == pygame.K_5 and "giant" in game_state.unlocked_weapons:
+                        elif event.key == pygame.K_3 and "giant" in game_state.unlocked_weapons:
                             game_state.previous_weapon_mode = game_state.current_weapon_mode
                             if game_state.previous_weapon_mode == "laser":
                                 game_state.laser_beams.clear()
                             game_state.current_weapon_mode = "giant"
-                        elif event.key == pygame.K_6 and "laser" in game_state.unlocked_weapons:
+                        elif event.key == pygame.K_4 and "laser" in game_state.unlocked_weapons:
                             game_state.previous_weapon_mode = game_state.current_weapon_mode
                             if game_state.previous_weapon_mode == "laser":
                                 game_state.laser_beams.clear()
@@ -1196,7 +1186,7 @@ wave_damage_taken = 0  # Track damage taken in current wave
 # Beam selection for testing (harder to access - requires testing mode)
 testing_mode = True  # Set to True to enable weapon selection menu and testing options
 invulnerability_mode = False  # Set to True to make player invulnerable (testing mode only)
-beam_selection_selected = 5  # 0 = rocket, 1 = triple, ..., 5 = basic (default)
+beam_selection_selected = 3  # 0 = laser, 1 = triple, 2 = giant, 3 = basic (default)
 beam_selection_pattern = "basic"  # Default weapon pattern
 
 # Level system - 3 levels, each with 3 waves (boss on wave 3)
@@ -1306,8 +1296,7 @@ damage_numbers: list[dict] = []  # List of {x, y, damage, timer, color}
 weapon_pickup_messages: list[dict] = []  # List of {weapon_name, timer, color} for displaying weapon pickup notifications
 
 # Weapon mode system (keys 1-6 to switch)
-# "basic" = normal bullets, "rocket" = rocket launcher, "triple" = triple shot,
-# "bouncing" = bouncing bullets, "giant" = giant bullets, "laser" = laser beam
+# "basic" = normal bullets, "triple" = triple shot, "giant" = giant bullets, "laser" = laser beam
 current_weapon_mode = "basic"
 previous_weapon_mode = "basic"  # Track for telemetry
 unlocked_weapons: set[str] = {"basic"}  # Weapons player has unlocked (starts with basic only)
@@ -1865,11 +1854,9 @@ pickup_spawn_timer = 0.0
 # Weapon key mapping (uses pygame constants, so must stay here)
 WEAPON_KEY_MAP = {
     pygame.K_1: "basic",
-    pygame.K_2: "rocket",
-    pygame.K_3: "triple",
-    pygame.K_4: "bouncing",
-    pygame.K_5: "giant",
-    pygame.K_6: "laser",
+    pygame.K_2: "triple",
+    pygame.K_3: "giant",
+    pygame.K_4: "laser",
 }
 
 # Visual effects for pickups
@@ -2758,11 +2745,11 @@ def spawn_weapon_drop(enemy: dict, state: GameState):
     weapon_drop_map = {
         "grunt": "basic",
         "stinky": "basic",
-        "heavy": "rocket",
+        "heavy": "triple",
         "baka": "triple",
-        "neko neko desu": "bouncing",
+        "neko neko desu": "giant",
         "BIG NEKU": "giant",
-        "bouncer": "bouncing",
+        "bouncer": "triple",
     }
     # 30% chance to drop weapon (exclude basic beam)
     if random.random() < 0.3 and enemy_type in weapon_drop_map:
@@ -2780,9 +2767,7 @@ def spawn_weapon_drop(enemy: dict, state: GameState):
         )
         weapon_colors_map = {
             "basic": (200, 200, 200),
-            "rocket": (255, 100, 0),
             "triple": (100, 200, 255),
-            "bouncing": (100, 255, 100),
             "giant": (255, 200, 0),
             "laser": (255, 50, 50),
         }
@@ -3238,52 +3223,6 @@ def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
             "weapon_name": WEAPON_NAMES.get("triple", "TRIPLE SHOT"),
             "timer": 3.0,
             "color": WEAPON_DISPLAY_COLORS.get("triple", (255, 255, 255))
-        })
-        if state.previous_weapon_mode != state.current_weapon_mode:
-            if ctx.telemetry_enabled and ctx.telemetry_client and state.player_rect:
-                ctx.telemetry_client.log_player_action(PlayerActionEvent(
-                    t=state.run_time,
-                    action_type="weapon_switch",
-                    x=state.player_rect.centerx,
-                    y=state.player_rect.centery,
-                    duration=None,
-                    success=True
-                ))
-    elif pickup_type in ["bouncing_bullets", "bouncing"]:
-        state.unlocked_weapons.add("bouncing")
-        state.previous_weapon_mode = state.current_weapon_mode
-        # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "laser":
-            state.laser_beams.clear()
-        state.current_weapon_mode = "bouncing"
-        # Weapon names and colors are now imported from config_weapons.py
-        state.weapon_pickup_messages.append({
-            "weapon_name": WEAPON_NAMES.get("bouncing", "BOUNCING BULLETS"),
-            "timer": 3.0,
-            "color": WEAPON_DISPLAY_COLORS.get("bouncing", (255, 255, 255))
-        })
-        if state.previous_weapon_mode != state.current_weapon_mode:
-            if ctx.telemetry_enabled and ctx.telemetry_client and state.player_rect:
-                ctx.telemetry_client.log_player_action(PlayerActionEvent(
-                    t=state.run_time,
-                    action_type="weapon_switch",
-                    x=state.player_rect.centerx,
-                    y=state.player_rect.centery,
-                    duration=None,
-                    success=True
-                ))
-    elif pickup_type in ["rocket_launcher", "rocket"]:
-        state.unlocked_weapons.add("rocket")
-        state.previous_weapon_mode = state.current_weapon_mode
-        # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "laser":
-            state.laser_beams.clear()
-        state.current_weapon_mode = "rocket"
-        # Weapon names and colors are now imported from config_weapons.py
-        state.weapon_pickup_messages.append({
-            "weapon_name": WEAPON_NAMES.get("rocket", "ROCKET LAUNCHER"),
-            "timer": 3.0,
-            "color": WEAPON_DISPLAY_COLORS.get("rocket", (255, 255, 255))
         })
         if state.previous_weapon_mode != state.current_weapon_mode:
             if ctx.telemetry_enabled and ctx.telemetry_client and state.player_rect:

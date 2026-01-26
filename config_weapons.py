@@ -20,18 +20,6 @@ WEAPON_CONFIGS = {
         "max_bounces": 0,
         "is_rocket": False,
     },
-    "rocket": {
-        "damage_multiplier": 2.5,  # 2.5x damage
-        "size_multiplier": 2.5,  # Rockets are bigger
-        "speed_multiplier": 1.0,
-        "cooldown_multiplier": 3.5,  # Slower fire rate (3.5x cooldown)
-        "spread_angle_deg": 0.0,
-        "num_projectiles": 1,
-        "color": (255, 100, 0),  # Orange
-        "explosion_radius": 120.0,  # Base AOE radius (increased from 80px)
-        "max_bounces": 0,
-        "is_rocket": True,
-    },
     "triple": {
         "damage_multiplier": 1.0,
         "size_multiplier": 3.0,  # 3x size multiplier
@@ -42,18 +30,6 @@ WEAPON_CONFIGS = {
         "color": (200, 100, 255),  # Purple
         "explosion_radius": 0.0,
         "max_bounces": 0,
-        "is_rocket": False,
-    },
-    "bouncing": {
-        "damage_multiplier": 1.0,
-        "size_multiplier": 2.0,  # Twice the size
-        "speed_multiplier": 1.0,
-        "cooldown_multiplier": 1.0,
-        "spread_angle_deg": 0.0,
-        "num_projectiles": 1,
-        "color": (255, 165, 0),  # Orange
-        "explosion_radius": 0.0,
-        "max_bounces": 10,  # Max bounces off walls
         "is_rocket": False,
     },
     "giant": {
@@ -88,8 +64,6 @@ WEAPON_CONFIGS = {
 WEAPON_NAMES = {
     "giant": "GIANT BULLETS",
     "triple": "TRIPLE SHOT",
-    "bouncing": "BOUNCING BULLETS",
-    "rocket": "ROCKET LAUNCHER",
     "laser": "LASER BEAM",
     "basic": "BASIC FIRE",
 }
@@ -97,8 +71,6 @@ WEAPON_NAMES = {
 WEAPON_DISPLAY_COLORS = {
     "giant": (255, 200, 0),
     "triple": (100, 200, 255),
-    "bouncing": (100, 255, 100),
-    "rocket": (255, 100, 0),
     "laser": (255, 50, 50),
     "basic": (200, 200, 200),
 }
@@ -108,9 +80,8 @@ WEAPON_DISPLAY_COLORS = {
 # ----------------------------
 # Weapons unlock in order when bosses are defeated
 WEAPON_UNLOCK_ORDER = {
-    1: "rocket",
-    2: "triple",
-    3: "giant",
+    1: "triple",
+    2: "giant",
 }
 
-# Note: "basic" is available from start, "laser" and "bouncing" are pickup-only
+# Note: "basic" is available from start, "laser" is pickup-only
