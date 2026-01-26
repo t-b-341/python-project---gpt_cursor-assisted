@@ -2029,6 +2029,544 @@ Throughout this phase:
 - Make sure all existing features remain intact and tests continue to pass.
 - If a subtask grows too large, break it into smaller, clearly described steps before applying changes.
 
+STEP 1:
+We are adding small, focused tests for asset_manager and audio_system to harden the new infra.
+Keep the scope minimal so tests run quickly and changes are localized.
+
+Constraints:
+- Only create/modify tests under tests/.
+- Do NOT change asset_manager.py or systems/audio_system.py unless a test exposes a clear bug.
+- Do NOT add heavy dependencies. Assume pygame is available in the test environment.
+- Tests should not rely on actual image/sfx/music files; they should verify fallback behavior and basic types.
+
+Tasks:
+
+1) Tests for asset_manager
+
+Create tests/test_asset_manager.py with the following coverage:
+
+- Setup:
+  - Import pygame and asset_manager.
+  - Call pygame.init() at the module or test level as needed for surfaces/fonts.
+  - Ensure asset_manager.clear_caches() is called before tests to avoid cross-test interference.
+
+- Test get_image fallback behavior:
+  - Call get_image("nonexistent_test_image") with no real file present.
+  - Assert:
+    - It returns a pygame.Surface.
+    - The surface has a small, non-zero size (e.g., width > 0 and height > 0).
+    - The call does not raise.
+
+- Test get_sound fallback behavior:
+  - Call get_sound("nonexistent_test_sound").
+  - Assert:
+    - It returns either a pygame.mixer.Sound or a no-op/fallback object that can be "played" without raising (if implemented).
+    - No exception is raised.
+
+- Test get_font fallback behavior:
+  - Call get_font("nonexistent_test_font", size=24).
+  - Assert:
+    - The result has a render(text, antialias, color) method (e.g., pygame.font.Font-like).
+    - Rendering a short string returns a pygame.Surface.
+    - No exception is raised.
+
+- Test get_music_path behavior:
+  - Call get_music_path("nonexistent_test_music").
+  - Assert:
+    - It returns None (since no file exists).
+    - The call does not raise.
+
+2) Tests for audio_system
+
+Create tests/test_audio_system.py with the following coverage:
+
+- Setup:
+  - Import pygame and systems.audio_system as audio_system.
+  - Call pygame.init() and audio_system.init_mixer() in setup if needed.
+  - Ensure any global state (volumes, mute flags) is reset between tests if necessary.
+
+- Test volume/mute setters:
+  - Set SFX and music volume via provided functions (e.g. set_sfx_volume, set_music_volume, if they exist).
+  - Toggle mute/unmute functions.
+  - Assert:
+    - Internal getters or behavior reflect the updated state (if there are getter functions).
+    - If there are no getters, at least call play_sfx("nonexistent_test_sound") and verify it does not raise even when muted/unmuted.
+
+- Test play_sfx/play_music robustness:
+  - Call play_sfx("nonexistent_test_sound") and play_music("nonexistent_test_music") with no actual asset files present.
+  - Assert:
+    - No exceptions are raised.
+    - For play_music, passing loop=True/False should not crash even if the path is missing (audio_system should handle None gracefully).
+
+Notes:
+- Focus on “does not crash and returns sane types/fallbacks” rather than precise audio output.
+- Keep tests small and fast.
+- Only modify production code if a real bug is discovered while writing tests, and keep any fix as small as possible.
+
+Show me the new test files and any minimal code changes needed to satisfy them.
+
+PROMPT 2:
+We want a small debug overlay renderer that can be used from gameplay, but in this step we will ONLY add the helper function and NOT wire it into any scene yet.
+
+Constraints:
+- Only modify rendering.py in this step.
+- Do NOT change game behavior by default: the overlay should be opt-in and not automatically enabled.
+- Keep the overlay visually minimal and non-intrusive.
+
+Tasks:
+
+1) Add a debug HUD helper
+
+In rendering.py, add a function:
+
+    def render_debug_overlay(render_ctx: RenderContext, game_state, *, lines: list[str] | None = None) -> None:
+        """
+        Draw a small debug HUD in a corner of the screen.
+        If 'lines' is provided, use those as extra lines; otherwise derive a few defaults from game_state.
+        This function does NOT decide when to be called; caller controls that.
+        """
+
+Behavior:
+- Choose a corner (e.g. top-left).
+- Background:
+  - Draw a small semi-transparent rect or darker overlay behind the text (optional but preferred).
+- Default lines if none are passed:
+  - f"wave: {game_state.wave_number}"
+  - f"enemies: {len(game_state.enemies)}"
+  - f"player_hp: {game_state.player_hp}/{game_state.player_max_hp}"
+  - optionally: f"lives: {game_state.lives}"
+- Use render_ctx.small_font to render the text, with a simple vertical layout (e.g. 4–6 px spacing).
+- Do not hardcode colors all over the place; a simple white text on dark bg is fine.
+
+2) Keep it self-contained
+
+- Do not add any new imports beyond what rendering.py already uses (pygame and get_font, etc.).
+- Do not rely on any external constants; if a color is needed, define a small local constant like DEBUG_BG_COLOR inside the function.
+
+The end result: a reusable render_debug_overlay(render_ctx, game_state, lines=None) that the gameplay/scene code can call later.
+No scene or main loop changes in this step.
+
+PROMPT 3:
+
+We are now wiring the debug overlay into the gameplay scene behind a config toggle.
+
+Constraints:
+- Only modify:
+  - config/game_config.py
+  - scenes/gameplay.py
+- Do NOT change default behavior for normal players: debug overlay should be off by default.
+- Keep changes small and contained.
+
+Tasks:
+
+1) Add a debug overlay toggle to GameConfig
+
+In config/game_config.py:
+
+- Add a field to GameConfig:
+    debug_draw_overlay: bool = False
+
+- Optionally, include it (and maybe a comment) in the tuning guide / docstring so it’s clear that setting this to True will enable on-screen debug info.
+
+2) Use the toggle in GameplayScene.render
+
+In scenes/gameplay.py:
+
+- Import render_debug_overlay from rendering.py.
+- In the GameplayScene.render(...) method:
+  - After the normal gameplay rendering is done (background, entities, HUD, etc.), add:
+
+        if ctx.config.debug_draw_overlay:
+            render_debug_overlay(render_ctx, game_state)
+
+  or equivalent, depending on the existing parameter names.
+
+- Ensure you are not changing the ordering of existing draw calls except for appending this debug pass at the end.
+
+3) Behavioral checks (manual, for me later)
+
+- With debug_draw_overlay = False (default), nothing should change visually.
+- With debug_draw_overlay = True, the overlay should appear in gameplay scenes showing basic info such as wave, enemy count, and player HP.
+
+Keep this integration minimal: no menu options yet, no new keybindings; just a config flag and a conditional render.
+
+GPU-1:
+Create a new file: gpu_sandbox/triangle_demo.py
+Do NOT modify any existing files.
+
+Goal:
+A tiny moderngl demo that opens a window and draws ONE colored triangle.
+
+Requirements:
+- Use moderngl + moderngl-window if available.
+- If import fails, print a clear message and exit; do not crash.
+- Window ~800x600.
+- Simple vertex + fragment shader:
+  - Vertex takes a vec2 position.
+  - Fragment outputs a solid color or simple gradient.
+- Render a triangle at the center.
+- Main loop exits on ESC or window close.
+- Put all execution under: if __name__ == "__main__":
+
+Keep the file very small and self-contained.
+
+GPU-2:
+Create a new file: gpu_sandbox/quad_effect_demo.py
+Do NOT modify other files.
+
+Goal:
+A fullscreen quad rendered with moderngl and a simple fragment shader effect.
+
+Requirements:
+- Same window setup style as triangle_demo.py.
+- Build a fullscreen quad (two triangles) in NDC space.
+- Create a simple CPU-generated texture (checkerboard OR solid gradient).
+- Fragment shader:
+  - Sample texture.
+  - Apply a simple effect (e.g., invert colors or grayscale).
+- Render each frame until ESC / window close.
+
+Keep the script small. No helpers outside this file.
+
+GPU-3:
+Create a new file: gpu_sandbox/animated_effect_demo.py
+Do NOT modify other files.
+
+Goal:
+A moderngl fullscreen quad with a fragment shader animated over time.
+
+Requirements:
+- Fullscreen quad setup similar to quad_effect_demo.py.
+- Pass uniform float u_time to shader every frame.
+- Fragment shader uses:
+    color = uv * (0.5 + 0.5 * sin(u_time))
+  or ANY obvious time-based animation.
+- Smooth animation using time.perf_counter().
+- Quit on ESC or window close.
+
+Keep code short and clean.
+
+GPU-4:
+Create a new file: gpu_sandbox/pygame_to_gl_demo.py
+Do NOT modify any game code.
+
+Goal:
+Show how to take a small Pygame surface, upload it as a moderngl texture, and draw it on a fullscreen quad.
+
+Requirements:
+- Create a tiny Pygame surface (e.g., 64x64), fill it with a gradient or pattern.
+- Convert it to a string/bytes buffer (surf.get_view("1") or pygame.image.tostring).
+- Upload it as a moderngl texture.
+- Draw a fullscreen quad textured with it.
+- Fragment shader can simply pass the sampled color through.
+- Exit on ESC / window close.
+- Include if __name__ == "__main__": boilerplate.
+
+This file should be minimal, self-contained, and fast to run.
+
+GPU-5:
+We are adding an optional toggle for GPU shaders, without modifying rendering logic yet.
+
+Goal:
+Ask the user at startup whether to enable GPU shaders, then store the result in GameConfig.
+
+Constraints:
+- Only modify:
+  - game.py (for the prompt)
+  - config/game_config.py (to add the field)
+- Do NOT modify rendering code or existing scenes.
+- Do NOT require the user to install moderngl; if unavailable, the game should auto-disable shader mode.
+
+Tasks:
+
+1) Add a toggle to GameConfig
+In config/game_config.py:
+- Add a field:
+      use_shaders: bool = False
+
+2) Add an optional startup prompt in game.py
+- After initializing ctx and config, but BEFORE starting the game loop, add:
+  - A simple console prompt:
+        answer = input("Enable GPU shaders? (y/N): ").strip().lower()
+        if answer == "y":
+            ctx.config.use_shaders = True
+  - If import of moderngl fails, print:
+        "moderngl not available; disabling shader mode."
+    and set ctx.config.use_shaders = False.
+
+3) Print the final result
+- Show a console message:
+      "Shader mode: ON" or "Shader mode: OFF"
+
+This step should NOT change rendering behavior yet — only the toggle and prompts.
+Show only the diffs for game.py and game_config.py.
+
+gpu-6:
+We are adding a minimal ShaderTestScene to safely test shader mode inside the game engine.
+This scene should NOT affect gameplay or rendering yet.
+
+Constraints:
+- Only create new files:
+    scenes/shader_test.py
+- Only make small additions to:
+    scenes/__init__.py  (to expose the scene)
+    game.py              (to switch into shader test scene if use_shaders=True)
+- Do NOT modify gameplay rendering, systems, or ECS.
+- The scene should be extremely simple: draw a colored rectangle or text saying “Shader Test Scene”.
+
+Tasks:
+
+1) Create scenes/shader_test.py
+- Define a class ShaderTestScene(Scene):
+    - handle_input: exit on ESC (pop scene)
+    - update: do nothing
+    - render:
+        - Clear the screen (fill color)
+        - Draw text “Shader Test Scene (Shaders OFF — placeholder)”
+    - This is ONLY a placeholder scene; no moderngl or GPU calls yet.
+
+2) Export it in scenes/__init__.py
+- Add ShaderTestScene to the exports.
+
+3) In game.py
+- After processing startup config (including use_shaders toggle), if ctx.config.use_shaders is True:
+    - Push ShaderTestScene onto the SceneStack BEFORE entering gameplay.
+    - This means:
+        - If shaders are ON → enter ShaderTestScene first.
+        - If shaders are OFF → go straight to gameplay as normal.
+
+4) Behavior requirements:
+- ShaderTestScene must run first when shaders=true.
+- Pressing ESC returns to gameplay.
+- No real GPU shaders yet; this is just the test harness.
+
+Keep the new files small and clean.
+
+GPU-7:
+We are upgrading ShaderTestScene to initialize moderngl, but we will NOT draw a quad yet.
+This is just: create a GL context, clear the screen, and fall back gracefully if moderngl is missing.
+
+Constraints:
+- Only modify: scenes/shader_test.py
+- Do NOT modify any other file.
+- ShaderTestScene must still work even if moderngl is not installed (fallback path).
+- Keep code small and local to the scene.
+
+Tasks:
+
+1) moderngl imports and optional support
+- At the top of scenes/shader_test.py:
+  - Try to import moderngl.
+  - If import fails, set a module-level flag, e.g. HAS_MODERNGL = False.
+  - If it succeeds, HAS_MODERNGL = True.
+
+2) Extend ShaderTestScene to manage a GL context
+- In ShaderTestScene.__init__ (or an on_enter-style method if you already have one):
+  - If HAS_MODERNGL is True:
+    - Create a moderngl.Context from the existing window/surface backend you use (e.g., moderngl.create_context() if compatible).
+    - Store it as self.gl or similar.
+  - If HAS_MODERNGL is False:
+    - Set self.gl = None.
+
+3) Update render() to use GL clear when available
+- In ShaderTestScene.render(...):
+  - If self.gl is not None:
+    - Use self.gl.clear(r, g, b, a) to clear the screen with a distinct color (e.g., dark blue or purple).
+  - Otherwise (fallback, no moderngl):
+    - Keep the existing Pygame-based fill + text rendering path.
+- Keep the text “Shader Test Scene” rendered in either case so I can tell it’s active.
+
+4) Logging
+- On creation (or first render), optionally print a short message:
+  - "ShaderTestScene: moderngl active" or "ShaderTestScene: moderngl not available, using fallback."
+- Do NOT spam this every frame; print only once (e.g., store a boolean flag).
+
+The goal of this step:
+- ShaderTestScene can now create a moderngl context if available.
+- No quads or shaders yet, just clear the screen.
+- If moderngl is missing, behavior remains the same as before.
+
+GPU-8:
+We now want ShaderTestScene to draw a basic fullscreen quad with moderngl when available.
+No animation, no fancy effect yet — just a solid color via a very small shader.
+
+Constraints:
+- Only modify: scenes/shader_test.py
+- Do NOT touch any other modules.
+- If moderngl is missing or context creation failed, fallback rendering should still work exactly as before.
+
+Tasks:
+
+1) Add quad geometry + program initialization
+- In ShaderTestScene.__init__ (after creating self.gl):
+  - If self.gl is not None:
+    - Create a simple fullscreen quad:
+      - Positions in NDC space, 2D float array: (-1, -1), (1, -1), (-1, 1), (1, 1).
+      - Use a simple triangle strip or two triangles.
+    - Create a buffer and vertex array object (VAO) for this quad.
+    - Compile a tiny shader program:
+      - Vertex shader:
+          - Takes vec2 in_position.
+          - Sets gl_Position = vec4(in_position, 0.0, 1.0).
+      - Fragment shader:
+          - Outputs a solid color (e.g., vec4(0.2, 0.8, 0.4, 1.0)).
+
+- Store:
+  - self.program
+  - self.vbo / self.vao (or equivalent) only when self.gl is not None.
+
+2) Render the quad in render()
+- In ShaderTestScene.render(...):
+  - If self.gl is not None and the program/VAO exist:
+    - Call self.gl.clear(r, g, b, a) with a neutral background.
+    - Bind the program and draw the fullscreen quad.
+  - After drawing with GL, you may still overlay the “Shader Test Scene” text using your existing 2D/UI method if it is easy and does not conflict.
+- If self.gl is None:
+  - Use the original Pygame-based fallback rendering unchanged.
+
+3) Safety checks
+- Ensure that if shader compilation or VAO creation fails for some reason, the scene:
+  - Does not crash.
+  - Falls back to the non-GL rendering path (set self.gl = None and proceed as before).
+
+The goal of this step:
+- When moderngl is available:
+  - ShaderTestScene shows a solid-color quad drawn fully by GL.
+- When moderngl is unavailable:
+  - Scene behaves as before with the basic Pygame fill + text.
+
+GPU-9:
+We now add a very simple time-based effect to the ShaderTestScene fullscreen quad.
+We already have a moderngl context + quad + solid-color shader.
+This step only modifies the shader and passes a uniform “time” value.
+
+Constraints:
+- Only modify: scenes/shader_test.py
+- Do NOT modify any other files.
+- Fallback (no moderngl) behavior remains as before.
+- Keep the effect simple and cheap.
+
+Tasks:
+
+1) Add a time accumulator to ShaderTestScene
+- In ShaderTestScene.__init__:
+  - Initialize self.time = 0.0
+- In update(dt, ...):
+  - If self.gl is not None:
+    - Increment self.time by dt (seconds).
+  - If self.gl is None:
+    - You can ignore self.time or leave it as is.
+
+2) Update the shader to use a time uniform
+- When creating the shader program:
+  - Add a uniform float u_time to the fragment shader.
+  - Use it to modulate color, for example:
+      float t = 0.5 + 0.5 * sin(u_time);
+      vec3 base = vec3(0.2, 0.8, 0.4);
+      fragColor = vec4(base * t, 1.0);
+    or any similarly simple time-based effect.
+
+3) Pass u_time from render()
+- In ShaderTestScene.render(...), when self.gl and self.program exist:
+  - Before drawing:
+    - Set the uniform “u_time” on the program to self.time (or a scaled version).
+  - Then draw the quad as before.
+- If self.gl is None:
+  - Skip this and keep fallback rendering path unchanged.
+
+4) Behavior expectations
+- With moderngl available:
+  - ShaderTestScene now displays a fullscreen color that smoothly pulses / animates over time.
+- With moderngl unavailable:
+  - Behavior remains the same as the Pygame fallback path.
+
+Keep all changes local and minimal.
+No changes to other scenes or gameplay.
+
+GPU-1O:
+We want ShaderTestScene to demonstrate a full pipeline:
+Pygame-style 2D drawing -> upload to moderngl texture -> fullscreen quad + fragment shader.
+
+This should stay fully local to ShaderTestScene and not affect normal gameplay scenes.
+
+Constraints:
+- Only modify: scenes/shader_test.py
+- Do NOT modify any other files.
+- Keep the existing behavior:
+  - If moderngl is NOT available, use the fallback Pygame rendering path (as before).
+  - If moderngl IS available, we now:
+      1) Render to an offscreen Pygame surface.
+      2) Upload that to a GL texture.
+      3) Draw the fullscreen quad sampling that texture with a simple post-process effect.
+
+Tasks:
+
+1) Add an offscreen Pygame surface for the “frame”
+- In ShaderTestScene.__init__:
+  - Create an offscreen_surface attribute (e.g., self.offscreen_surface) sized to match the window resolution.
+    - You can get width/height from existing context or pass in from ctx if available.
+    - If you can’t easily query them, choose a reasonable fallback (e.g., 800x600) and mention that in a comment.
+  - This surface will be where we draw the Pygame-style content (background + text).
+
+2) Draw into offscreen_surface instead of directly to the screen (when GL is active)
+- In render(...):
+  - If self.gl is not None:
+    - Instead of drawing background/text directly to the main screen surface:
+      - Fill self.offscreen_surface with a background color.
+      - Render the “Shader Test Scene” text and any other simple debug info onto self.offscreen_surface.
+    - If self.gl is None:
+      - Keep the existing direct Pygame drawing path unchanged.
+
+3) Create and manage a moderngl texture for the offscreen surface
+- In __init__, when self.gl is created:
+  - Create a moderngl texture with the same size as self.offscreen_surface.
+  - Store it as self.frame_texture.
+- In render(...), when self.gl and self.frame_texture exist:
+  - Convert self.offscreen_surface to raw bytes using pygame.image.tostring or get_view("1") in a format moderngl expects (e.g., "RGBA").
+  - Update self.frame_texture with the new data each frame.
+    - Use write(...) or equivalent call.
+  - Bind this texture to a sampler in your shader program.
+
+4) Update the shader program to sample the texture
+- In the shader program creation (where we currently output a solid color with time-based modulation):
+  - Add:
+      - A vec2 texcoord attribute in the vertex shader.
+      - Pass texcoord to the fragment shader as varying.
+  - In the fragment shader:
+      - Add a sampler2D u_frame_texture uniform.
+      - Sample the texture using the interpolated texcoord.
+      - Apply a very simple post-process effect to demonstrate GPU processing, for example:
+          vec4 color = texture(u_frame_texture, v_texcoord);
+          // Simple effect: slightly desaturate
+          float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+          vec3 mixed = mix(color.rgb, vec3(gray), 0.3);
+          fragColor = vec4(mixed, color.a);
+  - Adjust the quad vertex data so each vertex has both position and texcoord (e.g., (x, y, u, v)).
+  - Update the VAO to bind both attributes correctly.
+
+5) Pass uniforms and draw the quad
+- In render(...), when GL is active:
+  - Set u_time (if still used) and u_frame_texture appropriately:
+    - Bind texture to a texture unit and assign it to u_frame_texture.
+  - Draw the fullscreen quad as before.
+- After drawing the quad, you may still overlay any non-GL UI if that’s easy and doesn’t complicate things; otherwise the textured quad is enough.
+
+6) Preserve fallback behavior
+- If self.gl is None (no moderngl):
+  - Keep the old path: clear screen, draw “Shader Test Scene” text directly with Pygame.
+- If any part of GL setup fails (texture, program, etc.):
+  - Fail gracefully by setting self.gl = None and using the fallback rendering path.
+
+The outcome of this step:
+- With moderngl available:
+  - ShaderTestScene renders its own Pygame-style content into an offscreen surface,
+  - uploads it as a texture,
+  - and displays it via a fullscreen quad, applying a trivial post-process effect in the fragment shader.
+- Without moderngl:
+  - ShaderTestScene looks as it did before.
+
+Keep changes minimal and localized inside scenes/shader_test.py.
+
 
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------
