@@ -27,7 +27,7 @@ WEAPON_CONFIGS = {
         "cooldown_multiplier": 1.0,
         "spread_angle_deg": 30.0,  # 30 degrees each side = 60 degree total arc
         "num_projectiles": 3,  # Three beams
-        "color": (200, 100, 255),  # Purple
+        "color": (255, 105, 180),  # Pink
         "explosion_radius": 0.0,
         "max_bounces": 0,
         "is_rocket": False,
@@ -70,7 +70,7 @@ WEAPON_NAMES = {
 
 WEAPON_DISPLAY_COLORS = {
     "giant": (255, 200, 0),
-    "triple": (100, 200, 255),
+    "triple": (255, 105, 180),
     "laser": (255, 50, 50),
     "basic": (200, 200, 200),
 }
