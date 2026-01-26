@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Iterator, Optional, Type
 
 import pygame
 
@@ -173,6 +173,28 @@ class GameState:
     # Level context for systems (set by main/game loop): move_player, move_enemy, clamp, blocks, width, height, rect_offscreen, vec_toward, update_friendly_ai
     level_context: Any = None
 
+    # Lightweight ECS registry (optional): entity_id -> {ComponentType: instance}
+    # Coexists with enemies, player_bullets, etc. during migration.
+    ecs_entities: dict[int, dict[Type[Any], Any]] = field(default_factory=dict)
+    _ecs_next_id: int = 0
+
+    def create_entity(self, components: list[Any]) -> int:
+        """Create an entity with the given components. Returns entity id."""
+        eid = self._ecs_next_id
+        self._ecs_next_id += 1
+        self.ecs_entities[eid] = {type(c): c for c in components}
+        return eid
+
+    def get_entities_with(self, *component_types: Type[Any]) -> Iterator[int]:
+        """Yield entity ids that have all of the given component types."""
+        for eid, comps in self.ecs_entities.items():
+            if all(t in comps for t in component_types):
+                yield eid
+
+    def remove_entity(self, eid: int) -> None:
+        """Remove an entity from the registry."""
+        self.ecs_entities.pop(eid, None)
+
     def reset_run(self, ctx: Any = None, *, center_player: bool = False) -> None:
         """Reset the game state for a brand new run.
         Clears entities, bullets, projectiles; resets HP, lives, score, timers; resets wave/level and default weapons.
@@ -186,6 +208,8 @@ class GameState:
         self.grenade_explosions.clear()
         self.missiles.clear()
         self.enemy_laser_beams.clear()
+        self.ecs_entities.clear()
+        self._ecs_next_id = 0
         self.player_hp = self.player_max_hp
         self.lives = 3
         self.score = 0

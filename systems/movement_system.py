@@ -12,6 +12,12 @@ import pygame
 
 from enemies import find_nearest_threat, find_threats_in_dodge_range
 
+try:
+    from ecs_components import PositionComponent, VelocityComponent
+    _ECS_AVAILABLE = True
+except ImportError:
+    _ECS_AVAILABLE = False
+
 if TYPE_CHECKING:
     from state import GameState
 
@@ -32,6 +38,7 @@ def update(state: "GameState", dt: float) -> None:
     _update_enemy_projectiles(state, dt, ctx)
     _update_friendly_projectiles(state, dt, ctx)
     _update_missiles(state, dt, ctx)
+    _update_ecs_position_velocity(state, dt)
     # Ally AI is run in ai_system.update()
 
 
@@ -331,3 +338,20 @@ def _update_missiles(state, dt: float, ctx: dict) -> None:
                 "source": "wall_impact",  # Player takes no damage from missile-on-wall explosions
             })
             state.missiles.remove(missile)
+
+
+def _update_ecs_position_velocity(state: "GameState", dt: float) -> None:
+    """Move ECS entities that have PositionComponent and VelocityComponent. No-op if registry empty."""
+    if not _ECS_AVAILABLE:
+        return
+    ecs = getattr(state, "ecs_entities", None)
+    if not ecs:
+        return
+    for eid in state.get_entities_with(PositionComponent, VelocityComponent):
+        comps = ecs.get(eid, {})
+        pos = comps.get(PositionComponent)
+        vel = comps.get(VelocityComponent)
+        if pos is None or vel is None or pos.rect is None:
+            continue
+        pos.rect.x += int(vel.vx * dt)
+        pos.rect.y += int(vel.vy * dt)
