@@ -85,8 +85,7 @@ def _draw_metrics_and_bars(
 
     y_pos = 10
     y_pos = render_hud_text(screen, font, f"HP: {state.player_hp}/{state.player_max_hp}", y_pos)
-    if state.overshield > 0:
-        y_pos = render_hud_text(screen, font, f"Overshield: {state.overshield}/{overshield_max}", y_pos)
+    # Armor/overshield is shown on the armor bar above the health bar; no extra line here
     y_pos = render_hud_text(screen, font, f"Wave: {state.wave_number} | Level: {state.current_level}", y_pos)
     minutes = int(state.survival_time // 60)
     seconds = int(state.survival_time % 60)
@@ -105,15 +104,17 @@ def _draw_metrics_and_bars(
     health_bar_y = HEIGHT - 80
     health_bar_height = 20
     health_bar_width = 300
+    armor_health_gap = 6  # pixels between armor bar bottom and health bar top
 
     if state.overshield > 0:
-        overshield_bar_y = health_bar_y - (health_bar_height + 4)
+        # Armor bar: same length (width) and height as health, placed slightly above
+        armor_bar_y = health_bar_y - health_bar_height - armor_health_gap
         overshield_fill = int((state.overshield / max(1, overshield_max)) * health_bar_width)
-        pygame.draw.rect(screen, (60, 60, 60), (health_bar_x, overshield_bar_y, health_bar_width, health_bar_height))
-        pygame.draw.rect(screen, (255, 150, 0), (health_bar_x, overshield_bar_y, overshield_fill, health_bar_height))
-        pygame.draw.rect(screen, (20, 20, 20), (health_bar_x, overshield_bar_y, health_bar_width, health_bar_height), 2)
+        pygame.draw.rect(screen, (60, 60, 60), (health_bar_x, armor_bar_y, health_bar_width, health_bar_height))
+        pygame.draw.rect(screen, (255, 150, 0), (health_bar_x, armor_bar_y, overshield_fill, health_bar_height))
+        pygame.draw.rect(screen, (20, 20, 20), (health_bar_x, armor_bar_y, health_bar_width, health_bar_height), 2)
         overshield_text = small_font.render(f"Armor: {int(state.overshield)}/{int(overshield_max)}", True, (255, 255, 255))
-        screen.blit(overshield_text, (health_bar_x + 5, overshield_bar_y + 2))
+        screen.blit(overshield_text, (health_bar_x + 5, armor_bar_y + 2))
 
     health_fill = int((state.player_hp / state.player_max_hp) * health_bar_width)
     pygame.draw.rect(screen, (60, 60, 60), (health_bar_x, health_bar_y, health_bar_width, health_bar_height))
@@ -153,7 +154,9 @@ def _draw_metrics_and_bars(
     overshield_progress = min(1.0, state.overshield_recharge_timer / overshield_recharge_cooldown)
     overshield_x = ally_x + bar_width + 10
     pygame.draw.rect(screen, (60, 60, 60), (overshield_x, bar_y, bar_width, bar_height))
-    pygame.draw.rect(screen, (255, 150, 0) if overshield_progress >= 1.0 else (100, 100, 100),
+    # Use cyan when ready so it’s distinct from the orange armor meter (current overshield)
+    overshield_bar_color = (100, 220, 255) if overshield_progress >= 1.0 else (100, 100, 100)
+    pygame.draw.rect(screen, overshield_bar_color,
                      (overshield_x, bar_y, int(bar_width * overshield_progress), bar_height))
     pygame.draw.rect(screen, (255, 255, 255), (overshield_x, bar_y, bar_width, bar_height), 2)
     screen.blit(small_font.render("OVERSHIELD (TAB)", True, (255, 255, 255)), (overshield_x + 5, bar_y + 2))

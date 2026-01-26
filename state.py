@@ -172,3 +172,38 @@ class GameState:
 
     # Level context for systems (set by main/game loop): move_player, move_enemy, clamp, blocks, width, height, rect_offscreen, vec_toward, update_friendly_ai
     level_context: Any = None
+
+    def reset_run(self, ctx: Any = None, *, center_player: bool = False) -> None:
+        """Reset the game state for a brand new run.
+        Clears entities, bullets, projectiles; resets HP, lives, score, timers; resets wave/level and default weapons.
+        If center_player is True and ctx has width/height, centers player_rect. Caller then typically calls spawn_system_start_wave(1, self).
+        """
+        self.enemies.clear()
+        self.player_bullets.clear()
+        self.enemy_projectiles.clear()
+        self.friendly_projectiles.clear()
+        self.friendly_ai.clear()
+        self.grenade_explosions.clear()
+        self.missiles.clear()
+        self.enemy_laser_beams.clear()
+        self.player_hp = self.player_max_hp
+        self.lives = 3
+        self.score = 0
+        self.run_time = 0.0
+        self.survival_time = 0.0
+        self.unlocked_weapons = {"basic", "giant", "triple", "laser"}
+        self.current_weapon_mode = "giant"
+        self.reset_wave(1)
+        if center_player and ctx is not None and self.player_rect is not None:
+            w = getattr(ctx, "width", None) or (ctx.get("width") if isinstance(ctx, dict) else None)
+            h = getattr(ctx, "height", None) or (ctx.get("height") if isinstance(ctx, dict) else None)
+            if w is not None and h is not None:
+                self.player_rect.center = (w // 2, h // 2)
+
+    def reset_wave(self, wave: int = 1) -> None:
+        """Reset wave-related fields, starting at the given wave."""
+        self.wave_number = wave
+        self.wave_in_level = wave if wave <= 3 else ((wave - 1) % 3) + 1
+        self.current_level = max(1, (wave - 1) // 3 + 1) if wave >= 1 else 1
+        self.wave_active = False
+        self.time_to_next_wave = 0.0

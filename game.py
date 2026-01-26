@@ -309,30 +309,10 @@ def main():
                     if result.get("quit"):
                         running = False
                     if result.get("restart") or result.get("restart_to_wave1") or result.get("replay"):
-                        game_state.enemies.clear()
-                        game_state.player_bullets.clear()
-                        game_state.enemy_projectiles.clear()
-                        game_state.friendly_projectiles.clear()
-                        game_state.friendly_ai.clear()
-                        game_state.grenade_explosions.clear()
-                        game_state.missiles.clear()
-                        game_state.enemy_laser_beams.clear()
-                        game_state.wave_number = 1
-                        game_state.wave_in_level = 1
-                        game_state.current_level = 1
-                        game_state.player_hp = game_state.player_max_hp
-                        game_state.lives = 3
-                        game_state.score = 0
-                        game_state.run_time = 0.0
-                        game_state.survival_time = 0.0
-                        game_state.wave_active = False
-                        game_state.time_to_next_wave = 0.0
-                        game_state.unlocked_weapons = {"basic", "giant", "triple", "laser"}
-                        game_state.current_weapon_mode = "giant"
+                        game_state.reset_run(ctx, center_player=bool(result.get("restart_to_wave1") or result.get("replay")))
                         if result.get("restart"):
                             game_state.menu_section = 0
                         if result.get("restart_to_wave1") or result.get("replay"):
-                            game_state.player_rect.center = (ctx.width // 2, ctx.height // 2)
                             state = STATE_PLAYING
                             spawn_system_start_wave(1, game_state)
                     if state == STATE_PAUSED:
@@ -446,26 +426,7 @@ def main():
                             if choice == "Continue":
                                 state = previous_game_state if previous_game_state else STATE_PLAYING
                             elif choice == "Restart (Wave 1)":
-                                game_state.enemies.clear()
-                                game_state.player_bullets.clear()
-                                game_state.enemy_projectiles.clear()
-                                game_state.friendly_projectiles.clear()
-                                game_state.friendly_ai.clear()
-                                game_state.grenade_explosions.clear()
-                                game_state.missiles.clear()
-                                game_state.wave_number = 1
-                                game_state.wave_in_level = 1
-                                game_state.current_level = 1
-                                game_state.player_hp = game_state.player_max_hp
-                                game_state.lives = 3
-                                game_state.score = 0
-                                game_state.run_time = 0.0
-                                game_state.survival_time = 0.0
-                                game_state.wave_active = False
-                                game_state.time_to_next_wave = 0.0
-                                game_state.unlocked_weapons = {"basic", "giant", "triple", "laser"}
-                                game_state.current_weapon_mode = "giant"
-                                game_state.player_rect.center = (ctx.width // 2, ctx.height // 2)
+                                game_state.reset_run(ctx, center_player=True)
                                 state = STATE_PLAYING
                                 spawn_system_start_wave(1, game_state)
                             elif choice == "Exit to main menu":
