@@ -526,10 +526,17 @@ def _draw_beams(screen: pygame.Surface, state) -> None:
                 )
 
 
-def render_debug_overlay(render_ctx: RenderContext, game_state, *, lines: list[str] | None = None) -> None:
+def render_debug_overlay(
+    render_ctx: RenderContext,
+    game_state,
+    *,
+    lines: list[str] | None = None,
+    extra_lines: list[str] | None = None,
+) -> None:
     """
     Draw a small debug HUD in a corner of the screen.
     If 'lines' is provided, use those as extra lines; otherwise derive a few defaults from game_state.
+    If 'extra_lines' is provided, append them to the final line list.
     This function does NOT decide when to be called; caller controls that.
     """
     DEBUG_BG_COLOR = (20, 20, 30)
@@ -544,6 +551,8 @@ def render_debug_overlay(render_ctx: RenderContext, game_state, *, lines: list[s
             f"player_hp: {getattr(game_state, 'player_hp', 0)}/{getattr(game_state, 'player_max_hp', 1)}",
             f"lives: {getattr(game_state, 'lives', 0)}",
         ]
+    if extra_lines is not None:
+        lines = list(lines) + list(extra_lines)
 
     font = render_ctx.small_font
     x, y = PAD, PAD

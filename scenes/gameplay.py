@@ -33,7 +33,15 @@ class GameplayScene:
             gameplay_screen.render(app_ctx, game_state, gameplay_ctx)
         config = getattr(app_ctx, "config", None) if app_ctx is not None else None
         if config and getattr(config, "debug_draw_overlay", False):
-            render_debug_overlay(render_ctx, game_state)
+            extra_lines = []
+            use_shaders = bool(getattr(config, "use_shaders", False))
+            extra_lines.append(f"shaders: {'ON' if use_shaders else 'OFF'}")
+            try:
+                from gpu_physics import CUDA_AVAILABLE
+                extra_lines.append(f"cuda_available: {CUDA_AVAILABLE}")
+            except ImportError:
+                extra_lines.append("cuda_available: import error")
+            render_debug_overlay(render_ctx, game_state, extra_lines=extra_lines)
 
     def on_enter(self, game_state, ctx: dict) -> None:
         pass
