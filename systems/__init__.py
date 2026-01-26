@@ -2,6 +2,8 @@
 Cross-cutting systems used during gameplay.
 Each system provides update(state: GameState, dt: float) -> None.
 Orchestrated by the gameplay screen in its update().
+
+Audio is centralized in audio_system: play_sfx(), play_music(), stop_music(), etc.
 """
 from .movement_system import update as movement_update
 from .collision_system import update as collision_update

@@ -97,6 +97,7 @@ from systems.collision_system import update as collision_update
 from systems.spawn_system import update as spawn_update, start_wave as spawn_system_start_wave
 from systems.ai_system import update as ai_update
 from systems.input_system import handle_gameplay_input
+from systems.audio_system import init_mixer, sync_from_config
 from controls_io import _key_name_to_code, load_controls, save_controls
 from physics_loader import resolve_physics
 from geometry_utils import (
@@ -137,6 +138,7 @@ def main():
     _physics_impl, using_c_physics = resolve_physics(force_python=force_python)
 
     pygame.init()
+    init_mixer()
 
     # Welcome message when game launches
     print("welcome to my game! :D")
@@ -191,6 +193,7 @@ def main():
         config=cfg,
         using_c_physics=using_c_physics,
     )
+    sync_from_config(ctx.config)
 
     # Create GameState as the single source of truth for all mutable game state.
     game_state = GameState()

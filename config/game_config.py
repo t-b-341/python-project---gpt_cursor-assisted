@@ -33,3 +33,8 @@ class GameConfig:
     testing_mode: bool = False
     invulnerability_mode: bool = False
     default_weapon_mode: str = "giant"
+    # Audio (used by systems.audio_system)
+    sfx_volume: float = 1.0
+    music_volume: float = 1.0
+    mute_sfx: bool = False
+    mute_music: bool = False
