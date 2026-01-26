@@ -12,6 +12,7 @@ Tuning guide (which values to tweak for feel):
 - GPU physics: set use_gpu_physics=True (requires CUDA_AVAILABLE from gpu_physics).
 - Post-process profile: shader_profile "none" | "cpu_tint" | "gl_basic" (only when use_shaders=True).
 - Lightweight CPU effects: enable_menu_shaders + menu_effect_profile ("crt" | "soft_glow"), enable_gameplay_shaders + gameplay_effect_profile ("subtle_vignette" | "crt_light"), enable_damage_wobble (see visual_effects).
+- Shader stacks: enable_menu_shaders + menu_shader_profile, enable_pause_shaders + pause_shader_profile, enable_gameplay_shaders + gameplay_shader_profile (see shader_effects.SHADER_PROFILES, get_*_shader_stack).
 """
 from __future__ import annotations
 
@@ -73,6 +74,11 @@ class GameConfig:
     menu_effect_profile: str = "none"  # "none" | "crt" | "soft_glow"; used when enable_menu_shaders=True.
     gameplay_effect_profile: str = "none"  # "none" | "subtle_vignette" | "crt_light"; used when enable_gameplay_shaders=True.
     enable_damage_wobble: bool = False  # Brief screen jitter when player takes damage (if gameplay style fits).
+    # Shader/effect stack toggles and profile names (shader_effects.SHADER_PROFILES + get_*_shader_stack)
+    enable_pause_shaders: bool = False  # Apply effect stack to pause overlay when True.
+    menu_shader_profile: str = "none"  # "none" | "menu_crt" | "menu_neon"; used when enable_menu_shaders=True.
+    pause_shader_profile: str = "none"  # "none" | "pause_dim_vignette"; used when enable_pause_shaders=True.
+    gameplay_shader_profile: str = "none"  # "none" | "gameplay_subtle_vignette" | "gameplay_retro"; used when enable_gameplay_shaders=True.
     use_gpu_physics: bool = False  # When True AND CUDA_AVAILABLE, use GPU-accelerated physics code paths.
     # Audio (used by systems.audio_system)
     sfx_volume: float = 1.0
