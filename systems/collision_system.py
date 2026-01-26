@@ -11,6 +11,13 @@ import pygame
 
 from constants import STATE_NAME_INPUT
 
+try:
+    from gpu_physics import check_collisions_batch, CUDA_AVAILABLE
+    _USE_GPU_COLLISION = CUDA_AVAILABLE
+except ImportError:
+    _USE_GPU_COLLISION = False
+    check_collisions_batch = None
+
 if TYPE_CHECKING:
     from state import GameState
 
@@ -169,112 +176,143 @@ def _handle_player_bullet_offscreen(state, ctx: dict) -> None:
             state.player_bullets.remove(bullet)
 
 
-def _handle_player_bullet_enemy_collisions(state, ctx: dict) -> None:
+def _process_bullet_enemy_hit(state, ctx: dict, bullet: dict, enemy: dict) -> None:
+    """Apply one bullet–enemy collision (shield reflect, reflective shield, or direct damage). Caller breaks after one hit per bullet."""
     kill = ctx.get("kill_enemy")
     size = ctx.get("enemy_projectile_size", (12, 12))
     color = ctx.get("enemy_projectiles_color", (200, 200, 200))
     if not kill:
         return
     player_damage = state.player_bullet_damage
+    if enemy.get("has_shield") and not enemy.get("has_reflective_shield"):
+        center = pygame.Vector2(enemy["rect"].center)
+        bcenter = pygame.Vector2(bullet["rect"].center)
+        to_bullet = (bcenter - center)
+        if to_bullet.length_squared() > 0:
+            to_bullet = to_bullet.normalize()
+        sh_angle = enemy.get("shield_angle", 0.0)
+        sh_dir = pygame.Vector2(math.cos(sh_angle), math.sin(sh_angle))
+        from_front = to_bullet.dot(-sh_dir) > 0.0
+        if from_front:
+            dmg = int((bullet.get("damage", player_damage)) * enemy.get("reflect_damage_mult", 1.5))
+            ref = pygame.Rect(
+                enemy["rect"].centerx - size[0] // 2,
+                enemy["rect"].centery - size[1] // 2,
+                size[0], size[1],
+            )
+            state.enemy_projectiles.append({
+                "rect": ref,
+                "vel": to_bullet * enemy.get("projectile_speed", 300),
+                "enemy_type": enemy["type"],
+                "color": enemy.get("projectile_color", color),
+                "shape": enemy.get("projectile_shape", "circle"),
+                "bounces": 0,
+                "damage": dmg,
+            })
+            if bullet in state.player_bullets:
+                state.player_bullets.remove(bullet)
+            return
+    if enemy.get("has_reflective_shield"):
+        center = pygame.Vector2(enemy["rect"].center)
+        bcenter = pygame.Vector2(bullet["rect"].center)
+        bdir = (bcenter - center)
+        if bdir.length_squared() > 0:
+            bdir = bdir.normalize()
+        sh_angle = enemy.get("shield_angle", 0.0)
+        sh_dir = pygame.Vector2(math.cos(sh_angle), math.sin(sh_angle))
+        if bdir.dot(-sh_dir) > 0.0:
+            dmg = bullet.get("damage", player_damage)
+            enemy["shield_hp"] = enemy.get("shield_hp", 0) + dmg
+            if enemy["shield_hp"] > 0:
+                ref = pygame.Rect(
+                    enemy["rect"].centerx - size[0] // 2,
+                    enemy["rect"].centery - size[1] // 2,
+                    size[0], size[1],
+                )
+                state.enemy_projectiles.append({
+                    "rect": ref,
+                    "vel": -bdir * enemy.get("projectile_speed", 300),
+                    "enemy_type": enemy["type"],
+                    "color": enemy.get("projectile_color", color),
+                    "shape": enemy.get("projectile_shape", "circle"),
+                    "bounces": 0,
+                })
+                enemy["shield_hp"] = 0
+            if bullet in state.player_bullets:
+                state.player_bullets.remove(bullet)
+            return
+        dmg = bullet.get("damage", player_damage)
+        enemy["hp"] -= dmg
+        _set_enemy_damage_flash(enemy, ctx)
+        state.damage_numbers.append({
+            "x": enemy["rect"].centerx,
+            "y": enemy["rect"].y - 20,
+            "damage": int(dmg),
+            "timer": 2.0,
+            "color": (255, 255, 100),
+        })
+        if enemy["hp"] <= 0:
+            kill(enemy, state)
+        if bullet.get("penetration", 0) <= 0:
+            if bullet in state.player_bullets:
+                state.player_bullets.remove(bullet)
+            return
+        bullet["penetration"] = bullet.get("penetration", 0) - 1
+        return
+    dmg = bullet.get("damage", player_damage)
+    enemy["hp"] -= dmg
+    _set_enemy_damage_flash(enemy, ctx)
+    state.damage_numbers.append({
+        "x": enemy["rect"].centerx,
+        "y": enemy["rect"].y - 20,
+        "damage": int(dmg),
+        "timer": 2.0,
+        "color": (255, 255, 100),
+    })
+    if enemy["hp"] <= 0:
+        kill(enemy, state)
+    if bullet.get("penetration", 0) <= 0:
+        if bullet in state.player_bullets:
+            state.player_bullets.remove(bullet)
+        return
+    bullet["penetration"] = bullet.get("penetration", 0) - 1
+
+
+def _handle_player_bullet_enemy_collisions(state, ctx: dict) -> None:
+    kill = ctx.get("kill_enemy")
+    if not kill:
+        return
+    config = ctx.get("config")
+    use_gpu = _USE_GPU_COLLISION and (
+        config is not None and bool(getattr(config, "use_gpu_physics", False))
+    ) and (check_collisions_batch is not None)
+
+    if use_gpu and state.player_bullets and state.enemies:
+        bullets_data = [
+            {"x": b["rect"].x, "y": b["rect"].y, "w": b["rect"].w, "h": b["rect"].h}
+            for b in state.player_bullets
+        ]
+        targets_data = [
+            {"x": e["rect"].x, "y": e["rect"].y, "w": e["rect"].w, "h": e["rect"].h}
+            for e in state.enemies
+        ]
+        pairs = check_collisions_batch(bullets_data, targets_data)
+        # One (bullet, enemy) per bullet, using references to avoid index shifts from removals
+        by_bullet = {}
+        for bi, ei in pairs:
+            if bi not in by_bullet and bi < len(state.player_bullets) and ei < len(state.enemies):
+                by_bullet[bi] = (state.player_bullets[bi], state.enemies[ei])
+        for bullet, enemy in by_bullet.values():
+            if bullet in state.player_bullets and enemy in state.enemies:
+                _process_bullet_enemy_hit(state, ctx, bullet, enemy)
+        return
+
     for bullet in state.player_bullets[:]:
         for enemy in state.enemies[:]:
             if not bullet["rect"].colliderect(enemy["rect"]):
                 continue
-            if enemy.get("has_shield") and not enemy.get("has_reflective_shield"):
-                # Shield enemy: reflect with extra damage unless player flanks (hits from side/behind)
-                center = pygame.Vector2(enemy["rect"].center)
-                bcenter = pygame.Vector2(bullet["rect"].center)
-                to_bullet = (bcenter - center)
-                if to_bullet.length_squared() > 0:
-                    to_bullet = to_bullet.normalize()
-                sh_angle = enemy.get("shield_angle", 0.0)
-                sh_dir = pygame.Vector2(math.cos(sh_angle), math.sin(sh_angle))
-                from_front = to_bullet.dot(-sh_dir) > 0.0  # Bullet came from shield-facing side
-                if from_front:
-                    dmg = int((bullet.get("damage", player_damage)) * enemy.get("reflect_damage_mult", 1.5))
-                    ref = pygame.Rect(
-                        enemy["rect"].centerx - size[0] // 2,
-                        enemy["rect"].centery - size[1] // 2,
-                        size[0], size[1],
-                    )
-                    state.enemy_projectiles.append({
-                        "rect": ref,
-                        "vel": to_bullet * enemy.get("projectile_speed", 300),
-                        "enemy_type": enemy["type"],
-                        "color": enemy.get("projectile_color", color),
-                        "shape": enemy.get("projectile_shape", "circle"),
-                        "bounces": 0,
-                        "damage": dmg,
-                    })
-                    if bullet in state.player_bullets:
-                        state.player_bullets.remove(bullet)
-                    break
-                # else flanked: fall through to normal damage below
-            if enemy.get("has_reflective_shield"):
-                center = pygame.Vector2(enemy["rect"].center)
-                bcenter = pygame.Vector2(bullet["rect"].center)
-                bdir = (bcenter - center)
-                if bdir.length_squared() > 0:
-                    bdir = bdir.normalize()
-                sh_angle = enemy.get("shield_angle", 0.0)
-                sh_dir = pygame.Vector2(math.cos(sh_angle), math.sin(sh_angle))
-                if bdir.dot(-sh_dir) > 0.0:
-                    dmg = bullet.get("damage", player_damage)
-                    enemy["shield_hp"] = enemy.get("shield_hp", 0) + dmg
-                    if enemy["shield_hp"] > 0:
-                        ref = pygame.Rect(
-                            enemy["rect"].centerx - size[0] // 2,
-                            enemy["rect"].centery - size[1] // 2,
-                            size[0], size[1],
-                        )
-                        state.enemy_projectiles.append({
-                            "rect": ref,
-                            "vel": -bdir * enemy.get("projectile_speed", 300),
-                            "enemy_type": enemy["type"],
-                            "color": enemy.get("projectile_color", color),
-                            "shape": enemy.get("projectile_shape", "circle"),
-                            "bounces": 0,
-                        })
-                        enemy["shield_hp"] = 0
-                    if bullet in state.player_bullets:
-                        state.player_bullets.remove(bullet)
-                    break
-                else:
-                    dmg = bullet.get("damage", player_damage)
-                    enemy["hp"] -= dmg
-                    _set_enemy_damage_flash(enemy, ctx)
-                    state.damage_numbers.append({
-                        "x": enemy["rect"].centerx,
-                        "y": enemy["rect"].y - 20,
-                        "damage": int(dmg),
-                        "timer": 2.0,
-                        "color": (255, 255, 100),
-                    })
-                    if enemy["hp"] <= 0:
-                        kill(enemy, state)
-                    if bullet.get("penetration", 0) <= 0:
-                        if bullet in state.player_bullets:
-                            state.player_bullets.remove(bullet)
-                        break
-                    bullet["penetration"] = bullet.get("penetration", 0) - 1
-            else:
-                dmg = bullet.get("damage", player_damage)
-                enemy["hp"] -= dmg
-                _set_enemy_damage_flash(enemy, ctx)
-                state.damage_numbers.append({
-                    "x": enemy["rect"].centerx,
-                    "y": enemy["rect"].y - 20,
-                    "damage": int(dmg),
-                    "timer": 2.0,
-                    "color": (255, 255, 100),
-                })
-                if enemy["hp"] <= 0:
-                    kill(enemy, state)
-                if bullet.get("penetration", 0) <= 0:
-                    if bullet in state.player_bullets:
-                        state.player_bullets.remove(bullet)
-                    break
-                bullet["penetration"] = bullet.get("penetration", 0) - 1
+            _process_bullet_enemy_hit(state, ctx, bullet, enemy)
+            break
 
 
 def _handle_player_bullet_block_collisions(state, dt: float, ctx: dict) -> None:

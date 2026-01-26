@@ -18,6 +18,15 @@ try:
 except ImportError:
     _ECS_AVAILABLE = False
 
+try:
+    from gpu_physics import update_bullets_batch, CUDA_AVAILABLE
+    _USE_GPU = CUDA_AVAILABLE
+except ImportError:
+    _USE_GPU = False
+    update_bullets_batch = None
+
+_gpu_bullet_logged = False
+
 if TYPE_CHECKING:
     from state import GameState
 
@@ -240,6 +249,34 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
 
 def _update_player_bullets(state, dt: float, ctx: dict) -> None:
     """Advance player bullet positions (no collision/removal)."""
+    global _gpu_bullet_logged
+    config = ctx.get("config")
+    use_gpu = _USE_GPU and (config is not None and bool(getattr(config, "use_gpu_physics", False)))
+
+    if use_gpu and not _gpu_bullet_logged:
+        print("GPU bullet physics: ENABLED (config + CUDA)")
+        _gpu_bullet_logged = True
+    elif _USE_GPU and config is not None and not use_gpu and not _gpu_bullet_logged:
+        print("GPU bullet physics: DISABLED by config")
+        _gpu_bullet_logged = True
+
+    if use_gpu and update_bullets_batch is not None and state.player_bullets:
+        bullets_data = [
+            {"x": b["rect"].x, "y": b["rect"].y, "vx": b["vel"].x, "vy": b["vel"].y, "w": b["rect"].w, "h": b["rect"].h}
+            for b in state.player_bullets
+        ]
+        w, h = ctx.get("width", 0), ctx.get("height", 0)
+        keep_indices = update_bullets_batch(bullets_data, dt, w, h)
+        new_bullets = []
+        for idx in keep_indices:
+            if 0 <= idx < len(state.player_bullets):
+                b = state.player_bullets[idx]
+                b["rect"].x = int(bullets_data[idx]["x"])
+                b["rect"].y = int(bullets_data[idx]["y"])
+                new_bullets.append(b)
+        state.player_bullets[:] = new_bullets
+        return
+
     for bullet in state.player_bullets:
         bullet["rect"].x += int(bullet["vel"].x * dt)
         bullet["rect"].y += int(bullet["vel"].y * dt)

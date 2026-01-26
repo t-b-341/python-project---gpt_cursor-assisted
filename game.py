@@ -357,6 +357,7 @@ def main():
             "base_enemies_per_wave": getattr(ctx.config, "base_enemies_per_wave", 12),
             "enemy_spawn_multiplier": getattr(ctx.config, "enemy_spawn_multiplier", 3.5),
             "log_player_death": _log_player_death,
+            "config": ctx.config,
         }
     game_state.level_context = _make_level_context()
 
