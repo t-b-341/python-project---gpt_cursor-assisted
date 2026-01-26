@@ -1,5 +1,7 @@
-"""Collision detection and damage: player bullets, enemy projectiles, pickups, hazards, beams, explosives."""
-# Uses LevelState instead of module-level globals (geometry from state.level).
+"""Collision detection and damage: player bullets, enemy projectiles, pickups, hazards, beams, explosives.
+
+Uses LevelState from state.level; geometry and callables come from state.level_context.
+"""
 from __future__ import annotations
 
 import math

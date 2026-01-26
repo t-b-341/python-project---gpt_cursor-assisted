@@ -1,6 +1,5 @@
 """
-Rendering helper functions - pure drawing utilities extracted from game.py.
-These functions handle drawing textures, projectiles, health bars, and text.
+Rendering: drawing utilities for textures, projectiles, health bars, and text.
 
 RenderContext holds screen, fonts, and layout; render functions accept it to avoid
 repeated lookups. Build from AppContext via RenderContext.from_app_ctx(app_ctx).

@@ -1,22 +1,22 @@
-import math
-import warnings
-
-# Suppress pygame's pkg_resources deprecation warning
-# This is a pygame internal issue, not our code
-warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
-import random
+"""
+Main game entry point. Runs the game loop, handles menus, gameplay, and screen transitions.
+All mutable game state lives in GameState; app-level resources and config in AppContext.
+"""
 import json
+import math
 import os
+import random
 import sys
+import warnings
+from datetime import datetime, timezone
 
 import pygame
 import sqlite3
-from datetime import datetime, timezone
 
-# Physics (C extension or Python fallback) is resolved in main() via physics_loader.resolve_physics().
-# Other code uses geometry_utils.vec_toward / can_move_rect, which call physics_loader.get_physics().
+# Suppress pygame's pkg_resources deprecation warning (pygame internal, not our code)
+warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
 
-# GPU acceleration (optional - falls back to CPU if unavailable)
+# Optional GPU acceleration (Cython/numba)
 try:
     from gpu_physics import update_bullets_batch, check_collisions_batch, CUDA_AVAILABLE
     USE_GPU = CUDA_AVAILABLE
@@ -50,10 +50,75 @@ from telemetry import (
     FriendlyAIDeathEvent,
 )
 
-# Import constants
-from constants import *
+# -----------------------------------------------------------------------------
+# Internal: constants and config
+# -----------------------------------------------------------------------------
+from constants import (
+    AIM_ARROWS,
+    AIM_MOUSE,
+    DIFFICULTY_NORMAL,
+    ENEMY_PROJECTILE_DAMAGE,
+    ENEMY_PROJECTILE_SIZE,
+    ENEMY_PROJECTILES_COLOR,
+    HIGH_SCORES_DB,
+    LIVES_START,
+    MOUSE_BUTTON_RIGHT,
+    PLAYER_CLASS_BALANCED,
+    PICKUP_SPAWN_INTERVAL,
+    POS_SAMPLE_INTERVAL,
+    SCORE_BASE_POINTS,
+    SCORE_TIME_MULTIPLIER,
+    SCORE_WAVE_MULTIPLIER,
+    STATE_CONTINUE,
+    STATE_CONTROLS,
+    STATE_ENDURANCE,
+    STATE_GAME_OVER,
+    STATE_HIGH_SCORES,
+    STATE_MENU,
+    STATE_NAME_INPUT,
+    STATE_PAUSED,
+    STATE_PLAYING,
+    STATE_TITLE,
+    STATE_VICTORY,
+    UNLOCKED_WEAPON_DAMAGE_MULT,
+    ally_drop_cooldown,
+    boost_drain_per_s,
+    boost_meter_max,
+    boost_regen_per_s,
+    boost_speed_mult,
+    character_profile_options,
+    controls_actions,
+    custom_profile_stats_keys,
+    custom_profile_stats_list,
+    difficulty_multipliers,
+    difficulty_options,
+    fire_rate_buff_duration,
+    fire_rate_mult,
+    grenade_cooldown,
+    grenade_damage,
+    jump_cooldown,
+    jump_duration,
+    laser_cooldown,
+    laser_damage,
+    laser_length,
+    level_themes,
+    missile_cooldown,
+    missile_damage,
+    overshield_max,
+    overshield_recharge_cooldown,
+    pause_options,
+    player_bullet_shapes,
+    player_bullet_size,
+    player_bullet_speed,
+    player_bullets_color,
+    player_class_options,
+    player_class_stats,
+    shield_duration,
+    shield_recharge_cooldown,
+    slow_speed_mult,
+    weapon_selection_options,
+)
 
-# Import config data
 from config_enemies import (
     ENEMY_TEMPLATES,
     BOSS_TEMPLATE,

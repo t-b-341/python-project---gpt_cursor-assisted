@@ -1,9 +1,7 @@
 """
-Cross-cutting systems used during gameplay.
-Each system provides update(state: GameState, dt: float) -> None.
-Orchestrated by the gameplay screen in its update().
-
-Audio is centralized in audio_system: play_sfx(), play_music(), stop_music(), etc.
+Gameplay systems: movement, collision, spawn, AI, telemetry.
+Each provides update(state, dt). Orchestrated by screens.gameplay.
+audio_system is used by game.py for init_mixer/sync_from_config and play_sfx/play_music.
 """
 from .movement_system import update as movement_update
 from .collision_system import update as collision_update

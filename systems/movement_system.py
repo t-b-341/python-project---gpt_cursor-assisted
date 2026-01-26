@@ -1,6 +1,7 @@
 """Movement updates: player, enemies, projectiles, missiles, allies.
-All per-frame position updates are centralized here."""
-# Uses LevelState instead of module-level globals (geometry from state.level).
+
+All per-frame position updates are centralized here. Geometry and callables come from state.level_context.
+"""
 from __future__ import annotations
 
 import math

@@ -1,13 +1,18 @@
 """
 Gameplay screen: runs during STATE_PLAYING and STATE_ENDURANCE.
 Orchestrates movement, collision, spawn, AI, and telemetry systems.
-Rendering: five phases in order — background, entities, projectiles, HUD, overlays.
+Rendering: five phases (background, entities, projectiles, HUD, overlays).
 Uses AppContext for screen; gameplay_ctx dict for level/HUD data.
 """
 from __future__ import annotations
 
 from context import AppContext
-from rendering import RenderContext, render_background, render_entities, render_projectiles
+from rendering import (
+    RenderContext,
+    render_background,
+    render_entities,
+    render_projectiles,
+)
 from systems import GAMEPLAY_SYSTEMS
 from systems.ui_system import render_hud, render_overlays
 
