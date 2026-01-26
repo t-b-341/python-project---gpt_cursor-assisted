@@ -11,6 +11,7 @@ import os
 import random
 import shutil
 import sys
+import time
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
@@ -162,10 +163,10 @@ from context import AppContext
 from config import GameConfig
 from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
-from rendering_shaders import render_gameplay_with_optional_shaders
+from rendering_shaders import render_gameplay_with_optional_shaders, render_gameplay_frame_to_surface
 from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene, ShaderTestScene, TitleScene, OptionsScene
 from visual_effects import apply_menu_effects, apply_pause_effects
-from scenes.gameplay import cycle_shader_profile
+from shader_effects import get_menu_shader_stack, get_pause_shader_stack, get_gameplay_shader_stack
 from systems.registry import SIMULATION_SYSTEMS
 from systems.spawn_system import start_wave as spawn_system_start_wave
 from systems.input_system import handle_gameplay_input
@@ -563,6 +564,22 @@ def _create_app():
     return r
 
 
+def _print_active_shader_profiles(config) -> None:
+    """Debug-only: print currently active shader profile names and stack lengths. Does not change config."""
+    if config is None:
+        return
+    try:
+        menu = get_menu_shader_stack(config)
+        pause = get_pause_shader_stack(config)
+        gameplay = get_gameplay_shader_stack(config)
+        mp = getattr(config, "menu_shader_profile", "none")
+        pp = getattr(config, "pause_shader_profile", "none")
+        gp = getattr(config, "gameplay_shader_profile", "none")
+        print(f"[Shader profiles] menu={mp} (len={len(menu)}) pause={pp} (len={len(pause)}) gameplay={gp} (len={len(gameplay)})")
+    except Exception as e:
+        print(f"[Shader profiles] could not report: {e}")
+
+
 def _run_loop(app):
     """Run the main loop. app holds .ctx, .game_state, .scene_stack and loop params."""
     ctx = app.ctx
@@ -756,10 +773,9 @@ def _run_loop(app):
                             game_state.current_screen = STATE_PAUSED
                         elif state == STATE_PAUSED:
                             state = previous_game_state if previous_game_state else STATE_PLAYING
-                    # F3: cycle shader profile (none -> cpu_tint -> gl_basic) during gameplay
-                    if event.key == pygame.K_F3 and (state == STATE_PLAYING or state == STATE_ENDURANCE):
-                        cycle_shader_profile(ctx.config)
-                    
+                    # F3: debug-only — print active shader profiles (no cycling)
+                    if event.key == pygame.K_F3:
+                        _print_active_shader_profiles(ctx.config)
                     # Pause menu navigation (fallback when not using screen handler)
                     if state == STATE_PAUSED:
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -931,16 +947,76 @@ def _run_loop(app):
                         game_state.weapon_pickup_messages.remove(msg)
             elif state in (STATE_TITLE, STATE_MENU, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
                 render_ctx = RenderContext.from_app_ctx(ctx)
+                # When paused + enable_pause_shaders: render gameplay frame, apply pause stack, then draw UI on top
+                if state == STATE_PAUSED and getattr(ctx.config, "enable_pause_shaders", False):
+                    lv = game_state.level
+                    gameplay_ctx_pause = {
+                        "level_themes": level_themes,
+                        "trapezoid_blocks": lv.trapezoid_blocks if lv else [],
+                        "triangle_blocks": lv.triangle_blocks if lv else [],
+                        "destructible_blocks": lv.destructible_blocks if lv else [],
+                        "moveable_destructible_blocks": lv.moveable_blocks if lv else [],
+                        "giant_blocks": lv.giant_blocks if lv else [],
+                        "super_giant_blocks": lv.super_giant_blocks if lv else [],
+                        "hazard_obstacles": lv.hazard_obstacles if lv else [],
+                        "moving_health_zone": lv.moving_health_zone if lv else None,
+                        "teleporter_pads": game_state.teleporter_pads,
+                        "small_font": ctx.small_font,
+                        "weapon_names": WEAPON_NAMES,
+                        "WIDTH": ctx.width,
+                        "HEIGHT": ctx.height,
+                        "font": ctx.font,
+                        "big_font": ctx.big_font,
+                        "ui_show_hud": ctx.config.show_hud,
+                        "ui_show_metrics": ctx.config.show_metrics,
+                        "ui_show_health_bars": ctx.config.show_health_bars,
+                        "overshield_max": overshield_max,
+                        "grenade_cooldown": grenade_cooldown,
+                        "missile_cooldown": missile_cooldown,
+                        "ally_drop_cooldown": ally_drop_cooldown,
+                        "overshield_recharge_cooldown": overshield_recharge_cooldown,
+                        "shield_duration": shield_duration,
+                        "aiming_mode": ctx.config.aim_mode,
+                        "current_state": state,
+                        "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
+                        "screen_flash_duration": getattr(ctx.config, "screen_flash_duration", 0.25),
+                        "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
+                        "enable_wave_banner": getattr(ctx.config, "enable_wave_banner", True),
+                    }
+                    offscreen = pygame.Surface((ctx.width, ctx.height)).convert_alpha()
+                    offscreen.fill((0, 0, 0, 255))
+                    render_gameplay_frame_to_surface(
+                        offscreen, ctx.width, ctx.height,
+                        ctx.font, ctx.big_font, ctx.small_font,
+                        game_state, {"app_ctx": ctx, "gameplay_ctx": gameplay_ctx_pause},
+                    )
+                    pause_stack = get_pause_shader_stack(ctx.config)
+                    surf = offscreen
+                    eff_ctx = {"time": time.perf_counter()}
+                    for eff in pause_stack:
+                        surf = eff.apply(surf, 0.016, eff_ctx)
+                    ctx.screen.blit(surf, (0, 0))
                 current_scene = scene_stack.current()
                 if current_scene:
                     current_scene.render(render_ctx, game_state, screen_ctx)
                 elif state in SCREEN_HANDLERS and SCREEN_HANDLERS[state].get("render"):
                     SCREEN_HANDLERS[state]["render"](render_ctx, game_state, screen_ctx)
-                # Lightweight CPU effects for menus (config: enable_menu_shaders, menu_effect_profile)
-                if state == STATE_PAUSED:
+                # Config-based shader stacks and legacy lightweight effects
+                if state == STATE_PAUSED and not getattr(ctx.config, "enable_pause_shaders", False):
                     apply_pause_effects(render_ctx.screen, ctx)
                 elif state in (STATE_TITLE, STATE_MENU):
                     apply_menu_effects(render_ctx.screen, ctx)
+                # Apply config-based menu shader stack when enable_menu_shaders and menu_shader_profile != "none"
+                if state in (STATE_TITLE, STATE_MENU):
+                    menu_stack = get_menu_shader_stack(ctx.config)
+                    display = render_ctx.screen
+                    surf = display
+                    t = time.perf_counter()
+                    eff_ctx = {"time": t}
+                    for eff in menu_stack:
+                        surf = eff.apply(surf, 0.016, eff_ctx)
+                    if surf is not display:
+                        display.blit(surf, (0, 0))
             elif state == STATE_GAME_OVER:
                 # Game over screen
                 # (Game over rendering would go here)

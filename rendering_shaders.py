@@ -6,6 +6,7 @@ import pygame
 
 from rendering import RenderContext
 from visual_effects import apply_gameplay_effects, apply_gameplay_final_blit
+from shader_effects import get_gameplay_shader_stack
 
 try:
     from gpu_gl_utils import get_gl_context, get_fullscreen_quad, HAS_MODERNGL
@@ -99,6 +100,19 @@ def _render_gameplay_frame(render_ctx, game_state, ctx) -> None:
         gameplay_screen.render(render_ctx, game_state, gameplay_ctx)
 
 
+def render_gameplay_frame_to_surface(surface, width, height, font, big_font, small_font, game_state, ctx) -> None:
+    """Render the raw gameplay frame into the given surface. No shaders or effects. Used for pause backdrop."""
+    temp_ctx = RenderContext(
+        screen=surface,
+        width=width,
+        height=height,
+        font=font,
+        big_font=big_font,
+        small_font=small_font,
+    )
+    _render_gameplay_frame(temp_ctx, game_state, ctx)
+
+
 def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
     """
     Renders to an offscreen surface, then blits (or runs GL post-process) according to
@@ -128,6 +142,17 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
     )
     offscreen_surface.fill((0, 0, 0, 255))
     _render_gameplay_frame(temp_ctx, game_state, ctx)
+
+    # Config-based gameplay shader stack when enable_gameplay_shaders and gameplay_shader_profile != "none"
+    if config is not None and getattr(config, "enable_gameplay_shaders", False):
+        gameplay_stack = get_gameplay_shader_stack(config)
+        t = time.perf_counter() - _gl_start_time
+        eff_ctx = {"time": t}
+        surf = offscreen_surface
+        for eff in gameplay_stack:
+            surf = eff.apply(surf, 0.016, eff_ctx)
+        if surf is not offscreen_surface:
+            offscreen_surface.blit(surf, (0, 0))
 
     # Lightweight CPU effects (vignette, scanlines) by gameplay_effect_profile when enable_gameplay_shaders
     apply_gameplay_effects(offscreen_surface, ctx, game_state)
