@@ -50,10 +50,13 @@ void main() {
         vec3 mixed = mix(c.rgb, vec3(gray), 0.3);
         fragColor = vec4(mixed, c.a);
     } else {
-        float t = 0.5 + 0.5 * sin(u_time * 0.5);
-        vec3 base = c.rgb;
-        vec3 out_color = mix(base, base * 1.2, t * 0.3);
-        fragColor = vec4(clamp(out_color, 0.0, 1.0), 1.0);
+        vec2 centered = v_uv - 0.5;
+        float dist = length(centered);
+        float vignette = smoothstep(0.7, 0.3, dist);
+        float pulse = 0.9 + 0.1 * sin(u_time * 2.0);
+        vec3 base = c.rgb * pulse;
+        vec3 final_rgb = base * vignette;
+        fragColor = vec4(final_rgb, c.a);
     }
 }
 """
