@@ -1,64 +1,19 @@
 """
-Rendering: drawing utilities for textures, projectiles, health bars, and text.
-
-RenderContext holds screen, fonts, and layout; render functions accept it to avoid
-repeated lookups. Build from AppContext via RenderContext.from_app_ctx(app_ctx).
+World rendering: background, terrain, entities, projectiles, effects, beams.
 """
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from typing import Any
 
 import pygame
 
-from asset_manager import get_font
-
-
-def _default_font(size: int) -> pygame.font.Font:
-    """Fallback font when ctx has no font; uses centralized asset_manager."""
-    return get_font("main", size)
-
-
-@dataclass
-class RenderContext:
-    """Screen, fonts, and layout constants for a single frame. Build from AppContext for consistency."""
-    screen: pygame.Surface
-    font: pygame.font.Font
-    big_font: pygame.font.Font
-    small_font: pygame.font.Font
-    width: int
-    height: int
-
-    @classmethod
-    def from_app_ctx(cls, app_ctx: Any) -> RenderContext:
-        """Build a RenderContext from AppContext (screen, fonts, width, height)."""
-        return cls(
-            screen=app_ctx.screen,
-            font=app_ctx.font,
-            big_font=app_ctx.big_font,
-            small_font=app_ctx.small_font,
-            width=app_ctx.width,
-            height=app_ctx.height,
-        )
-
-    @classmethod
-    def from_screen_and_ctx(cls, screen: pygame.Surface, ctx: dict) -> RenderContext:
-        """Build from (screen, ctx) when app_ctx is not available. ctx must have font, big_font, small_font, WIDTH, HEIGHT."""
-        return cls(
-            screen=screen,
-            font=ctx.get("font") or _default_font(28),
-            big_font=ctx.get("big_font") or _default_font(56),
-            small_font=ctx.get("small_font") or _default_font(20),
-            width=ctx.get("WIDTH", 1920),
-            height=ctx.get("HEIGHT", 1080),
-        )
-
+from .context import RenderContext
 
 # Module-level caches for rendering optimization
 _wall_texture_cache = {}
-_health_bar_cache = {}
-_hud_text_cache = {}
+_trapezoid_surface_cache: dict = {}
+_triangle_surface_cache: dict = {}
 
 
 def _create_cached_silver_wall_texture(width: int, height: int) -> pygame.Surface:
@@ -67,33 +22,23 @@ def _create_cached_silver_wall_texture(width: int, height: int) -> pygame.Surfac
     silver_base = (192, 192, 192)
     silver_dark = (160, 160, 160)
     silver_light = (220, 220, 220)
-    
-    # Fill base
+
     surf.fill(silver_base)
-    
-    # Draw metallic grid pattern
     brick_width = max(8, width // 4)
     brick_height = max(6, height // 3)
-    
-    # Horizontal mortar lines
     for y in range(brick_height, height, brick_height):
         pygame.draw.line(surf, silver_dark, (0, y), (width, y), 1)
-    
-    # Vertical mortar lines (staggered)
     offset = 0
     for y in range(0, height, brick_height * 2):
         for x in range(offset, width, brick_width):
             pygame.draw.line(surf, silver_dark, (x, y), (x, min(y + brick_height, height)), 1)
         offset = brick_width // 2 if offset == 0 else 0
-    
-    # Add highlights for metallic shine
     for i in range(0, width, brick_width):
         for j in range(0, height, brick_height):
             highlight_x = i + brick_width // 4
             highlight_y = j + brick_height // 4
             if highlight_x < width and highlight_y < height:
                 pygame.draw.circle(surf, silver_light, (highlight_x, highlight_y), 2)
-    
     return surf
 
 
@@ -104,51 +49,34 @@ def _create_cached_cracked_brick_texture(width: int, height: int, crack_level: i
     brick_dark = (140, 60, 40)
     brick_light = (200, 100, 80)
     mortar = (100, 100, 100)
-    
-    # Fill base brick color
     surf.fill(brick_red)
-    
-    # Draw brick pattern
     brick_width = max(10, width // 4)
     brick_height = max(8, height // 3)
-    
-    # Horizontal mortar lines
     for y in range(brick_height, height, brick_height):
         pygame.draw.line(surf, mortar, (0, y), (width, y), 2)
-    
-    # Vertical mortar lines (staggered brick pattern)
     offset = 0
     for y in range(0, height, brick_height * 2):
         for x in range(offset, width, brick_width):
             pygame.draw.line(surf, mortar, (x, y), (x, min(y + brick_height, height)), 2)
         offset = brick_width // 2 if offset == 0 else 0
-    
-    # Add individual brick highlights
     offset = 0
     for y in range(0, height, brick_height):
         for x in range(offset, width, brick_width):
             brick_rect = pygame.Rect(x + 1, y + 1, min(brick_width - 2, width - x - 1), min(brick_height - 2, height - y - 1))
             if brick_rect.w > 0 and brick_rect.h > 0:
-                # Light highlight on top-left of each brick
                 pygame.draw.line(surf, brick_light, (brick_rect.left, brick_rect.top), (brick_rect.right, brick_rect.top), 1)
                 pygame.draw.line(surf, brick_light, (brick_rect.left, brick_rect.top), (brick_rect.left, brick_rect.bottom), 1)
-                # Dark shadow on bottom-right
                 pygame.draw.line(surf, brick_dark, (brick_rect.right, brick_rect.top), (brick_rect.right, brick_rect.bottom), 1)
                 pygame.draw.line(surf, brick_dark, (brick_rect.left, brick_rect.bottom), (brick_rect.right, brick_rect.bottom), 1)
         offset = brick_width // 2 if offset == 0 else 0
-    
-    # Draw cracks based on damage level
     if crack_level >= 1:
         center = (width // 2, height // 2)
         crack_color = (40, 40, 40)
-        # Main crack from center
         for i in range(crack_level):
             angle = (i * 2.4) * math.pi / 3
             end_x = center[0] + math.cos(angle) * (width // 2)
             end_y = center[1] + math.sin(angle) * (height // 2)
             pygame.draw.line(surf, crack_color, center, (end_x, end_y), 2)
-        
-        # Additional smaller cracks for higher damage
         if crack_level >= 2:
             for i in range(crack_level):
                 angle = (i * 1.8 + 0.5) * math.pi / 3
@@ -157,94 +85,36 @@ def _create_cached_cracked_brick_texture(width: int, height: int, crack_level: i
                 end_x = start_x + math.cos(angle) * (width // 3)
                 end_y = start_y + math.sin(angle) * (height // 3)
                 pygame.draw.line(surf, crack_color, (start_x, start_y), (end_x, end_y), 1)
-    
     return surf
 
 
-def draw_silver_wall_texture(screen: pygame.Surface, rect: pygame.Rect):
+def draw_silver_wall_texture(screen: pygame.Surface, rect: pygame.Rect) -> None:
     """Draw a silver wall texture for indestructible blocks (uses cached surface when possible)."""
-    # Use cache for common sizes (round to nearest 10 for better cache hit rate)
     cache_key = (rect.w // 10 * 10, rect.h // 10 * 10)
-    
     if cache_key not in _wall_texture_cache:
         _wall_texture_cache[cache_key] = _create_cached_silver_wall_texture(cache_key[0], cache_key[1])
-    
     cached_surf = _wall_texture_cache[cache_key]
-    # Blit cached surface, scaling if needed
     if cache_key[0] == rect.w and cache_key[1] == rect.h:
         screen.blit(cached_surf, rect.topleft)
     else:
-        # Scale if size doesn't match exactly
         scaled = pygame.transform.scale(cached_surf, (rect.w, rect.h))
         screen.blit(scaled, rect.topleft)
 
 
-def draw_cracked_brick_wall_texture(screen: pygame.Surface, rect: pygame.Rect, crack_level: int = 1):
+def draw_cracked_brick_wall_texture(screen: pygame.Surface, rect: pygame.Rect, crack_level: int = 1) -> None:
     """Draw a cracked brick wall texture for destructible blocks (uses cached surface when possible)."""
-    # Use cache for common sizes (round to nearest 10 for better cache hit rate)
     cache_key = (rect.w // 10 * 10, rect.h // 10 * 10, crack_level)
-    
     if cache_key not in _wall_texture_cache:
         _wall_texture_cache[cache_key] = _create_cached_cracked_brick_texture(cache_key[0], cache_key[1], crack_level)
-    
     cached_surf = _wall_texture_cache[cache_key]
-    # Blit cached surface, scaling if needed
     if cache_key[0] == rect.w and cache_key[1] == rect.h:
         screen.blit(cached_surf, rect.topleft)
     else:
-        # Scale if size doesn't match exactly
         scaled = pygame.transform.scale(cached_surf, (rect.w, rect.h))
         screen.blit(scaled, rect.topleft)
 
 
-def draw_health_bar(screen: pygame.Surface, x: int, y: int, w: int, h: int, hp: float, max_hp: float):
-    """Draw health bar (uses cached surface for common sizes/ratios when possible)."""
-    hp = max(0, min(hp, max_hp))
-    hp_ratio = hp / max_hp if max_hp > 0 else 0.0
-    
-    # Cache for common health bar sizes (round to nearest 5 for better cache hits)
-    # Only cache if bar is reasonably sized (not too many variations)
-    # Only use cache if the rounded ratio matches the actual ratio (to avoid visual inaccuracies)
-    if w <= 200 and h <= 20:
-        rounded_ratio = int(hp_ratio * 10)  # Round to 10% increments
-        actual_fill = int(w * hp_ratio)
-        cached_fill = int(w * (rounded_ratio / 10.0))
-        
-        # Only use cache if rounded ratio produces the same visual result
-        if actual_fill == cached_fill:
-            cache_key = (w // 5 * 5, h, rounded_ratio)
-            if cache_key not in _health_bar_cache:
-                cached_w, cached_h, cached_ratio = cache_key
-                cached_surf = pygame.Surface((cached_w, cached_h))
-                cached_surf.fill((60, 60, 60))
-                fill_w = int(cached_w * (cached_ratio / 10.0))
-                if fill_w > 0:
-                    pygame.draw.rect(cached_surf, (60, 200, 60), (0, 0, fill_w, cached_h))
-                pygame.draw.rect(cached_surf, (20, 20, 20), (0, 0, cached_w, cached_h), 2)
-                _health_bar_cache[cache_key] = cached_surf
-            
-            # Use cached surface if size matches exactly
-            if cache_key[0] == w and cache_key[1] == h:
-                screen.blit(_health_bar_cache[cache_key], (x, y))
-                return
-    
-    # Fallback to direct drawing for non-cached sizes or when ratio doesn't match
-    pygame.draw.rect(screen, (60, 60, 60), (x, y, w, h))
-    fill_w = int(w * hp_ratio)
-    if fill_w > 0:
-        pygame.draw.rect(screen, (60, 200, 60), (x, y, fill_w, h))
-    pygame.draw.rect(screen, (20, 20, 20), (x, y, w, h), 2)
-
-
-def draw_centered_text(screen: pygame.Surface, font: pygame.font.Font, big_font: pygame.font.Font, width: int, text: str, y: int, color=(235, 235, 235), use_big=False):
-    """Draw centered text on screen."""
-    f = big_font if use_big else font
-    surf = f.render(text, True, color)
-    rect = surf.get_rect(center=(width // 2, y))
-    screen.blit(surf, rect)
-
-
-def draw_projectile(screen: pygame.Surface, rect: pygame.Rect, color: tuple[int, int, int], shape: str):
+def draw_projectile(screen: pygame.Surface, rect: pygame.Rect, color: tuple[int, int, int], shape: str) -> None:
     """Draw a projectile with the specified shape."""
     if shape == "circle":
         pygame.draw.circle(screen, color, rect.center, rect.w // 2)
@@ -257,62 +127,7 @@ def draw_projectile(screen: pygame.Surface, rect: pygame.Rect, color: tuple[int,
         pygame.draw.rect(screen, color, rect)
 
 
-def render_hud_text(screen: pygame.Surface, font: pygame.font.Font, text: str, y: int, color=(230, 230, 230)) -> int:
-    """Render HUD text at position and return next Y position (uses cached surface when possible)."""
-    cache_key = (text, color)
-    if cache_key not in _hud_text_cache:
-        _hud_text_cache[cache_key] = font.render(text, True, color)
-    screen.blit(_hud_text_cache[cache_key], (10, y))
-    return y + 24
-
-
-# Caches for trapezoid/triangle block surfaces (used by render_background)
-_trapezoid_surface_cache: dict = {}
-_triangle_surface_cache: dict = {}
-
-
-def render_background(state: Any, ctx: dict, render_ctx: RenderContext) -> None:
-    """Draw background (theme fill), terrain/obstacles, and pickups. First layer of the frame."""
-    if not ctx:
-        return
-    level_themes = ctx.get("level_themes", {})
-    default_theme = level_themes.get(1, {})
-    theme = level_themes.get(getattr(state, "current_level", 1), default_theme)
-    bg = theme.get("bg_color", (0, 0, 0))
-    render_ctx.screen.fill(bg)
-    _draw_terrain(render_ctx.screen, state, ctx)
-    _draw_pickups(render_ctx.screen, state, ctx)
-
-
-def render_entities(state: Any, ctx: dict, render_ctx: RenderContext) -> None:
-    """Draw entities: allies, enemies, and player. Mid-layer of the frame."""
-    _draw_allies_and_enemies(render_ctx.screen, state)
-    _draw_player(render_ctx.screen, state)
-
-
-def render_projectiles(state: Any, ctx: dict, render_ctx: RenderContext) -> None:
-    """Draw projectiles, particles (explosions, missiles), and beams. On top of entities."""
-    _draw_projectiles(render_ctx.screen, state)
-    _draw_effects(render_ctx.screen, state)
-    _draw_beams(render_ctx.screen, state)
-
-
-def render_gameplay(state: Any, screen: pygame.Surface, ctx: dict) -> None:
-    """Legacy world-only entry point: background, entities, projectiles. Prefer screens.gameplay.render (five-phase pipeline).
-
-    Draw order: (1) background+terrain+pickups, (2) allies+enemies+player, (3) projectiles+effects+beams.
-    For full frame, caller must also call render_hud and render_overlays (e.g. from systems.ui_system).
-    ctx must contain: level_themes, trapezoid_blocks, ..., small_font, weapon_names (see render_background/_draw_*).
-    """
-    if not ctx:
-        return
-    rctx = RenderContext.from_screen_and_ctx(screen, ctx)
-    render_background(state, ctx, rctx)
-    render_entities(state, ctx, rctx)
-    render_projectiles(state, ctx, rctx)
-
-
-def _draw_terrain(screen: pygame.Surface, state, ctx: dict) -> None:
+def _draw_terrain(screen: pygame.Surface, state: Any, ctx: dict) -> None:
     """Draw static obstacles: trapezoid/triangle blocks, destructible/giant blocks, hazards, health zone."""
     trapezoid_blocks = ctx.get("trapezoid_blocks", [])
     triangle_blocks = ctx.get("triangle_blocks", [])
@@ -387,7 +202,6 @@ def _draw_terrain(screen: pygame.Surface, state, ctx: dict) -> None:
             ]
             pygame.draw.polygon(zone_surf, zone["color"], triangle_points)
             screen.blit(zone_surf, (zone["rect"].x - 10, zone["rect"].y - 10))
-            pulse = 0.5 + 0.5 * math.sin(getattr(state, "run_time", 0) * 3.0)
             border_color = (50, 255, 50)
             zone_center = (zone["rect"].centerx, zone["rect"].centery)
             pygame.draw.polygon(screen, border_color, [
@@ -401,19 +215,18 @@ def _draw_terrain(screen: pygame.Surface, state, ctx: dict) -> None:
             border_color = (50, 255, 50)
             pygame.draw.rect(screen, border_color, zone["rect"], 3)
 
-    # Teleporter pads: green rhomboids with purple border, ~1.5x player
     for pad in ctx.get("teleporter_pads", []):
         r = pad.get("rect")
         if not r:
             continue
         cx, cy = r.centerx, r.centery
-        half = r.w // 2  # 21 for 42
+        half = r.w // 2
         pts = [(cx, cy - half), (cx + half, cy), (cx, cy + half), (cx - half, cy)]
-        pygame.draw.polygon(screen, (50, 220, 80), pts)  # green
-        pygame.draw.polygon(screen, (180, 80, 220), pts, 3)  # purple border
+        pygame.draw.polygon(screen, (50, 220, 80), pts)
+        pygame.draw.polygon(screen, (180, 80, 220), pts, 3)
 
 
-def _draw_pickups(screen: pygame.Surface, state, ctx: dict) -> None:
+def _draw_pickups(screen: pygame.Surface, state: Any, ctx: dict) -> None:
     """Draw pickups and their labels."""
     weapon_names = ctx.get("weapon_names", {})
     small_font = ctx.get("small_font")
@@ -433,7 +246,7 @@ def _draw_pickups(screen: pygame.Surface, state, ctx: dict) -> None:
             screen.blit(name_surf, name_rect)
 
 
-def _draw_projectiles(screen: pygame.Surface, state) -> None:
+def _draw_projectiles(screen: pygame.Surface, state: Any) -> None:
     """Draw enemy, player, and friendly projectiles."""
     for proj in getattr(state, "enemy_projectiles", []):
         draw_projectile(screen, proj["rect"], proj["color"], proj.get("shape", "circle"))
@@ -443,7 +256,7 @@ def _draw_projectiles(screen: pygame.Surface, state) -> None:
         draw_projectile(screen, proj["rect"], proj["color"], proj.get("shape", "circle"))
 
 
-def _draw_allies_and_enemies(screen: pygame.Surface, state) -> None:
+def _draw_allies_and_enemies(screen: pygame.Surface, state: Any) -> None:
     """Draw friendly AI and enemies (unified entity.draw or rect fallback)."""
     for friendly in getattr(state, "friendly_ai", []):
         if hasattr(friendly, "draw"):
@@ -460,7 +273,6 @@ def _draw_allies_and_enemies(screen: pygame.Surface, state) -> None:
             enemy.draw(screen)
         elif r:
             base_color = enemy.get("color", (200, 50, 50))
-            # Juice: damage flash — brief bright tint when enemy is hit
             flash_t = enemy.get("damage_flash_timer", 0.0)
             if flash_t > 0:
                 flash_frac = min(1.0, flash_t / 0.12)
@@ -471,17 +283,17 @@ def _draw_allies_and_enemies(screen: pygame.Surface, state) -> None:
             pygame.draw.rect(screen, (255, 255, 0), out, 3)
 
 
-def _draw_effects(screen: pygame.Surface, state) -> None:
+def _draw_effects(screen: pygame.Surface, state: Any) -> None:
     """Draw grenade explosions and missiles."""
     for explosion in getattr(state, "grenade_explosions", []):
         pygame.draw.circle(screen, (255, 100, 0), (explosion["x"], explosion["y"]), explosion["radius"], 3)
         pygame.draw.circle(screen, (255, 200, 0), (explosion["x"], explosion["y"]), explosion["radius"] // 2)
     for missile in getattr(state, "missiles", []):
-        pygame.draw.rect(screen, (160, 80, 220), missile["rect"])  # Purple
-        pygame.draw.rect(screen, (100, 40, 160), missile["rect"], 2)  # Darker purple border
+        pygame.draw.rect(screen, (160, 80, 220), missile["rect"])
+        pygame.draw.rect(screen, (100, 40, 160), missile["rect"], 2)
 
 
-def _draw_player(screen: pygame.Surface, state) -> None:
+def _draw_player(screen: pygame.Surface, state: Any) -> None:
     """Draw player circle (and border); shield-active uses red tint."""
     player = getattr(state, "player_rect", None)
     if player is None:
@@ -495,7 +307,7 @@ def _draw_player(screen: pygame.Surface, state) -> None:
     pygame.draw.circle(screen, player_color, player.center, player.w // 2)
 
 
-def _draw_beams(screen: pygame.Surface, state) -> None:
+def _draw_beams(screen: pygame.Surface, state: Any) -> None:
     """Draw laser and wave beams (player and enemy)."""
     for beam in getattr(state, "laser_beams", []):
         if "start" in beam and "end" in beam:
@@ -508,14 +320,12 @@ def _draw_beams(screen: pygame.Surface, state) -> None:
             deploy_timer = beam.get("deploy_timer", 0.0)
             deploy_time = max(0.001, beam.get("deploy_time", 1.0))
             if deploy_timer > 0:
-                # Deployment phase: draw beam growing from enemy toward target
                 frac = 1.0 - (deploy_timer / deploy_time)
                 mid = pygame.Vector2(
                     start.x + (end.x - start.x) * frac,
                     start.y + (end.y - start.y) * frac,
                 )
                 color = beam.get("color", (200, 80, 255))
-                # Slightly dim during deploy so it reads as "charging"
                 deploy_color = (color[0] // 2, color[1] // 2, min(255, color[2] // 2 + 128))
                 pygame.draw.line(
                     screen, deploy_color, start, mid, max(1, beam.get("width", 4) - 1)
@@ -526,51 +336,42 @@ def _draw_beams(screen: pygame.Surface, state) -> None:
                 )
 
 
-def render_debug_overlay(
-    render_ctx: RenderContext,
-    game_state,
-    *,
-    lines: list[str] | None = None,
-    extra_lines: list[str] | None = None,
-) -> None:
+def render_background(state: Any, ctx: dict, render_ctx: RenderContext) -> None:
+    """Draw background (theme fill), terrain/obstacles, and pickups. First layer of the frame."""
+    if not ctx:
+        return
+    level_themes = ctx.get("level_themes", {})
+    default_theme = level_themes.get(1, {})
+    theme = level_themes.get(getattr(state, "current_level", 1), default_theme)
+    bg = theme.get("bg_color", (0, 0, 0))
+    render_ctx.screen.fill(bg)
+    _draw_terrain(render_ctx.screen, state, ctx)
+    _draw_pickups(render_ctx.screen, state, ctx)
+
+
+def render_entities(state: Any, ctx: dict, render_ctx: RenderContext) -> None:
+    """Draw entities: allies, enemies, and player. Mid-layer of the frame."""
+    _draw_allies_and_enemies(render_ctx.screen, state)
+    _draw_player(render_ctx.screen, state)
+
+
+def render_projectiles(state: Any, ctx: dict, render_ctx: RenderContext) -> None:
+    """Draw projectiles, particles (explosions, missiles), and beams. On top of entities."""
+    _draw_projectiles(render_ctx.screen, state)
+    _draw_effects(render_ctx.screen, state)
+    _draw_beams(render_ctx.screen, state)
+
+
+def render_gameplay(state: Any, screen: pygame.Surface, ctx: dict) -> None:
+    """Legacy world-only entry point: background, entities, projectiles. Prefer screens.gameplay.render (five-phase pipeline).
+
+    Draw order: (1) background+terrain+pickups, (2) allies+enemies+player, (3) projectiles+effects+beams.
+    For full frame, caller must also call render_hud and render_overlays (e.g. from systems.ui_system).
+    ctx must contain: level_themes, trapezoid_blocks, ..., small_font, weapon_names (see render_background/_draw_*).
     """
-    Draw a small debug HUD in a corner of the screen.
-    If 'lines' is provided, use those as extra lines; otherwise derive a few defaults from game_state.
-    If 'extra_lines' is provided, append them to the final line list.
-    This function does NOT decide when to be called; caller controls that.
-    """
-    DEBUG_BG_COLOR = (20, 20, 30)
-    DEBUG_TEXT_COLOR = (255, 255, 255)
-    PAD = 6
-    LINE_SPACING = 5
-
-    if lines is None:
-        lines = [
-            f"wave: {getattr(game_state, 'wave_number', 0)}",
-            f"enemies: {len(getattr(game_state, 'enemies', []))}",
-            f"player_hp: {getattr(game_state, 'player_hp', 0)}/{getattr(game_state, 'player_max_hp', 1)}",
-            f"lives: {getattr(game_state, 'lives', 0)}",
-        ]
-    if extra_lines is not None:
-        lines = list(lines) + list(extra_lines)
-
-    font = render_ctx.small_font
-    x, y = PAD, PAD
-    max_w = 0
-    for s in lines:
-        surf = font.render(s, True, DEBUG_TEXT_COLOR)
-        max_w = max(max_w, surf.get_width())
-    line_height = font.get_height() + LINE_SPACING
-    total_h = len(lines) * line_height - LINE_SPACING + 2 * PAD
-    total_w = max_w + 2 * PAD
-
-    bg = pygame.Surface((total_w, total_h))
-    bg.fill(DEBUG_BG_COLOR)
-    bg.set_alpha(200)
-    render_ctx.screen.blit(bg, (x, y))
-
-    ty = y + PAD
-    for s in lines:
-        ts = font.render(s, True, DEBUG_TEXT_COLOR)
-        render_ctx.screen.blit(ts, (x + PAD, ty))
-        ty += line_height
+    if not ctx:
+        return
+    rctx = RenderContext.from_screen_and_ctx(screen, ctx)
+    render_background(state, ctx, rctx)
+    render_entities(state, ctx, rctx)
+    render_projectiles(state, ctx, rctx)
