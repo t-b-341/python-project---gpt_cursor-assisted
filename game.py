@@ -162,6 +162,7 @@ from context import AppContext
 from config import GameConfig
 from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
+from rendering_shaders import render_gameplay_with_optional_shaders
 from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene, ShaderTestScene
 from scenes.gameplay import cycle_shader_profile
 from systems.registry import SIMULATION_SYSTEMS
@@ -891,10 +892,6 @@ def main():
                                 game_state.previous_screen = previous_game_state
                                 scene_stack.clear()
                                 scene_stack.push(GameplayScene(state))
-                                if getattr(ctx.config, "use_shaders", False):
-                                    scene_stack.push(ShaderTestScene())
-                                    state = "SHADER_TEST"
-                                    game_state.current_screen = state
                                 # So spawn_system and others see current app config
                                 if game_state.level_context:
                                     game_state.level_context["telemetry"] = ctx.telemetry_client
@@ -1141,7 +1138,8 @@ def main():
                     "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
                     "enable_wave_banner": getattr(ctx.config, "enable_wave_banner", True),
                 }
-                gameplay_render(ctx, game_state, gameplay_ctx)
+                render_ctx = RenderContext.from_app_ctx(ctx)
+                render_gameplay_with_optional_shaders(render_ctx, game_state, {"app_ctx": ctx, "gameplay_ctx": gameplay_ctx})
                 
                 # Clean up expired UI tokens (state updates; timers decremented in update loop)
                 for dmg_num in game_state.damage_numbers[:]:
