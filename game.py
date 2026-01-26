@@ -100,6 +100,15 @@ from systems.collision_system import update as collision_update
 from systems.spawn_system import update as spawn_update, start_wave as spawn_system_start_wave
 from systems.ai_system import update as ai_update
 from controls_io import _key_name_to_code, load_controls, save_controls
+from geometry_utils import (
+    clamp_rect_to_screen,
+    vec_toward,
+    line_rect_intersection,
+    can_move_rect,
+    rect_offscreen,
+    filter_blocks_too_close_to_player,
+    set_screen_dimensions,
+)
 
 # Placeholder WIDTH/HEIGHT for module-level geometry (trapezoids, etc.). Runtime dimensions live in AppContext (ctx.width, ctx.height).
 WIDTH = 1920
@@ -134,6 +143,7 @@ def main():
     pygame.display.init()
     screen_info = pygame.display.Info()
     WIDTH, HEIGHT = screen_info.current_w, screen_info.current_h
+    set_screen_dimensions(WIDTH, HEIGHT)
     screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
     pygame.display.set_caption("Mouse Aim Shooter + Telemetry (SQLite)")
 
@@ -1865,52 +1875,8 @@ collection_effects: list[dict] = []  # effects when pickups are collected
 
 
 # ----------------------------
-# Helpers
+# Helpers (geometry/physics moved to geometry_utils)
 # ----------------------------
-def clamp_rect_to_screen(r: pygame.Rect, width: int, height: int):
-    r.x = max(0, min(r.x, width - r.w))
-    r.y = max(0, min(r.y, height - r.h))
-
-
-def vec_toward(ax, ay, bx, by) -> pygame.Vector2:
-    if USE_C_EXTENSION:
-        x, y = game_physics.vec_toward(ax, ay, bx, by)
-        return pygame.Vector2(x, y)
-    else:
-        v = pygame.Vector2(bx - ax, by - ay)
-        if v.length_squared() == 0:
-            return pygame.Vector2(1, 0)
-        return v.normalize()
-
-
-def line_rect_intersection(start: pygame.Vector2, end: pygame.Vector2, rect: pygame.Rect) -> pygame.Vector2 | None:
-    """Find the closest intersection point between a line and a rectangle."""
-    # Check if line intersects with rectangle
-    clipped = rect.clipline(start, end)
-    if not clipped:
-        return None
-    # Return the point closest to start
-    p1, p2 = clipped
-    dist1 = (pygame.Vector2(p1) - start).length_squared()
-    dist2 = (pygame.Vector2(p2) - start).length_squared()
-    return pygame.Vector2(p1) if dist1 < dist2 else pygame.Vector2(p2)
-
-
-def can_move_rect(rect: pygame.Rect, dx: int, dy: int, other_rects: list[pygame.Rect]) -> bool:
-    if USE_C_EXTENSION:
-        return game_physics.can_move_rect(
-            rect.x, rect.y, rect.w, rect.h, dx, dy, other_rects, WIDTH, HEIGHT
-        )
-    else:
-        test = rect.move(dx, dy)
-        if test.left < 0 or test.right > WIDTH or test.top < 0 or test.bottom > HEIGHT:
-            return False
-        for o in other_rects:
-            if test.colliderect(o):
-                return False
-        return True
-
-
 def move_player_with_push(player_rect: pygame.Rect, move_x: int, move_y: int, block_list: list[dict], width: int, height: int):
     """Solid collision + pushing blocks (single block push; no chain pushing)."""
     block_rects = [b["rect"] for b in block_list]
@@ -2203,22 +2169,6 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, bloc
             enemy_rect.y -= sy
 
     clamp_rect_to_screen(enemy_rect, width, height)
-
-
-def rect_offscreen(r: pygame.Rect) -> bool:
-    return r.right < 0 or r.left > WIDTH or r.bottom < 0 or r.top > HEIGHT
-
-
-def filter_blocks_too_close_to_player(block_list: list[dict], player_center: pygame.Vector2, player_size: int) -> list[dict]:
-    """Filter out blocks that are too close to the player (within 10x player size radius)."""
-    min_distance = player_size * 10  # 10x player size radius
-    filtered = []
-    for block in block_list:
-        block_center = pygame.Vector2(block["rect"].center)
-        distance = block_center.distance_to(player_center)
-        if distance >= min_distance:
-            filtered.append(block)
-    return filtered
 
 
 def random_spawn_position(size: tuple[int, int], state: GameState, max_attempts: int = 25) -> pygame.Rect:

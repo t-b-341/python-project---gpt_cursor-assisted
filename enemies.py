@@ -11,13 +11,8 @@ from config_enemies import (
     QUEEN_FIXED_HP,
 )
 from constants import ENEMY_COLOR, ENEMY_PROJECTILES_COLOR
+from geometry_utils import clamp_rect_to_screen
 from telemetry import EnemySpawnEvent
-
-
-def clamp_rect_to_screen(r: pygame.Rect, width: int, height: int):
-    """Clamp a rect to screen boundaries."""
-    r.x = max(0, min(r.x, width - r.w))
-    r.y = max(0, min(r.y, height - r.h))
 
 
 def move_enemy_with_push_cached(
