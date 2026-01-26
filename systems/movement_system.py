@@ -1,6 +1,6 @@
 """Movement updates: player, enemies, projectiles, missiles, allies.
-All per-frame position updates are centralized here.
-"""
+All per-frame position updates are centralized here."""
+# Uses LevelState instead of module-level globals (geometry from state.level).
 from __future__ import annotations
 
 import math
@@ -93,7 +93,6 @@ def _update_enemies(state, dt: float, ctx: dict) -> None:
     vec_toward = ctx.get("vec_toward")
     width = ctx.get("width", 1920)
     height = ctx.get("height", 1080)
-    blocks = ctx.get("blocks", [])
     main_area = ctx.get("main_area_rect")
     outer_margin = 80
     outer_rect = pygame.Rect(outer_margin, outer_margin, width - 2 * outer_margin, height - 2 * outer_margin) if (width > 2 * outer_margin and height > 2 * outer_margin) else None
@@ -254,28 +253,31 @@ def _update_friendly_projectiles(state, dt: float, ctx: dict) -> None:
         proj["rect"].y += int(proj["vel"].y * dt)
 
 
-def _missile_hits_wall(missile_rect: pygame.Rect, ctx: dict) -> bool:
-    """True if missile rect overlaps any solid block (walls block missiles)."""
-    for b in ctx.get("blocks", []):
+def _missile_hits_wall(missile_rect: pygame.Rect, state: "GameState") -> bool:
+    """True if missile rect overlaps any solid block (walls block missiles). Uses LevelState instead of module-level globals."""
+    lev = getattr(state, "level", None)
+    if lev is None:
+        return False
+    for b in lev.static_blocks:
         if missile_rect.colliderect(b.get("rect", b)):
             return True
-    for b in ctx.get("destructible_blocks", []):
+    for b in lev.destructible_blocks:
         if missile_rect.colliderect(b.get("rect", b)):
             return True
-    for b in ctx.get("moveable_destructible_blocks", []):
+    for b in lev.moveable_blocks:
         if missile_rect.colliderect(b.get("rect", b)):
             return True
-    for gb in ctx.get("giant_blocks", []):
+    for gb in lev.giant_blocks:
         if missile_rect.colliderect(gb.get("rect", gb)):
             return True
-    for sgb in ctx.get("super_giant_blocks", []):
+    for sgb in lev.super_giant_blocks:
         if missile_rect.colliderect(sgb.get("rect", sgb)):
             return True
-    for tb in ctx.get("trapezoid_blocks", []):
+    for tb in lev.trapezoid_blocks:
         r = tb.get("bounding_rect") or tb.get("rect")
         if r and missile_rect.colliderect(r):
             return True
-    for tr in ctx.get("triangle_blocks", []):
+    for tr in lev.triangle_blocks:
         r = tr.get("bounding_rect") or tr.get("rect")
         if r and missile_rect.colliderect(r):
             return True
@@ -317,7 +319,7 @@ def _update_missiles(state, dt: float, ctx: dict) -> None:
         missile["rect"].x += int(missile["vel"].x * dt)
         missile["rect"].y += int(missile["vel"].y * dt)
 
-        if _missile_hits_wall(missile["rect"], ctx):
+        if _missile_hits_wall(missile["rect"], state):
             state.grenade_explosions.append({
                 "x": missile["rect"].centerx,
                 "y": missile["rect"].centery,

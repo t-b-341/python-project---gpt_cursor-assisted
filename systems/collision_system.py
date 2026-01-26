@@ -1,4 +1,5 @@
 """Collision detection and damage: player bullets, enemy projectiles, pickups, hazards, beams, explosives."""
+# Uses LevelState instead of module-level globals (geometry from state.level).
 from __future__ import annotations
 
 import math
@@ -67,7 +68,9 @@ def _apply_player_damage(state, damage: int, ctx: dict) -> None:
 
 
 def _handle_hazard_enemy_collisions(state, dt: float, ctx: dict) -> None:
-    for hazard in ctx.get("hazard_obstacles", []):
+    lev = getattr(state, "level", None)
+    hazards = lev.hazard_obstacles if lev else []
+    for hazard in hazards:
         if not hazard.get("points") or len(hazard["points"]) < 3:
             continue
         hazard_damage = hazard.get("damage", 10)
@@ -249,12 +252,15 @@ def _handle_player_bullet_enemy_collisions(state, ctx: dict) -> None:
 def _handle_player_bullet_block_collisions(state, dt: float, ctx: dict) -> None:
     offscreen = ctx.get("rect_offscreen")
     check_hazard = ctx.get("check_point_in_hazard")
-    d_blocks = ctx.get("destructible_blocks", [])
-    m_blocks = ctx.get("moveable_destructible_blocks", [])
-    g_blocks = ctx.get("giant_blocks", []) + ctx.get("super_giant_blocks", [])
-    trapezo = ctx.get("trapezoid_blocks", [])
-    tri = ctx.get("triangle_blocks", [])
-    hazards = ctx.get("hazard_obstacles", [])
+    lev = getattr(state, "level", None)
+    if lev is None:
+        return
+    d_blocks = lev.destructible_blocks
+    m_blocks = lev.moveable_blocks
+    g_blocks = lev.giant_blocks + lev.super_giant_blocks
+    trapezo = lev.trapezoid_blocks
+    tri = lev.triangle_blocks
+    hazards = lev.hazard_obstacles
     player_damage = state.player_bullet_damage
 
     for bullet in state.player_bullets[:]:
@@ -344,8 +350,11 @@ def _handle_enemy_projectile_lifetime_offscreen(state, ctx: dict) -> None:
 
 
 def _handle_enemy_projectile_block_collisions(state, ctx: dict) -> None:
-    d_blocks = ctx.get("destructible_blocks", [])
-    m_blocks = ctx.get("moveable_destructible_blocks", [])
+    lev = getattr(state, "level", None)
+    if lev is None:
+        return
+    d_blocks = lev.destructible_blocks
+    m_blocks = lev.moveable_blocks
     for proj in state.enemy_projectiles[:]:
         for block in d_blocks + m_blocks:
             if block.get("is_destructible") and proj["rect"].colliderect(block["rect"]):
@@ -427,7 +436,8 @@ def _handle_pickup_player_collisions(state, ctx: dict) -> None:
 
 def _handle_health_zone_player_dt(state, dt: float, ctx: dict) -> None:
     player = state.player_rect
-    zone = ctx.get("moving_health_zone")
+    lev = getattr(state, "level", None)
+    zone = lev.moving_health_zone if lev else None
     if not player or not zone or not zone.get("rect"):
         return
     if player.colliderect(zone["rect"]) and state.player_hp < state.player_max_hp:
@@ -437,8 +447,12 @@ def _handle_health_zone_player_dt(state, dt: float, ctx: dict) -> None:
 def _handle_friendly_projectile_offscreen_blocks_enemies(state, ctx: dict) -> None:
     offscreen = ctx.get("rect_offscreen")
     kill = ctx.get("kill_enemy")
-    d_blocks = ctx.get("destructible_blocks", [])
-    m_blocks = ctx.get("moveable_destructible_blocks", [])
+    lev = getattr(state, "level", None)
+    if lev is None:
+        d_blocks, m_blocks = [], []
+    else:
+        d_blocks = lev.destructible_blocks
+        m_blocks = lev.moveable_blocks
     for proj in state.friendly_projectiles[:]:
         if offscreen and offscreen(proj["rect"]):
             state.friendly_projectiles.remove(proj)
@@ -473,8 +487,9 @@ def _handle_friendly_projectile_offscreen_blocks_enemies(state, ctx: dict) -> No
 
 def _handle_grenade_explosion_damage(state, dt: float, ctx: dict) -> None:
     kill = ctx.get("kill_enemy")
-    d_blocks = ctx.get("destructible_blocks", [])
-    m_blocks = ctx.get("moveable_destructible_blocks", [])
+    lev = getattr(state, "level", None)
+    d_blocks = lev.destructible_blocks if lev else []
+    m_blocks = lev.moveable_blocks if lev else []
     player = state.player_rect
     missile_damage_val = ctx.get("missile_damage", 800)
 
