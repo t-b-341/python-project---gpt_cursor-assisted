@@ -4,7 +4,8 @@ Used by ShaderTestScene and rendering_shaders for post-process.
 from __future__ import annotations
 
 import struct
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Optional, Tuple, Dict
 
 try:
     import moderngl  # type: ignore[import-untyped]
@@ -14,6 +15,9 @@ except ImportError:
     HAS_MODERNGL = False
 
 _gl_ctx: Optional["moderngl.Context"] = None
+
+# Utility shader registry: name -> (vertex_shader_source, fragment_shader_source)
+_utility_shaders: Dict[str, Tuple[str, str]] = {}
 
 # Fullscreen quad NDC pos+uv, triangle strip (same layout for all callers)
 QUAD_POS_UV = struct.pack(
@@ -173,3 +177,121 @@ def get_fullscreen_quad(size: Tuple[int, int]) -> Optional["FullscreenQuad"]:
     else:
         _quad_cache[size].ensure_size(size)
     return _quad_cache[size]
+
+
+def load_shader_file(shader_path: str | Path) -> Optional[str]:
+    """
+    Load a shader file from disk.
+    
+    Args:
+        shader_path: Path to the shader file (relative to project root or absolute)
+    
+    Returns:
+        Shader source code as string, or None if file not found or error occurred
+    """
+    try:
+        path = Path(shader_path)
+        if not path.is_absolute():
+            # Try relative to project root
+            project_root = Path(__file__).resolve().parent
+            path = project_root / path
+        if not path.exists():
+            # Try assets/shaders directory
+            project_root = Path(__file__).resolve().parent
+            assets_path = project_root / "assets" / "shaders" / Path(shader_path).name
+            if assets_path.exists():
+                path = assets_path
+            else:
+                print(f"[Shader] File not found: {shader_path}")
+                return None
+        return path.read_text(encoding="utf-8")
+    except Exception as e:
+        print(f"[Shader] Error loading {shader_path}: {e}")
+        return None
+
+
+def register_utility_shader(name: str, vertex_shader: Optional[str] = None, fragment_shader: Optional[str] = None) -> bool:
+    """
+    Register a utility shader that can be used for post-processing.
+    
+    Args:
+        name: Unique name for the shader (e.g., "blur")
+        vertex_shader: Vertex shader source code (uses default if None)
+        fragment_shader: Fragment shader source code or path to .frag file
+    
+    Returns:
+        True if registration successful, False otherwise
+    """
+    if not HAS_MODERNGL:
+        print(f"[Shader] Cannot register utility shader '{name}': moderngl not available")
+        return False
+    
+    # Use default vertex shader if not provided
+    vert_src = vertex_shader if vertex_shader is not None else VERTEX_SHADER
+    
+    # Load fragment shader from file if it looks like a path
+    frag_src = fragment_shader
+    if frag_src and (frag_src.endswith(".frag") or "/" in frag_src or "\\" in frag_src):
+        loaded = load_shader_file(frag_src)
+        if loaded is None:
+            return False
+        frag_src = loaded
+    
+    if frag_src is None:
+        print(f"[Shader] Fragment shader required for utility shader '{name}'")
+        return False
+    
+    _utility_shaders[name] = (vert_src, frag_src)
+    print(f"[Shader] Registered utility shader: {name}")
+    return True
+
+
+def get_utility_shader(name: str) -> Optional[Tuple[str, str]]:
+    """
+    Get a registered utility shader by name.
+    
+    Args:
+        name: Shader name (e.g., "blur")
+    
+    Returns:
+        Tuple of (vertex_shader_source, fragment_shader_source) or None if not found
+    """
+    return _utility_shaders.get(name)
+
+
+def create_utility_shader_program(ctx: "moderngl.Context", name: str) -> Optional["moderngl.Program"]:
+    """
+    Create a moderngl Program from a registered utility shader.
+    
+    Args:
+        ctx: moderngl context
+        name: Shader name (e.g., "blur")
+    
+    Returns:
+        moderngl.Program or None if shader not found or creation failed
+    """
+    shader_sources = get_utility_shader(name)
+    if shader_sources is None:
+        print(f"[Shader] Utility shader '{name}' not found")
+        return None
+    
+    vert_src, frag_src = shader_sources
+    try:
+        return ctx.program(vertex_shader=vert_src, fragment_shader=frag_src)
+    except Exception as e:
+        print(f"[Shader] Failed to create program for '{name}': {e}")
+        return None
+
+
+# Register built-in utility shaders on module load
+def _register_builtin_utility_shaders() -> None:
+    """Register built-in utility shaders."""
+    if not HAS_MODERNGL:
+        return
+    
+    # Register blur shader
+    register_utility_shader("blur", fragment_shader="assets/shaders/blur.frag")
+
+
+# Auto-register on import
+_register_builtin_utility_shaders()
