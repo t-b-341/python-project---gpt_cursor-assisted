@@ -35,7 +35,7 @@ void main() {
 }
 """
 
-# u_effect: 0 = shader_test (desaturate), 1 = gameplay (contrast + pulse)
+# u_effect: 0 = shader_test (desaturate), 1 = gameplay (contrast + pulse), 2 = passthrough/upscale
 FRAGMENT_SHADER = """
 #version 330
 uniform sampler2D u_frame_texture;
@@ -49,7 +49,7 @@ void main() {
         float gray = dot(c.rgb, vec3(0.299, 0.587, 0.114));
         vec3 mixed = mix(c.rgb, vec3(gray), 0.3);
         fragColor = vec4(mixed, c.a);
-    } else {
+    } else if (u_effect == 1) {
         vec2 centered = v_uv - 0.5;
         float dist = length(centered);
         float vignette = smoothstep(0.7, 0.3, dist);
@@ -57,6 +57,8 @@ void main() {
         vec3 base = c.rgb * pulse;
         vec3 final_rgb = base * vignette;
         fragColor = vec4(final_rgb, c.a);
+    } else {
+        fragColor = c;
     }
 }
 """
@@ -107,6 +109,59 @@ class FullscreenQuad:
 
 
 _quad_cache: dict[Tuple[int, int], "FullscreenQuad"] = {}
+_upscale_fbo = None
+_upscale_fbo_size: Optional[Tuple[int, int]] = None
+
+
+def gpu_upscale_surface(surface: "object", target_size: Tuple[int, int]) -> Optional["object"]:
+    """Upscale a pygame Surface to target_size on the GPU (bilinear). Returns new Surface or None on failure."""
+    global _upscale_fbo, _upscale_fbo_size
+    try:
+        import pygame
+    except ImportError:
+        return None
+    ctx = get_gl_context()
+    if ctx is None:
+        return None
+    src_size = (surface.get_width(), surface.get_height())
+    if src_size[0] < 1 or src_size[1] < 1 or target_size[0] < 1 or target_size[1] < 1:
+        return None
+    quad = get_fullscreen_quad(src_size)
+    if quad is None:
+        return None
+    if _upscale_fbo is None or _upscale_fbo_size != target_size:
+        if _upscale_fbo is not None:
+            try:
+                _upscale_fbo.release()
+            except Exception:
+                pass
+            _upscale_fbo = None
+        try:
+            out_tex = ctx.texture(target_size, 4)
+            _upscale_fbo = ctx.framebuffer(color_attachments=[out_tex])
+            _upscale_fbo_size = target_size
+        except Exception:
+            _upscale_fbo_size = None
+            return None
+    try:
+        tex_bytes = pygame.image.tostring(surface, "RGBA", False)
+    except Exception:
+        try:
+            tex_bytes = bytes(surface.get_view("0"))
+        except Exception:
+            return None
+    quad.texture.write(tex_bytes)
+    quad.program["u_effect"] = 2
+    quad.texture.use(0)
+    quad.program["u_frame_texture"] = 0
+    _upscale_fbo.use()
+    ctx.viewport = (0, 0, target_size[0], target_size[1])
+    _upscale_fbo.clear(0.0, 0.0, 0.0, 1.0)
+    quad.render()
+    data = _upscale_fbo.read(components=4)
+    out_surf = pygame.image.frombuffer(data, target_size, "RGBA")
+    out_surf = pygame.transform.flip(out_surf, False, True)
+    return out_surf
 
 
 def get_fullscreen_quad(size: Tuple[int, int]) -> Optional["FullscreenQuad"]:

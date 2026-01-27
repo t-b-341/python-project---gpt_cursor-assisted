@@ -9,11 +9,12 @@ from visual_effects import apply_gameplay_effects, apply_gameplay_final_blit
 from shader_effects import get_gameplay_shader_stack
 
 try:
-    from gpu_gl_utils import get_gl_context, get_fullscreen_quad, HAS_MODERNGL
+    from gpu_gl_utils import get_gl_context, get_fullscreen_quad, gpu_upscale_surface, HAS_MODERNGL
 except ImportError:
     HAS_MODERNGL = False
     get_gl_context = None  # type: ignore[assignment]
     get_fullscreen_quad = None  # type: ignore[assignment]
+    gpu_upscale_surface = None  # type: ignore[assignment]
 
 _gl_start_time = time.perf_counter()
 
@@ -157,15 +158,28 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
     _render_gameplay_frame(temp_ctx, game_state, ctx)
 
     # Config-based gameplay shader stack when enable_gameplay_shaders and gameplay_shader_profile != "none"
+    # Run CPU effect chain at reduced resolution (default 0.5) to keep framerate up at full screen sizes.
     if config is not None and getattr(config, "enable_gameplay_shaders", False) and (not use_gpu_shaders or not use_gl_path):
         gameplay_stack = get_gameplay_shader_stack(config)
-        t = time.perf_counter() - _gl_start_time
-        eff_ctx = {"time": t}
-        surf = offscreen_surface
-        for eff in gameplay_stack:
-            surf = eff.apply(surf, 0.016, eff_ctx)
-        if surf is not offscreen_surface:
-            offscreen_surface.blit(surf, (0, 0))
+        if gameplay_stack:
+            t = time.perf_counter() - _gl_start_time
+            eff_ctx = {"time": t}
+            effect_scale = max(0.25, min(1.0, float(getattr(config, "internal_resolution_scale", 1.0))))
+            if effect_scale >= 0.99:
+                effect_scale = 0.5  # default half-res for effect chain when at full res (avoids low fps)
+            ew = max(1, int(offscreen_w * effect_scale))
+            eh = max(1, int(offscreen_h * effect_scale))
+            surf = pygame.transform.smoothscale(offscreen_surface, (ew, eh))
+            for eff in gameplay_stack:
+                surf = eff.apply(surf, 0.016, eff_ctx)
+            # Prefer GPU upscale when available to keep resolution high without CPU cost
+            if HAS_MODERNGL and (use_gpu_shaders or use_shaders) and gpu_upscale_surface is not None:
+                scaled_back = gpu_upscale_surface(surf, (offscreen_w, offscreen_h))
+            else:
+                scaled_back = None
+            if scaled_back is None:
+                scaled_back = pygame.transform.smoothscale(surf, (offscreen_w, offscreen_h))
+            offscreen_surface.blit(scaled_back, (0, 0))
 
     # Lightweight CPU effects (vignette, scanlines) by gameplay_effect_profile when enable_gameplay_shaders
     apply_gameplay_effects(offscreen_surface, ctx, game_state)

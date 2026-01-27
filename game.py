@@ -4,6 +4,53 @@ All mutable game state lives in GameState; app-level resources and config in App
 Level geometry in state.level (LevelState). Gameplay input via handle_gameplay_input;
 per-frame logic in _update_simulation (movement/collision/spawn/ai). Overlay screens use
 SCREEN_HANDLERS and RenderContext.from_app_ctx(ctx).
+
+# -----------------------------------------------------------------------------
+# Screen/state mapping (temporary documentation during refactor)
+# -----------------------------------------------------------------------------
+# - Global state constants (from constants.py): STATE_TITLE, STATE_MENU, STATE_PLAYING,
+#   STATE_PAUSED, STATE_ENDURANCE, STATE_GAME_OVER, STATE_NAME_INPUT, STATE_HIGH_SCORES,
+#   STATE_VICTORY, STATE_CONTINUE, STATE_CONTROLS, STATE_MODS, STATE_WAVE_BUILDER.
+#   SHADER_TEST is not in constants; it is the string "SHADER_TEST" (see scenes/shader_test.SHADER_TEST_STATE_ID).
+#
+# - GameState.current_screen (str): canonical "what screen we are on". Initialized to STATE_TITLE
+#   in _create_app(); the loop reads it at frame start and writes it back at frame end.
+#   GameState.previous_screen (str|None): used for pause/unpause to restore PLAYING or ENDURANCE.
+#
+# - Module-level locals in _run_loop (not globals): each iteration sets
+#   state = game_state.current_screen and previous_game_state = game_state.previous_screen,
+#   then event/render logic may change state/previous_game_state; at end of frame they are
+#   written back to game_state.current_screen and game_state.previous_screen. So the
+#   in-loop "state" is the effective current screen for that frame.
+#
+# - SceneStack and scenes: scene_stack is built in _create_app() and stored on app.
+#   SCENE_STATES = (STATE_PLAYING, STATE_ENDURANCE, STATE_PAUSED, STATE_HIGH_SCORES,
+#   STATE_NAME_INPUT, STATE_TITLE, STATE_MENU). _sync_scene_stack(stk, s, gs) keeps the
+#   stack in sync with gs.current_screen (s) when s in SCENE_STATES:
+#     - STATE_TITLE: stack becomes [TitleScene]
+#     - STATE_MENU: stack becomes [TitleScene, OptionsScene] or [OptionsScene] as needed
+#     - STATE_PLAYING / STATE_ENDURANCE: stack top is GameplayScene(s); may clear and push
+#     - STATE_PAUSED: ensures [..., GameplayScene(...), PauseScene]
+#     - STATE_NAME_INPUT: ensures [..., GameplayScene(PLAYING), NameInputScene]
+#     - STATE_HIGH_SCORES: ensures [..., GameplayScene(PLAYING), HighScoreScene]
+#   SHADER_TEST is not in SCENE_STATES; _sync_scene_stack does nothing for it. ShaderTestScene
+#   is never pushed by _sync_scene_stack in the main loop (only by tests or other entry points).
+#
+# - Scene classes (from scenes/): TitleScene (state_id STATE_TITLE), OptionsScene (STATE_MENU),
+#   GameplayScene(state_id passed in: STATE_PLAYING or STATE_ENDURANCE), PauseScene (STATE_PAUSED),
+#   NameInputScene (STATE_NAME_INPUT), HighScoreScene (STATE_HIGH_SCORES), ShaderTestScene
+#   (state_id "SHADER_TEST"). Pushed/popped by _sync_scene_stack and by loop logic (e.g. pop on
+#   result["pop"], push GameplayScene on start_game, scene_stack.clear() + push on restart/menu).
+#
+# - When state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE,
+#   STATE_MENU), input is delegated to scene_stack.current().handle_input or, if no current scene,
+#   to SCREEN_HANDLERS[state]["handle_events"]. SCREEN_HANDLERS (screens/) has PAUSED, HIGH_SCORES,
+#   NAME_INPUT only; TITLE and MENU have no handler (scene path only). Render uses
+#   current_scene.render() or SCREEN_HANDLERS[state]["render"] for those same states.
+#
+# - STATE_GAME_OVER, STATE_VICTORY, STATE_CONTROLS: no scene stack sync, no SCREEN_HANDLERS entry;
+#   they are handled in keyboard/event logic and have placeholder or minimal render branches.
+# -----------------------------------------------------------------------------
 """
 import json
 import math
@@ -932,15 +979,23 @@ def _run_loop(app):
                     apply_menu_effects(render_ctx.screen, ctx)
                 # Apply config-based menu shader stack when enable_menu_shaders and menu_shader_profile != "none"
                 if state in (STATE_TITLE, STATE_MENU):
-                    menu_stack = get_menu_shader_stack(ctx.config)
-                    display = render_ctx.screen
-                    surf = display
-                    t = time.perf_counter()
-                    eff_ctx = {"time": t}
-                    for eff in menu_stack:
-                        surf = eff.apply(surf, 0.016, eff_ctx)
-                    if surf is not display:
-                        display.blit(surf, (0, 0))
+                    try:
+                        menu_stack = get_menu_shader_stack(ctx.config)
+                        if menu_stack:
+                            display = render_ctx.screen
+                            surf = display
+                            eff_ctx = {"time": game_state.run_time}
+                            for eff in menu_stack:
+                                if surf is None:
+                                    break
+                                surf = eff.apply(surf, 0.016, eff_ctx)
+                            if surf is not None and surf is not display:
+                                display.blit(surf, (0, 0))
+                    except Exception as e:
+                        # If shader application fails, log and continue without shaders
+                        print(f"[Menu shader] Error applying shader stack: {e}")
+                        import traceback
+                        traceback.print_exc()
             elif state == STATE_GAME_OVER:
                 # Game over screen
                 # (Game over rendering would go here)

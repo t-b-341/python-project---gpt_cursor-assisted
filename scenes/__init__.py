@@ -7,10 +7,12 @@ from .options import OptionsScene
 from .pause import PauseScene
 from .shader_test import ShaderTestScene
 from .title import TitleScene
+from .transitions import SceneTransition
 
 __all__ = [
     "Scene",
     "SceneStack",
+    "SceneTransition",
     "GameplayScene",
     "PauseScene",
     "HighScoreScene",

@@ -4,6 +4,7 @@ from __future__ import annotations
 from constants import STATE_NAME_INPUT
 from rendering import RenderContext
 from screens import name_input as name_input_screen
+from scenes.transitions import SceneTransition
 
 
 class NameInputScene:
@@ -15,6 +16,16 @@ class NameInputScene:
 
     def update(self, dt: float, game_state, ctx: dict) -> None:
         pass
+
+    def handle_input_transition(self, events, game_state, ctx: dict) -> SceneTransition:
+        """Stub: call existing logic; return NONE. Used by future scene-driven loop."""
+        self.handle_input(events, game_state, ctx)
+        return SceneTransition.none()
+
+    def update_transition(self, dt: float, game_state, ctx: dict) -> SceneTransition:
+        """Stub: call existing logic; return NONE. Used by future scene-driven loop."""
+        self.update(dt, game_state, ctx)
+        return SceneTransition.none()
 
     def render(self, render_ctx: RenderContext, game_state, ctx: dict) -> None:
         name_input_screen.render(render_ctx, game_state, ctx)

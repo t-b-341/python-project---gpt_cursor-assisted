@@ -6,6 +6,7 @@ import pygame
 from constants import STATE_PLAYING
 from rendering import render_debug_overlay
 from screens import gameplay as gameplay_screen
+from scenes.transitions import SceneTransition
 
 
 class GameplayScene:
@@ -27,6 +28,16 @@ class GameplayScene:
 
     def update(self, dt: float, game_state, ctx: dict) -> None:
         gameplay_screen.update(game_state, dt, ctx.get("gameplay_ctx") or {})
+
+    def handle_input_transition(self, events, game_state, ctx: dict) -> SceneTransition:
+        """Stub: call existing logic; return NONE. Used by future scene-driven loop."""
+        self.handle_input(events, game_state, ctx)
+        return SceneTransition.none()
+
+    def update_transition(self, dt: float, game_state, ctx: dict) -> SceneTransition:
+        """Stub: call existing logic; return NONE. Used by future scene-driven loop."""
+        self.update(dt, game_state, ctx)
+        return SceneTransition.none()
 
     def render(self, render_ctx, game_state, ctx: dict) -> None:
         app_ctx = ctx.get("app_ctx")

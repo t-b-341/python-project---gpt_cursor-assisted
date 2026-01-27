@@ -4,6 +4,7 @@ from __future__ import annotations
 import pygame
 
 from rendering import draw_centered_text
+from scenes.transitions import SceneTransition
 
 try:
     from gpu_gl_utils import get_gl_context, get_fullscreen_quad, HAS_MODERNGL
@@ -40,6 +41,16 @@ class ShaderTestScene:
     def update(self, dt: float, game_state, ctx: dict) -> None:
         if self.gl is not None:
             self.time += dt
+
+    def handle_input_transition(self, events, game_state, ctx: dict) -> SceneTransition:
+        """Stub: call existing logic; return NONE. Used by future scene-driven loop."""
+        self.handle_input(events, game_state, ctx)
+        return SceneTransition.none()
+
+    def update_transition(self, dt: float, game_state, ctx: dict) -> SceneTransition:
+        """Stub: call existing logic; return NONE. Used by future scene-driven loop."""
+        self.update(dt, game_state, ctx)
+        return SceneTransition.none()
 
     def render(self, render_ctx, game_state, ctx: dict) -> None:
         if not self._logged:
