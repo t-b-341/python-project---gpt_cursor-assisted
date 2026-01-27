@@ -247,22 +247,15 @@ HEIGHT = 1080
 # Wall texture, HUD text, health bar, and trapezoid/triangle caches are in rendering.py
 
 
-def _create_app():
-    """Build ctx, game_state, scene_stack and loop invariants. Used by GameApp."""
-    # Resolve physics backend before any geometry/physics use (--python-physics or USE_PYTHON_PHYSICS=1 to force Python)
-    force_python = "--python-physics" in sys.argv or os.environ.get("USE_PYTHON_PHYSICS", "").strip() == "1"
-    _physics_impl, using_c_physics = resolve_physics(force_python=force_python)
-
+def _init_pygame_and_mixer() -> None:
+    """Initialize pygame and audio mixer."""
     pygame.init()
     init_mixer()
-
-    # Welcome message when game launches
     print("welcome to my game! :D")
 
-    # ----------------------------
-    # Window / timing
-    # ----------------------------
-    # Start in fullscreen mode
+
+def _create_window_and_clock() -> tuple[pygame.Surface, pygame.time.Clock, int, int]:
+    """Create window, clock, and fonts. Returns (screen, clock, width, height)."""
     pygame.display.init()
     screen_info = pygame.display.Info()
     WIDTH, HEIGHT = screen_info.current_w, screen_info.current_h
@@ -274,11 +267,14 @@ def _create_app():
     font = get_font("main", 28)
     big_font = get_font("main", 56)
     small_font = get_font("main", 20)
+    
+    return screen, clock, WIDTH, HEIGHT
 
-    # Load controls from file (now that pygame is initialized)
+
+def _build_app_context(screen: pygame.Surface, clock: pygame.time.Clock, width: int, height: int, using_c_physics: bool) -> AppContext:
+    """Build AppContext with config, controls, and resources."""
     controls = load_controls()
-
-    # Application context: screen, fonts, clock, telemetry, and centralized config
+    
     cfg = GameConfig(
         difficulty=DIFFICULTY_NORMAL,
         aim_mode=AIM_MOUSE,
@@ -296,14 +292,15 @@ def _create_app():
         mod_enemy_spawn_multiplier=1.0,
         mod_custom_waves_enabled=False,
     )
+    
     ctx = AppContext(
         screen=screen,
         clock=clock,
-        font=font,
-        big_font=big_font,
-        small_font=small_font,
-        width=WIDTH,
-        height=HEIGHT,
+        font=get_font("main", 28),
+        big_font=get_font("main", 56),
+        small_font=get_font("main", 20),
+        width=width,
+        height=height,
         telemetry_client=None,
         run_started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         controls=controls,
@@ -311,15 +308,14 @@ def _create_app():
         using_c_physics=using_c_physics,
     )
     sync_from_config(ctx.config)
+    return ctx
 
-    # Create GameState as the single source of truth for all mutable game state.
+def _build_initial_game_state(ctx: AppContext) -> GameState:
+    """Create and initialize GameState with level geometry and context."""
     game_state = GameState()
     game_state.player_rect = pygame.Rect((ctx.width - 28) // 2, (ctx.height - 28) // 2, 28, 28)
     game_state.current_screen = STATE_TITLE
     game_state.run_started_at = ctx.run_started_at
-
-    # Local alias for readability where the loop uses "player" frequently.
-    player = game_state.player_rect
 
     # Initialize pygame mouse visibility
     pygame.mouse.set_visible(True)
@@ -332,6 +328,83 @@ def _create_app():
     level.super_giant_blocks = filter_blocks_no_overlap(level.super_giant_blocks, [level.destructible_blocks, level.moveable_blocks, level.giant_blocks, level.trapezoid_blocks, level.triangle_blocks], game_state.player_rect)
     game_state.level = level
     game_state.teleporter_pads = _place_teleporter_pads(level, ctx.width, ctx.height)
+    
+    # Level context for movement_system and collision_system (callables and data; avoids circular imports)
+    def _make_level_context():
+        w, h = ctx.width, ctx.height
+        lv = game_state.level
+
+        def _log_player_death(t, px, py, lives_left, wave_num):
+            if ctx.config.enable_telemetry and ctx.telemetry_client:
+                ctx.telemetry_client.log_player_death(
+                    PlayerDeathEvent(t=t, player_x=px, player_y=py, lives_left=lives_left, wave_number=wave_num)
+                )
+
+        return {
+            "move_player": lambda p, dx, dy: move_player_with_push(p, dx, dy, lv, w, h),
+            "move_enemy": lambda s, rect, mx, my: move_enemy_with_push(rect, mx, my, lv, s, w, h),
+            "clamp": lambda r: clamp_rect_to_screen(r, w, h),
+            "blocks": lv.static_blocks,
+            "width": w,
+            "height": h,
+            "main_area_rect": pygame.Rect(int(w * 0.25), int(h * 0.25), int(w * 0.5), int(h * 0.5)),
+            "rect_offscreen": lambda r: r.right < 0 or r.left > w or r.bottom < 0 or r.top > h,
+            "vec_toward": vec_toward,
+            "update_friendly_ai": lambda s, dt: update_friendly_ai(
+                s.friendly_ai, s.enemies, lv.static_blocks, dt,
+                find_nearest_enemy, vec_toward,
+                lambda rect, mx, my, bl: move_enemy_with_push(rect, mx, my, lv, s, w, h),
+                lambda f, t: spawn_friendly_projectile(f, t, s.friendly_projectiles, vec_toward, ctx.telemetry_client, s.run_time),
+                state=s,
+                player_rect=getattr(s, "player_rect", None),
+                spawn_ally_missile_func=lambda f, t, st: spawn_ally_missile(f, t, st),
+            ),
+            "kill_enemy": lambda e, s: kill_enemy(e, s, w, h),
+            "destructible_blocks": lv.destructible_blocks,
+            "moveable_destructible_blocks": lv.moveable_blocks,
+            "giant_blocks": lv.giant_blocks,
+            "super_giant_blocks": lv.super_giant_blocks,
+            "trapezoid_blocks": lv.trapezoid_blocks,
+            "triangle_blocks": lv.triangle_blocks,
+            "hazard_obstacles": lv.hazard_obstacles,
+            "moving_health_zone": lv.moving_health_zone,
+            "teleporter_pads": game_state.teleporter_pads,
+            "check_point_in_hazard": check_point_in_hazard,
+            "line_rect_intersection": line_rect_intersection,
+            "testing_mode": ctx.config.testing_mode,
+            "invulnerability_mode": ctx.config.invulnerability_mode,
+            "reset_after_death": lambda s: reset_after_death(s, w, h),
+            "create_pickup_collection_effect": create_pickup_collection_effect,
+            "apply_pickup_effect": lambda pt, s: apply_pickup_effect(pt, s, ctx),
+            "enemy_projectile_size": enemy_projectile_size,
+            "enemy_projectiles_color": enemy_projectiles_color,
+            "missile_damage": missile_damage,
+            "find_nearest_threat": find_nearest_threat,
+            "spawn_enemy_projectile": lambda e, s: spawn_enemy_projectile(e, s, ctx.telemetry_client, ctx.config.enable_telemetry),
+            "spawn_enemy_projectile_predictive": spawn_enemy_projectile_predictive,
+            "difficulty": ctx.config.difficulty,
+            "random_spawn_position": random_spawn_position,
+            "telemetry": ctx.telemetry_client,
+            "telemetry_enabled": ctx.config.enable_telemetry,
+            "overshield_recharge_cooldown": overshield_recharge_cooldown,
+            "ally_drop_cooldown": ally_drop_cooldown,
+            "play_sfx": play_sfx,
+            "damage_flash_duration": getattr(ctx.config, "damage_flash_duration", 0.12),
+            "screen_flash_duration": getattr(ctx.config, "screen_flash_duration", 0.25),
+            "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
+            "enable_damage_flash": getattr(ctx.config, "enable_damage_flash", True),
+            "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
+            "enable_damage_wobble": getattr(ctx.config, "enable_damage_wobble", False),
+            "enable_wave_banner": getattr(ctx.config, "enable_wave_banner", True),
+            "wave_banner_duration": getattr(ctx.config, "wave_banner_duration", 1.5),
+            "base_enemies_per_wave": getattr(ctx.config, "base_enemies_per_wave", 12),
+            "enemy_spawn_multiplier": getattr(ctx.config, "enemy_spawn_multiplier", 3.5),
+            "log_player_death": _log_player_death,
+            "config": ctx.config,
+        }
+    game_state.level_context = _make_level_context()
+    game_state.run_id = None  # Will be set when game starts
+    return game_state
 
     # Level context for movement_system and collision_system (callables and data; avoids circular imports)
     def _make_level_context():
@@ -407,19 +480,14 @@ def _create_app():
             "config": ctx.config,
         }
     game_state.level_context = _make_level_context()
-
-    # ----------------------------
-    # Start run + log initial spawns
-    # ----------------------------
     game_state.run_id = None  # Will be set when game starts
-    # Don't start wave automatically - wait for menu selection
+    return game_state
 
-    # ----------------------------
-    # Main loop with safe shutdown
-    # ----------------------------
-    # Initialize high scores database
+
+def _setup_initial_resources() -> None:
+    """Initialize high scores database, copy music file if needed, and play initial music."""
     init_high_scores_db()
-
+    
     # Ensure in-game.ogg is available: copy from project root to assets/music/ if missing
     _project_root = Path(__file__).resolve().parent
     _music_dir = _project_root / "assets" / "music"
@@ -431,11 +499,13 @@ def _create_app():
             shutil.copy2(_in_game_src, _in_game_dst)
         except OSError:
             pass
-
+    
     # Main menu (title + pre-game options) uses ambient2 music
     play_music("ambient2", loop=True)
 
-    # Optional GPU shader toggle: ask in-program (do not require moderngl to be installed)
+
+def _prompt_shader_mode(ctx: AppContext) -> None:
+    """Prompt user for GPU shader mode if moderngl is available."""
     try:
         import moderngl  # noqa: F401  # type: ignore[import-untyped]
         moderngl_available = True
@@ -443,6 +513,7 @@ def _create_app():
         print("moderngl not available; disabling shader mode.")
         ctx.config.use_shaders = False
         moderngl_available = False
+    
     if moderngl_available:
         prompt_done = False
         prompt_clock = pygame.time.Clock()
@@ -464,6 +535,57 @@ def _create_app():
                         ctx.config.use_shaders = False
                         prompt_done = True
     print("Shader mode: ON" if ctx.config.use_shaders else "Shader mode: OFF")
+
+
+def _build_scene_stack() -> SceneStack:
+    """Create and initialize scene stack with TitleScene."""
+    scene_stack = SceneStack()
+    scene_stack.push(TitleScene())
+    return scene_stack
+
+
+def _build_loop_params() -> tuple[int, float, int]:
+    """Return (FPS, FIXED_DT, MAX_SIMULATION_STEPS)."""
+    FPS = 60
+    FIXED_DT = 1.0 / 60.0
+    MAX_SIMULATION_STEPS = 6  # cap to avoid spiral of death when dt is large
+    return FPS, FIXED_DT, MAX_SIMULATION_STEPS
+
+
+def _create_app():
+    """Build ctx, game_state, scene_stack and loop invariants. Used by GameApp."""
+    # Resolve physics backend before any geometry/physics use
+    force_python = "--python-physics" in sys.argv or os.environ.get("USE_PYTHON_PHYSICS", "").strip() == "1"
+    _physics_impl, using_c_physics = resolve_physics(force_python=force_python)
+
+    _init_pygame_and_mixer()
+    screen, clock, width, height = _create_window_and_clock()
+    ctx = _build_app_context(screen, clock, width, height, using_c_physics)
+    game_state = _build_initial_game_state(ctx)
+    _setup_initial_resources()
+    _prompt_shader_mode(ctx)
+    
+    FPS, FIXED_DT, MAX_SIMULATION_STEPS = _build_loop_params()
+    
+    def _update_simulation(sim_dt: float, gs: GameState, app_ctx: AppContext) -> None:
+        """Run one fixed timestep of gameplay (timers, movement, collision, spawn, AI)."""
+        for system in SIMULATION_SYSTEMS:
+            system(gs, sim_dt, app_ctx)
+
+    scene_stack = _build_scene_stack()
+    
+    class _AppRes:
+        pass
+    r = _AppRes()
+    r.ctx = ctx
+    r.game_state = game_state
+    r.scene_stack = scene_stack
+    r.fps = FPS
+    r.fixed_dt = FIXED_DT
+    r.max_sim_steps = MAX_SIMULATION_STEPS
+    r.update_simulation = _update_simulation
+    r.simulation_accumulator = 0.0
+    return r
 
     # Fixed-step simulation: deterministic updates, robust to frame spikes
     FPS = 60
