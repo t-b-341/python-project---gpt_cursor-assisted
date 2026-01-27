@@ -442,7 +442,9 @@ def _create_app():
         moderngl_available = False
     if moderngl_available:
         prompt_done = False
+        prompt_clock = pygame.time.Clock()
         while not prompt_done:
+            prompt_clock.tick(60)  # Limit to 60 FPS for the prompt
             ctx.screen.fill((30, 30, 40))
             draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "Enable GPU shaders?", ctx.height // 2 - 50, color=(220, 220, 220), use_big=True)
             draw_centered_text(ctx.screen, ctx.font, ctx.big_font, ctx.width, "(Y)es  /  (N)o", ctx.height // 2 + 20, (180, 180, 180))
@@ -471,68 +473,11 @@ def _create_app():
         for system in SIMULATION_SYSTEMS:
             system(gs, sim_dt, app_ctx)
 
-    SCENE_STATES = (STATE_PLAYING, STATE_ENDURANCE, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, STATE_TITLE, STATE_MENU)
-
-    def _sync_scene_stack(stk: SceneStack, s: str, gs: GameState) -> None:
-        """Keep scene stack in sync with current_screen (gameplay, pause, high-scores, name-input, title, options)."""
-        if s not in SCENE_STATES:
-            return
-        cur = stk.current()
-        if s == STATE_TITLE:
-            while cur and cur.state_id() != STATE_TITLE:
-                stk.pop()
-                cur = stk.current()
-            if not cur:
-                stk.push(TitleScene())
-            return
-        if s == STATE_MENU:
-            if not cur or cur.state_id() == STATE_TITLE:
-                if not cur:
-                    stk.push(TitleScene())
-                if not stk.current() or stk.current().state_id() != STATE_MENU:
-                    stk.push(OptionsScene())
-            else:
-                stk.clear()
-                stk.push(TitleScene())
-                stk.push(OptionsScene())
-            return
-        if s in (STATE_PLAYING, STATE_ENDURANCE):
-            if cur is None:
-                stk.push(GameplayScene(s))
-                return
-            while cur and cur.state_id() not in (STATE_PLAYING, STATE_ENDURANCE):
-                stk.pop()
-                cur = stk.current()
-            if cur is None:
-                stk.push(GameplayScene(s))
-            elif cur.state_id() != s:
-                stk.pop()
-                stk.push(GameplayScene(s))
-            return
-        if cur is None:
-            stk.push(GameplayScene(gs.previous_screen or STATE_PLAYING))
-            cur = stk.current()
-        if s == STATE_PAUSED:
-            if cur.state_id() != STATE_PAUSED:
-                stk.push(PauseScene())
-        elif s == STATE_NAME_INPUT:
-            while cur and cur.state_id() not in (STATE_PLAYING, STATE_ENDURANCE):
-                stk.pop()
-                cur = stk.current()
-            if cur is None:
-                stk.push(GameplayScene(STATE_PLAYING))
-            if not stk.current() or stk.current().state_id() != STATE_NAME_INPUT:
-                stk.push(NameInputScene())
-        elif s == STATE_HIGH_SCORES:
-            while cur and cur.state_id() not in (STATE_PLAYING, STATE_ENDURANCE):
-                stk.pop()
-                cur = stk.current()
-            if cur is None:
-                stk.push(GameplayScene(STATE_PLAYING))
-            if not stk.current() or stk.current().state_id() != STATE_HIGH_SCORES:
-                stk.push(HighScoreScene())
+    # _sync_scene_stack removed: scene transitions now handle stack management directly
 
     scene_stack = SceneStack()
+    # Initialize with TitleScene since game_state.current_screen is STATE_TITLE
+    scene_stack.push(TitleScene())
     class _AppRes:
         pass
     r = _AppRes()
@@ -543,7 +488,6 @@ def _create_app():
     r.fixed_dt = FIXED_DT
     r.max_sim_steps = MAX_SIMULATION_STEPS
     r.update_simulation = _update_simulation
-    r.sync_scene_stack = _sync_scene_stack
     r.simulation_accumulator = 0.0
     return r
 
@@ -567,6 +511,14 @@ def _print_active_shader_profiles(config) -> None:
 def _get_current_scene(scene_stack: SceneStack):
     """Return the current scene from the stack, or None if empty."""
     return scene_stack.current()
+
+
+def _get_current_state(scene_stack: SceneStack) -> str | None:
+    """Get the current state ID from the top scene in the stack, or None if empty."""
+    scene = scene_stack.current()
+    if scene is None:
+        return None
+    return scene.state_id()
 
 
 def _apply_scene_transition(transition: SceneTransition, scene_stack: SceneStack, ctx, game_state) -> bool:
@@ -646,7 +598,6 @@ def _run_loop(app):
     FIXED_DT = app.fixed_dt
     MAX_SIMULATION_STEPS = app.max_sim_steps
     _update_simulation = app.update_simulation
-    _sync_scene_stack = app.sync_scene_stack
     simulation_accumulator = app.simulation_accumulator
     running = True
     try:
@@ -656,9 +607,8 @@ def _run_loop(app):
             game_state.run_time += dt
             game_state.survival_time += dt
 
-            # Sync flow state from GameState for use in this iteration (single source of truth is game_state)
-            state = game_state.current_screen
-            _sync_scene_stack(scene_stack, state, game_state)
+            # Get current state from scene stack (single source of truth)
+            state = _get_current_state(scene_stack) or game_state.current_screen
             previous_game_state = game_state.previous_screen
             menu_section = game_state.menu_section
             pause_selected = game_state.pause_selected
@@ -681,19 +631,35 @@ def _run_loop(app):
             if running and current_scene is not None:
                 try:
                     transition = current_scene.handle_input_transition(events, game_state, screen_ctx)
+                    # Always process the transition, even if NONE, to ensure handle_input was called
                     if transition.kind != KIND_NONE:
                         should_quit = _apply_scene_transition(transition, scene_stack, ctx, game_state)
                         if should_quit:
                             running = False
                         handled_by_screen = True
                         # Update state after transition
-                        state = game_state.current_screen
+                        current_state = _get_current_state(scene_stack) or game_state.current_screen
+                    else:
+                        # Transition is NONE, but handle_input was called (config changes applied)
+                        # For STATE_MENU, don't mark as handled so fallback can process start_game
+                        # For other scenes, mark as handled
+                        current_state = _get_current_state(scene_stack) or game_state.current_screen
+                        if current_state == STATE_MENU:
+                            # Don't mark as handled - let fallback path process start_game and other menu logic
+                            handled_by_screen = False
+                        elif current_state in (STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE):
+                            handled_by_screen = True
+                        elif current_state == STATE_PAUSED:
+                            # For pause, don't mark as handled - let fallback process restart/quit/screen changes
+                            handled_by_screen = False
                 except AttributeError:
                     # Scene doesn't have handle_input_transition, fall through to old path
                     pass
             
             # Fallback to old input handling if scene path didn't handle it
-            if running and not handled_by_screen and state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE, STATE_MENU):
+            # Get current state from scene stack
+            current_state = _get_current_state(scene_stack) or game_state.current_screen
+            if running and not handled_by_screen and current_state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE, STATE_MENU):
                 if current_scene:
                     result = current_scene.handle_input(events, game_state, screen_ctx)
                 else:
@@ -704,17 +670,18 @@ def _run_loop(app):
                     running = False
                 if result.get("pop"):
                     scene_stack.pop()
-                    state = game_state.previous_screen or STATE_PLAYING
-                    game_state.current_screen = state
+                    # State comes from scene stack now
+                    current_state = _get_current_state(scene_stack) or STATE_PLAYING
+                    game_state.current_screen = current_state
                 if result.get("restart") or result.get("restart_to_wave1") or result.get("replay"):
                     game_state.reset_run(ctx, center_player=bool(result.get("restart_to_wave1") or result.get("replay")))
                     if result.get("restart"):
                         game_state.menu_section = 0
                     if result.get("restart_to_wave1") or result.get("replay"):
-                        state = STATE_PLAYING
                         spawn_system_start_wave(1, game_state)
                         scene_stack.clear()
                         scene_stack.push(GameplayScene(STATE_PLAYING))
+                        game_state.current_screen = STATE_PLAYING
                         play_music("in-game", loop=True)
                 if result.get("start_game") and result.get("screen") == STATE_PLAYING:
                     stop_music()
@@ -730,16 +697,16 @@ def _run_loop(app):
                     game_state.player_bullet_damage = int(ctx.config.player_base_damage * stats["damage_mult"])
                     game_state.player_shoot_cooldown = ctx.config.player_base_shoot_cooldown / stats["firerate_mult"]
                     if game_state.endurance_mode_selected == 1:
-                        state = STATE_ENDURANCE
-                        previous_game_state = STATE_ENDURANCE
                         game_state.lives = 999
+                        game_state.current_screen = STATE_ENDURANCE
+                        game_state.previous_screen = STATE_ENDURANCE
+                        scene_stack.clear()
+                        scene_stack.push(GameplayScene(STATE_ENDURANCE))
                     else:
-                        state = STATE_PLAYING
-                        previous_game_state = STATE_PLAYING
-                    game_state.current_screen = state
-                    game_state.previous_screen = previous_game_state
-                    scene_stack.clear()
-                    scene_stack.push(GameplayScene(state))
+                        game_state.current_screen = STATE_PLAYING
+                        game_state.previous_screen = STATE_PLAYING
+                        scene_stack.clear()
+                        scene_stack.push(GameplayScene(STATE_PLAYING))
                     if game_state.level_context:
                         game_state.level_context["telemetry"] = ctx.telemetry_client
                         game_state.level_context["telemetry_enabled"] = ctx.config.enable_telemetry
@@ -751,16 +718,36 @@ def _run_loop(app):
                     game_state.wave_reset_log.clear()
                     game_state.wave_start_reason = "menu_start"
                     spawn_system_start_wave(game_state.wave_number, game_state)
-                if state == STATE_PAUSED:
+                current_state = _get_current_state(scene_stack) or game_state.current_screen
+                if current_state == STATE_PAUSED:
                     pause_selected = game_state.pause_selected
                 if result.get("screen") is not None and not result.get("start_game"):
-                    state = result["screen"]
-                    game_state.current_screen = state
-                    if state == STATE_MENU:
+                    # Apply screen change via transition
+                    new_screen = result["screen"]
+                    game_state.current_screen = new_screen
+                    if new_screen == STATE_MENU:
                         play_music("ambient2", loop=True)
                         scene_stack.clear()
+                        scene_stack.push(OptionsScene())
+                    elif new_screen == STATE_TITLE:
+                        scene_stack.clear()
+                        scene_stack.push(TitleScene())
+                    elif new_screen == STATE_PAUSED:
+                        scene_stack.push(PauseScene())
+                    elif new_screen == STATE_NAME_INPUT:
+                        scene_stack.push(NameInputScene())
+                    elif new_screen == STATE_HIGH_SCORES:
+                        scene_stack.push(HighScoreScene())
+                    elif new_screen in (STATE_PLAYING, STATE_ENDURANCE):
+                        # Resume from pause - pop pause scene instead of clearing
+                        if current_state == STATE_PAUSED:
+                            scene_stack.pop()
+                        else:
+                            scene_stack.clear()
+                            scene_stack.push(GameplayScene(new_screen))
                 handled_by_screen = True
-                if state == STATE_MENU:
+                current_state = _get_current_state(scene_stack) or game_state.current_screen
+                if current_state == STATE_MENU:
                     menu_section = game_state.menu_section
 
             for event in events:
@@ -770,13 +757,16 @@ def _run_loop(app):
                     running = False
                     continue
 
+                # Get current state from scene stack for event handling
+                current_state = _get_current_state(scene_stack) or game_state.current_screen
+                
                 # Handle text input for name input screen
-                if state == STATE_NAME_INPUT and event.type == pygame.TEXTINPUT:
+                if current_state == STATE_NAME_INPUT and event.type == pygame.TEXTINPUT:
                     if len(game_state.player_name_input) < 20:  # Limit name length
                         game_state.player_name_input += event.text
                 
                 # Controls rebinding: accept right-click for direct_allies
-                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and state == STATE_CONTROLS and controls_rebinding:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and current_state == STATE_CONTROLS and controls_rebinding:
                     action = controls_actions[controls_selected]
                     if action == "direct_allies":
                         ctx.controls[action] = MOUSE_BUTTON_RIGHT
@@ -786,7 +776,7 @@ def _run_loop(app):
                 # Handle keyboard events
                 if event.type == pygame.KEYDOWN:
                     # Handle name input
-                    if state == STATE_NAME_INPUT:
+                    if current_state == STATE_NAME_INPUT:
                         if event.key == pygame.K_BACKSPACE:
                             game_state.player_name_input = game_state.player_name_input[:-1]
                         elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
@@ -799,29 +789,33 @@ def _run_loop(app):
                                     game_state.enemies_killed,
                                     ctx.config.difficulty
                                 )
-                            state = STATE_HIGH_SCORES
+                            game_state.current_screen = STATE_HIGH_SCORES
                             game_state.name_input_active = False
+                            # Update scene stack: pop name input, push high scores
+                            scene_stack.pop()  # Remove NameInputScene
+                            scene_stack.push(HighScoreScene())
                     
                     # ESC key handling
                     if event.key == pygame.K_ESCAPE:
-                        if state == STATE_PLAYING or state == STATE_ENDURANCE:
-                            previous_game_state = state
-                            state = STATE_PAUSED
-                            pause_selected = 0
+                        if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
+                            previous_game_state = current_state
                             game_state.previous_screen = previous_game_state
                             game_state.pause_selected = 0
                             game_state.current_screen = STATE_PAUSED
-                        elif state == STATE_PAUSED:
-                            state = previous_game_state if previous_game_state else STATE_PLAYING
-                        elif state == STATE_CONTINUE:
+                            scene_stack.push(PauseScene())
+                        elif current_state == STATE_PAUSED:
+                            scene_stack.pop()
+                            new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
+                            game_state.current_screen = new_state
+                        elif current_state == STATE_CONTINUE:
                             running = False
-                        elif state == STATE_CONTROLS:
-                            state = STATE_PAUSED
+                        elif current_state == STATE_CONTROLS:
                             game_state.pause_selected = 0
                             game_state.current_screen = STATE_PAUSED
-                        elif state == STATE_VICTORY or state == STATE_GAME_OVER or state == STATE_HIGH_SCORES:
+                            scene_stack.push(PauseScene())
+                        elif current_state == STATE_VICTORY or current_state == STATE_GAME_OVER or current_state == STATE_HIGH_SCORES:
                             running = False
-                        elif state == STATE_NAME_INPUT:
+                        elif current_state == STATE_NAME_INPUT:
                             if game_state.player_name_input.strip():
                                 save_high_score(
                                     game_state.player_name_input.strip(),
@@ -831,25 +825,29 @@ def _run_loop(app):
                                     game_state.enemies_killed,
                                     ctx.config.difficulty
                                 )
-                            state = STATE_HIGH_SCORES
+                            game_state.current_screen = STATE_HIGH_SCORES
                             game_state.name_input_active = False
+                            # Update scene stack: pop name input, push high scores
+                            scene_stack.pop()  # Remove NameInputScene
+                            scene_stack.push(HighScoreScene())
                     
                     # P key for pause
                     if event.key == pygame.K_p:
-                        if state == STATE_PLAYING or state == STATE_ENDURANCE:
-                            previous_game_state = state
-                            state = STATE_PAUSED
-                            pause_selected = 0
+                        if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
+                            previous_game_state = current_state
                             game_state.previous_screen = previous_game_state
                             game_state.pause_selected = 0
                             game_state.current_screen = STATE_PAUSED
-                        elif state == STATE_PAUSED:
-                            state = previous_game_state if previous_game_state else STATE_PLAYING
+                            scene_stack.push(PauseScene())
+                        elif current_state == STATE_PAUSED:
+                            scene_stack.pop()
+                            new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
+                            game_state.current_screen = new_state
                     # F3: debug-only — print active shader profiles (no cycling)
                     if event.key == pygame.K_F3:
                         _print_active_shader_profiles(ctx.config)
                     # Pause menu navigation (fallback when not using screen handler)
-                    if state == STATE_PAUSED:
+                    if current_state == STATE_PAUSED:
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
                             pause_selected = (pause_selected - 1) % len(pause_options)
                         elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
@@ -857,21 +855,26 @@ def _run_loop(app):
                         elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                             choice = pause_options[pause_selected]
                             if choice == "Continue":
-                                state = previous_game_state if previous_game_state else STATE_PLAYING
+                                scene_stack.pop()
+                                new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
+                                game_state.current_screen = new_state
                             elif choice == "Restart (Wave 1)":
                                 game_state.reset_run(ctx, center_player=True)
-                                state = STATE_PLAYING
+                                scene_stack.clear()
+                                scene_stack.push(GameplayScene(STATE_PLAYING))
+                                game_state.current_screen = STATE_PLAYING
                                 spawn_system_start_wave(1, game_state)
                                 play_music("in-game", loop=True)
                             elif choice == "Exit to main menu":
                                 play_music("ambient2", loop=True)
-                                state = STATE_MENU
                                 scene_stack.clear()
+                                scene_stack.push(OptionsScene())
+                                game_state.current_screen = STATE_MENU
                             elif choice == "Quit":
                                 running = False
                     
                     # Controls rebinding
-                    if state == STATE_CONTROLS and controls_rebinding:
+                    if current_state == STATE_CONTROLS and controls_rebinding:
                         if event.key != pygame.K_ESCAPE:
                             action = controls_actions[controls_selected]
                             ctx.controls[action] = event.key
@@ -881,7 +884,8 @@ def _run_loop(app):
                             controls_rebinding = False
 
             # Game state updates (only when playing)
-            if state == STATE_PLAYING or state == STATE_ENDURANCE:
+            current_state = _get_current_state(scene_stack) or game_state.current_screen
+            if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
                 # Gameplay input: movement, fire, weapons, abilities (handled in input_system)
                 def _try_spawn_bullet():
                     if not getattr(game_state, "fire_pressed", False):
@@ -957,8 +961,8 @@ def _run_loop(app):
                                 if should_quit:
                                     running = False
                                     break
-                                # Update state after transition
-                                state = game_state.current_screen
+                                # State updated by transition
+                                current_state = _get_current_state(scene_stack) or game_state.current_screen
                         except AttributeError:
                             # Scene doesn't have update_transition, fall through to old path
                             pass
@@ -971,14 +975,15 @@ def _run_loop(app):
                 setattr(game_state, "simulation_interpolation", simulation_accumulator / FIXED_DT if FIXED_DT else 0.0)
                 update_telemetry(game_state, dt, ctx)
                 continue_blink_t = game_state.continue_blink_t
-                state = game_state.current_screen
+                current_state = _get_current_state(scene_stack) or game_state.current_screen
 
             # Rendering
+            current_state = _get_current_state(scene_stack) or game_state.current_screen
             theme = level_themes.get(game_state.current_level, level_themes[1])
-            if state not in (STATE_PLAYING, STATE_ENDURANCE):
+            if current_state not in (STATE_PLAYING, STATE_ENDURANCE):
                 ctx.screen.fill(theme["bg_color"])
 
-            if state == STATE_PLAYING or state == STATE_ENDURANCE:
+            if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
                 lv = game_state.level
                 gameplay_ctx = {
                     "level_themes": level_themes,
@@ -1007,7 +1012,7 @@ def _run_loop(app):
                     "overshield_recharge_cooldown": overshield_recharge_cooldown,
                     "shield_duration": shield_duration,
                     "aiming_mode": ctx.config.aim_mode,
-                    "current_state": state,
+                    "current_state": current_state,
                     "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
                     "screen_flash_duration": getattr(ctx.config, "screen_flash_duration", 0.25),
                     "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
@@ -1023,10 +1028,10 @@ def _run_loop(app):
                 for msg in game_state.weapon_pickup_messages[:]:
                     if msg["timer"] <= 0:
                         game_state.weapon_pickup_messages.remove(msg)
-            elif state in (STATE_TITLE, STATE_MENU, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
+            elif current_state in (STATE_TITLE, STATE_MENU, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
                 render_ctx = RenderContext.from_app_ctx(ctx)
                 # When paused + enable_pause_shaders: render gameplay frame, apply pause stack, then draw UI on top
-                if state == STATE_PAUSED and getattr(ctx.config, "enable_pause_shaders", False):
+                if current_state == STATE_PAUSED and getattr(ctx.config, "enable_pause_shaders", False):
                     lv = game_state.level
                     gameplay_ctx_pause = {
                         "level_themes": level_themes,
@@ -1055,7 +1060,7 @@ def _run_loop(app):
                         "overshield_recharge_cooldown": overshield_recharge_cooldown,
                         "shield_duration": shield_duration,
                         "aiming_mode": ctx.config.aim_mode,
-                        "current_state": state,
+                        "current_state": current_state,
                         "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
                         "screen_flash_duration": getattr(ctx.config, "screen_flash_duration", 0.25),
                         "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
@@ -1077,15 +1082,15 @@ def _run_loop(app):
                 current_scene = scene_stack.current()
                 if current_scene:
                     current_scene.render(render_ctx, game_state, screen_ctx)
-                elif state in SCREEN_HANDLERS and SCREEN_HANDLERS[state].get("render"):
-                    SCREEN_HANDLERS[state]["render"](render_ctx, game_state, screen_ctx)
+                elif current_state in SCREEN_HANDLERS and SCREEN_HANDLERS[current_state].get("render"):
+                    SCREEN_HANDLERS[current_state]["render"](render_ctx, game_state, screen_ctx)
                 # Config-based shader stacks and legacy lightweight effects
-                if state == STATE_PAUSED and not getattr(ctx.config, "enable_pause_shaders", False):
+                if current_state == STATE_PAUSED and not getattr(ctx.config, "enable_pause_shaders", False):
                     apply_pause_effects(render_ctx.screen, ctx)
-                elif state in (STATE_TITLE, STATE_MENU):
+                elif current_state in (STATE_TITLE, STATE_MENU):
                     apply_menu_effects(render_ctx.screen, ctx)
                 # Apply config-based menu shader stack when enable_menu_shaders and menu_shader_profile != "none"
-                if state in (STATE_TITLE, STATE_MENU):
+                if current_state in (STATE_TITLE, STATE_MENU):
                     try:
                         menu_stack = get_menu_shader_stack(ctx.config)
                         if menu_stack:
@@ -1103,15 +1108,15 @@ def _run_loop(app):
                         print(f"[Menu shader] Error applying shader stack: {e}")
                         import traceback
                         traceback.print_exc()
-            elif state == STATE_GAME_OVER:
+            elif current_state == STATE_GAME_OVER:
                 # Game over screen
                 # (Game over rendering would go here)
                 pass
-            elif state == STATE_VICTORY:
+            elif current_state == STATE_VICTORY:
                 # Victory screen
                 # (Victory rendering would go here)
                 pass
-            elif state == STATE_CONTROLS:
+            elif current_state == STATE_CONTROLS:
                 # Controls menu
                 # (Controls menu rendering would go here)
                 pass
@@ -1119,9 +1124,13 @@ def _run_loop(app):
             pygame.display.flip()
 
             # Write flow state back to GameState after this iteration
-            game_state.current_screen = state
+            # Update current_screen from scene stack if it changed
+            scene_state = _get_current_state(scene_stack)
+            if scene_state:
+                game_state.current_screen = scene_state
             game_state.previous_screen = previous_game_state
-            game_state.menu_section = menu_section
+            # menu_section is already updated directly in game_state by scenes, so don't overwrite it
+            # game_state.menu_section = menu_section  # Removed - scenes update it directly
             game_state.pause_selected = pause_selected
             game_state.continue_blink_t = continue_blink_t
             game_state.controls_selected = controls_selected

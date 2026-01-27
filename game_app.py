@@ -19,7 +19,6 @@ class GameApp:
         self.fixed_dt = r.fixed_dt
         self.max_sim_steps = r.max_sim_steps
         self.update_simulation = r.update_simulation
-        self.sync_scene_stack = r.sync_scene_stack
         self.simulation_accumulator = r.simulation_accumulator
 
     def run(self) -> None:

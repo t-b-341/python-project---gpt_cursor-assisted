@@ -30,7 +30,8 @@ class OptionsScene:
         if app_ctx is None:
             return out
         cfg = app_ctx.config
-        menu_section = game_state.menu_section
+        # Always use game_state.menu_section directly, not a local copy
+        # This ensures changes to menu_section are immediately reflected in the same event processing loop
 
         for event in events:
             if event.type != pygame.KEYDOWN:
@@ -58,7 +59,7 @@ class OptionsScene:
                 elif event.key in (pygame.K_RIGHT, pygame.K_d, pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                     cfg.difficulty = difficulty_options[game_state.difficulty_selected]
                     game_state.menu_section = 1.5
-            elif menu_section == 1.5:
+            elif game_state.menu_section == 1.5:
                 if event.key in (pygame.K_UP, pygame.K_w):
                     game_state.use_character_profile_selected = (game_state.use_character_profile_selected - 1) % 2
                 elif event.key in (pygame.K_DOWN, pygame.K_s):
@@ -216,8 +217,25 @@ class OptionsScene:
         pass
 
     def handle_input_transition(self, events, game_state, ctx: dict) -> SceneTransition:
-        """Stub: call existing logic; return NONE. Used by future scene-driven loop."""
-        self.handle_input(events, game_state, ctx)
+        """Call existing handle_input logic and process the result. Return transition if needed."""
+        result = self.handle_input(events, game_state, ctx)
+        # Process result to handle screen changes, quit, etc.
+        # Note: Config changes (enable_menu_shaders, menu_shader_profile, etc.) are applied
+        # directly in handle_input via cfg.enable_menu_shaders = ..., so they persist.
+        if result.get("quit"):
+            return SceneTransition.quit_game()
+        if result.get("screen") is not None:
+            # Map screen changes to transitions
+            screen = result["screen"]
+            if screen == STATE_TITLE:
+                return SceneTransition.replace(STATE_TITLE)
+            elif screen == STATE_MENU:
+                return SceneTransition.replace(STATE_MENU)
+            elif screen == STATE_PLAYING:
+                # Start game - handled separately via start_game flag in result
+                # Return NONE so the old path can handle start_game
+                pass
+        # Return NONE - config changes were already applied in handle_input
         return SceneTransition.none()
 
     def update_transition(self, dt: float, game_state, ctx: dict) -> SceneTransition:

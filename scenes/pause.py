@@ -1,7 +1,7 @@
 """PauseScene: pause overlay and menu. Wraps screens.pause handle_events and render."""
 from __future__ import annotations
 
-from constants import STATE_PAUSED
+from constants import STATE_PAUSED, STATE_PLAYING, STATE_ENDURANCE, STATE_MENU
 from rendering import RenderContext
 from screens import pause as pause_screen
 from scenes.transitions import SceneTransition
@@ -18,8 +18,23 @@ class PauseScene:
         pass
 
     def handle_input_transition(self, events, game_state, ctx: dict) -> SceneTransition:
-        """Stub: call existing logic; return NONE. Used by future scene-driven loop."""
-        self.handle_input(events, game_state, ctx)
+        """Call existing handle_input logic and process the result. Return transition if needed."""
+        result = self.handle_input(events, game_state, ctx)
+        # Process result to handle screen changes, quit, restart, etc.
+        if result.get("quit"):
+            return SceneTransition.quit_game()
+        if result.get("restart") or result.get("restart_to_wave1"):
+            # Restart handled separately via result dict, return NONE so fallback can process it
+            return SceneTransition.none()
+        if result.get("screen") is not None:
+            # Map screen changes to transitions
+            screen = result["screen"]
+            if screen in (STATE_PLAYING, STATE_ENDURANCE):
+                # Resume game - pop pause scene
+                return SceneTransition.pop()
+            elif screen == STATE_MENU:
+                return SceneTransition.replace(STATE_MENU)
+        # Return NONE - pause menu navigation and shader submenu handled in handle_input
         return SceneTransition.none()
 
     def update_transition(self, dt: float, game_state, ctx: dict) -> SceneTransition:

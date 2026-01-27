@@ -41,8 +41,16 @@ class TitleScene:
         pass
 
     def handle_input_transition(self, events, game_state, ctx: dict) -> SceneTransition:
-        """Stub: call existing logic; return NONE. Used by future scene-driven loop."""
-        self.handle_input(events, game_state, ctx)
+        """Call existing handle_input logic and process the result. Return transition if needed."""
+        result = self.handle_input(events, game_state, ctx)
+        # Process result to handle screen changes, quit, etc.
+        if result.get("quit"):
+            return SceneTransition.quit_game()
+        if result.get("screen") is not None:
+            # Map screen changes to transitions
+            screen = result["screen"]
+            if screen == STATE_MENU:
+                return SceneTransition.replace(STATE_MENU)
         return SceneTransition.none()
 
     def update_transition(self, dt: float, game_state, ctx: dict) -> SceneTransition:
