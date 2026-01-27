@@ -714,6 +714,475 @@ def _apply_scene_transition(transition: SceneTransition, scene_stack: SceneStack
     return False
 
 
+def _poll_events() -> list:
+    """Poll pygame events and return them."""
+    return pygame.event.get()
+
+
+def _handle_events(
+    events: list,
+    ctx: AppContext,
+    game_state: GameState,
+    scene_stack: SceneStack,
+    screen_ctx: dict,
+    previous_game_state: str | None,
+    pause_selected: int,
+    controls_selected: int,
+    controls_rebinding: bool,
+) -> tuple[bool, str | None, int, int, bool]:
+    """
+    Handle all input events. Returns (running, previous_game_state, pause_selected, controls_selected, controls_rebinding).
+    This function processes scene-driven input, fallback input, and legacy event handling.
+    """
+    running = True
+    handled_by_screen = False
+    current_scene = _get_current_scene(scene_stack)
+    
+    # Check for QUIT events first
+    for event in events:
+        if event.type == pygame.QUIT:
+            return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
+    
+    # Try scene-driven input handling first
+    if current_scene is not None:
+        try:
+            transition = current_scene.handle_input_transition(events, game_state, screen_ctx)
+            if transition.kind != KIND_NONE:
+                should_quit = _apply_scene_transition(transition, scene_stack, ctx, game_state)
+                if should_quit:
+                    return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
+                handled_by_screen = True
+            else:
+                # Transition is NONE, but handle_input was called (config changes applied)
+                current_state = _get_current_state(scene_stack) or game_state.current_screen
+                if current_state == STATE_MENU:
+                    handled_by_screen = False  # Let fallback process start_game
+                elif current_state in (STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE):
+                    handled_by_screen = True
+                elif current_state == STATE_PAUSED:
+                    handled_by_screen = False  # Let fallback process restart/quit
+        except AttributeError:
+            pass
+    
+    # Fallback to old input handling if scene path didn't handle it
+    current_state = _get_current_state(scene_stack) or game_state.current_screen
+    if not handled_by_screen and current_state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE, STATE_MENU):
+        if current_scene:
+            result = current_scene.handle_input(events, game_state, screen_ctx)
+        else:
+            h = SCREEN_HANDLERS.get(current_state)
+            result = h["handle_events"](events, game_state, screen_ctx) if h and h.get("handle_events") else {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False, "replay": False, "pop": False}
+        
+        if result.get("quit"):
+            return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
+        if result.get("pop"):
+            scene_stack.pop()
+            current_state = _get_current_state(scene_stack) or STATE_PLAYING
+            game_state.current_screen = current_state
+        if result.get("restart") or result.get("restart_to_wave1") or result.get("replay"):
+            game_state.reset_run(ctx, center_player=bool(result.get("restart_to_wave1") or result.get("replay")))
+            if result.get("restart"):
+                game_state.ui.menu_section = 0
+            if result.get("restart_to_wave1") or result.get("replay"):
+                spawn_system_start_wave(1, game_state)
+                scene_stack.clear()
+                scene_stack.push(GameplayScene(STATE_PLAYING))
+                game_state.current_screen = STATE_PLAYING
+                play_music("in-game", loop=True)
+        if result.get("start_game") and result.get("screen") == STATE_PLAYING:
+            stop_music()
+            play_music("in-game", loop=True)
+            if ctx.config.enable_telemetry:
+                ctx.telemetry_client = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
+            else:
+                ctx.telemetry_client = NoOpTelemetry()
+            stats = player_class_stats[ctx.config.player_class]
+            game_state.player_max_hp = int(1000 * stats["hp_mult"] * 0.75)
+            game_state.player_hp = game_state.player_max_hp
+            game_state.player_speed = int(ctx.config.player_base_speed * stats["speed_mult"])
+            game_state.player_bullet_damage = int(ctx.config.player_base_damage * stats["damage_mult"])
+            game_state.player_shoot_cooldown = ctx.config.player_base_shoot_cooldown / stats["firerate_mult"]
+            if game_state.ui.endurance_mode_selected == 1:
+                game_state.lives = 999
+                game_state.current_screen = STATE_ENDURANCE
+                game_state.previous_screen = STATE_ENDURANCE
+                scene_stack.clear()
+                scene_stack.push(GameplayScene(STATE_ENDURANCE))
+            else:
+                game_state.current_screen = STATE_PLAYING
+                game_state.previous_screen = STATE_PLAYING
+                scene_stack.clear()
+                scene_stack.push(GameplayScene(STATE_PLAYING))
+            if game_state.level_context:
+                game_state.level_context["telemetry"] = ctx.telemetry_client
+                game_state.level_context["telemetry_enabled"] = ctx.config.enable_telemetry
+                game_state.level_context["difficulty"] = ctx.config.difficulty
+                game_state.level_context["testing_mode"] = ctx.config.testing_mode
+                game_state.level_context["invulnerability_mode"] = ctx.config.invulnerability_mode
+            game_state.run_id = ctx.telemetry_client.start_run(game_state.run_started_at, game_state.player_max_hp) if ctx.config.enable_telemetry else None
+            ctx.last_telemetry_sample_t = -1.0
+            game_state.wave_reset_log.clear()
+            game_state.wave_start_reason = "menu_start"
+            spawn_system_start_wave(game_state.wave_number, game_state)
+        current_state = _get_current_state(scene_stack) or game_state.current_screen
+        if current_state == STATE_PAUSED:
+            pause_selected = game_state.ui.pause_selected
+        if result.get("screen") is not None and not result.get("start_game"):
+            new_screen = result["screen"]
+            game_state.current_screen = new_screen
+            if new_screen == STATE_MENU:
+                play_music("ambient2", loop=True)
+                scene_stack.clear()
+                scene_stack.push(OptionsScene())
+            elif new_screen == STATE_TITLE:
+                scene_stack.clear()
+                scene_stack.push(TitleScene())
+            elif new_screen == STATE_PAUSED:
+                scene_stack.push(PauseScene())
+            elif new_screen == STATE_NAME_INPUT:
+                scene_stack.push(NameInputScene())
+            elif new_screen == STATE_HIGH_SCORES:
+                scene_stack.push(HighScoreScene())
+            elif new_screen in (STATE_PLAYING, STATE_ENDURANCE):
+                if current_state == STATE_PAUSED:
+                    scene_stack.pop()
+                else:
+                    scene_stack.clear()
+                    scene_stack.push(GameplayScene(new_screen))
+        handled_by_screen = True
+    
+    # Legacy event handling for specific states
+    for event in events:
+        if handled_by_screen:
+            continue
+        if event.type == pygame.QUIT:
+            return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
+        
+        current_state = _get_current_state(scene_stack) or game_state.current_screen
+        
+        if current_state == STATE_NAME_INPUT and event.type == pygame.TEXTINPUT:
+            if len(game_state.player_name_input) < 20:
+                game_state.player_name_input += event.text
+        
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and current_state == STATE_CONTROLS and controls_rebinding:
+            action = controls_actions[controls_selected]
+            if action == "direct_allies":
+                ctx.controls[action] = MOUSE_BUTTON_RIGHT
+                save_controls(ctx.controls)
+                controls_rebinding = False
+        
+        if event.type == pygame.KEYDOWN:
+            if current_state == STATE_NAME_INPUT:
+                if event.key == pygame.K_BACKSPACE:
+                    game_state.player_name_input = game_state.player_name_input[:-1]
+                elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+                    if game_state.player_name_input.strip():
+                        save_high_score(
+                            game_state.player_name_input.strip(),
+                            game_state.final_score_for_high_score,
+                            game_state.wave_number - 1,
+                            game_state.survival_time,
+                            game_state.enemies_killed,
+                            ctx.config.difficulty
+                        )
+                    game_state.current_screen = STATE_HIGH_SCORES
+                    game_state.name_input_active = False
+                    scene_stack.pop()
+                    scene_stack.push(HighScoreScene())
+            
+            if event.key == pygame.K_ESCAPE:
+                if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
+                    previous_game_state = current_state
+                    game_state.previous_screen = previous_game_state
+                    game_state.ui.pause_selected = 0
+                    game_state.current_screen = STATE_PAUSED
+                    scene_stack.push(PauseScene())
+                elif current_state == STATE_PAUSED:
+                    scene_stack.pop()
+                    new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
+                    game_state.current_screen = new_state
+                elif current_state == STATE_CONTINUE:
+                    return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
+                elif current_state == STATE_CONTROLS:
+                    game_state.ui.pause_selected = 0
+                    game_state.current_screen = STATE_PAUSED
+                    scene_stack.push(PauseScene())
+                elif current_state == STATE_VICTORY or current_state == STATE_GAME_OVER or current_state == STATE_HIGH_SCORES:
+                    return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
+                elif current_state == STATE_NAME_INPUT:
+                    if game_state.player_name_input.strip():
+                        save_high_score(
+                            game_state.player_name_input.strip(),
+                            game_state.final_score_for_high_score,
+                            game_state.wave_number - 1,
+                            game_state.survival_time,
+                            game_state.enemies_killed,
+                            ctx.config.difficulty
+                        )
+                    game_state.current_screen = STATE_HIGH_SCORES
+                    game_state.name_input_active = False
+                    scene_stack.pop()
+                    scene_stack.push(HighScoreScene())
+            
+            if event.key == pygame.K_p:
+                if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
+                    previous_game_state = current_state
+                    game_state.previous_screen = previous_game_state
+                    game_state.ui.pause_selected = 0
+                    game_state.current_screen = STATE_PAUSED
+                    scene_stack.push(PauseScene())
+                elif current_state == STATE_PAUSED:
+                    scene_stack.pop()
+                    new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
+                    game_state.current_screen = new_state
+            
+            if event.key == pygame.K_F3:
+                _print_active_shader_profiles(ctx.config)
+            
+            if current_state == STATE_PAUSED:
+                if event.key == pygame.K_UP or event.key == pygame.K_w:
+                    pause_selected = (pause_selected - 1) % len(pause_options)
+                    game_state.ui.pause_selected = pause_selected
+                elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                    pause_selected = (pause_selected + 1) % len(pause_options)
+                    game_state.ui.pause_selected = pause_selected
+                elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                    choice = pause_options[pause_selected]
+                    if choice == "Continue":
+                        scene_stack.pop()
+                        new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
+                        game_state.current_screen = new_state
+                    elif choice == "Restart (Wave 1)":
+                        game_state.reset_run(ctx, center_player=True)
+                        scene_stack.clear()
+                        scene_stack.push(GameplayScene(STATE_PLAYING))
+                        game_state.current_screen = STATE_PLAYING
+                        spawn_system_start_wave(1, game_state)
+                        play_music("in-game", loop=True)
+                    elif choice == "Exit to main menu":
+                        play_music("ambient2", loop=True)
+                        scene_stack.clear()
+                        scene_stack.push(OptionsScene())
+                        game_state.current_screen = STATE_MENU
+                    elif choice == "Quit":
+                        return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
+            
+            if current_state == STATE_CONTROLS and controls_rebinding:
+                if event.key != pygame.K_ESCAPE:
+                    action = controls_actions[controls_selected]
+                    ctx.controls[action] = event.key
+                    save_controls(ctx.controls)
+                    controls_rebinding = False
+                else:
+                    controls_rebinding = False
+    
+    return running, previous_game_state, pause_selected, controls_selected, controls_rebinding
+
+
+def _step_simulation(
+    simulation_accumulator: float,
+    dt: float,
+    FIXED_DT: float,
+    MAX_SIMULATION_STEPS: int,
+    _update_simulation,
+    ctx: AppContext,
+    game_state: GameState,
+    scene_stack: SceneStack,
+    screen_ctx: dict,
+) -> tuple[float, bool]:
+    """Run fixed-step simulation updates. Returns (new_accumulator, should_quit)."""
+    simulation_accumulator += dt
+    steps = 0
+    should_quit = False
+    while simulation_accumulator >= FIXED_DT and steps < MAX_SIMULATION_STEPS:
+        # Try scene-driven update first
+        current_scene = _get_current_scene(scene_stack)
+        if current_scene is not None:
+            try:
+                transition = current_scene.update_transition(FIXED_DT, game_state, screen_ctx)
+                if transition.kind != KIND_NONE:
+                    should_quit = _apply_scene_transition(transition, scene_stack, ctx, game_state)
+                    if should_quit:
+                        break
+            except AttributeError:
+                # Scene doesn't have update_transition, fall through to old path
+                pass
+        
+        # Run simulation update (for gameplay scenes)
+        _update_simulation(FIXED_DT, game_state, ctx)
+        simulation_accumulator -= FIXED_DT
+        steps += 1
+    return simulation_accumulator, should_quit
+
+
+def _render_current_scene(ctx: AppContext, game_state: GameState, scene_stack: SceneStack, screen_ctx: dict) -> None:
+    """Render the current scene based on game state."""
+    current_state = _get_current_state(scene_stack) or game_state.current_screen
+    theme = level_themes.get(game_state.current_level, level_themes[1])
+    if current_state not in (STATE_PLAYING, STATE_ENDURANCE):
+        ctx.screen.fill(theme["bg_color"])
+
+    if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
+        lv = game_state.level
+        gameplay_ctx = {
+            "level_themes": level_themes,
+            "trapezoid_blocks": lv.trapezoid_blocks if lv else [],
+            "triangle_blocks": lv.triangle_blocks if lv else [],
+            "destructible_blocks": lv.destructible_blocks if lv else [],
+            "moveable_destructible_blocks": lv.moveable_blocks if lv else [],
+            "giant_blocks": lv.giant_blocks if lv else [],
+            "super_giant_blocks": lv.super_giant_blocks if lv else [],
+            "hazard_obstacles": lv.hazard_obstacles if lv else [],
+            "moving_health_zone": lv.moving_health_zone if lv else None,
+            "teleporter_pads": game_state.teleporter_pads,
+            "small_font": ctx.small_font,
+            "weapon_names": WEAPON_NAMES,
+            "WIDTH": ctx.width,
+            "HEIGHT": ctx.height,
+            "font": ctx.font,
+            "big_font": ctx.big_font,
+            "ui_show_hud": ctx.config.show_hud,
+            "ui_show_metrics": ctx.config.show_metrics,
+            "ui_show_health_bars": ctx.config.show_health_bars,
+            "overshield_max": overshield_max,
+            "grenade_cooldown": grenade_cooldown,
+            "missile_cooldown": missile_cooldown,
+            "ally_drop_cooldown": ally_drop_cooldown,
+            "overshield_recharge_cooldown": overshield_recharge_cooldown,
+            "shield_duration": shield_duration,
+            "aiming_mode": ctx.config.aim_mode,
+            "current_state": current_state,
+            "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
+            "screen_flash_duration": getattr(ctx.config, "screen_flash_duration", 0.25),
+            "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
+            "enable_wave_banner": getattr(ctx.config, "enable_wave_banner", True),
+        }
+        render_ctx = RenderContext.from_app_ctx(ctx)
+        render_gameplay_with_optional_shaders(render_ctx, game_state, {"app_ctx": ctx, "gameplay_ctx": gameplay_ctx})
+        
+        # Clean up expired UI tokens (state updates; timers decremented in update loop)
+        for dmg_num in game_state.damage_numbers[:]:
+            if dmg_num["timer"] <= 0:
+                game_state.damage_numbers.remove(dmg_num)
+        for msg in game_state.weapon_pickup_messages[:]:
+            if msg["timer"] <= 0:
+                game_state.weapon_pickup_messages.remove(msg)
+    elif current_state in (STATE_TITLE, STATE_MENU, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
+        render_ctx = RenderContext.from_app_ctx(ctx)
+        # When paused + enable_pause_shaders: render gameplay frame, apply pause stack, then draw UI on top
+        if current_state == STATE_PAUSED and getattr(ctx.config, "enable_pause_shaders", False):
+            lv = game_state.level
+            gameplay_ctx_pause = {
+                "level_themes": level_themes,
+                "trapezoid_blocks": lv.trapezoid_blocks if lv else [],
+                "triangle_blocks": lv.triangle_blocks if lv else [],
+                "destructible_blocks": lv.destructible_blocks if lv else [],
+                "moveable_destructible_blocks": lv.moveable_blocks if lv else [],
+                "giant_blocks": lv.giant_blocks if lv else [],
+                "super_giant_blocks": lv.super_giant_blocks if lv else [],
+                "hazard_obstacles": lv.hazard_obstacles if lv else [],
+                "moving_health_zone": lv.moving_health_zone if lv else None,
+                "teleporter_pads": game_state.teleporter_pads,
+                "small_font": ctx.small_font,
+                "weapon_names": WEAPON_NAMES,
+                "WIDTH": ctx.width,
+                "HEIGHT": ctx.height,
+                "font": ctx.font,
+                "big_font": ctx.big_font,
+                "ui_show_hud": ctx.config.show_hud,
+                "ui_show_metrics": ctx.config.show_metrics,
+                "ui_show_health_bars": ctx.config.show_health_bars,
+                "overshield_max": overshield_max,
+                "grenade_cooldown": grenade_cooldown,
+                "missile_cooldown": missile_cooldown,
+                "ally_drop_cooldown": ally_drop_cooldown,
+                "overshield_recharge_cooldown": overshield_recharge_cooldown,
+                "shield_duration": shield_duration,
+                "aiming_mode": ctx.config.aim_mode,
+                "current_state": current_state,
+                "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
+                "screen_flash_duration": getattr(ctx.config, "screen_flash_duration", 0.25),
+                "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
+                "enable_wave_banner": getattr(ctx.config, "enable_wave_banner", True),
+            }
+            offscreen = pygame.Surface((ctx.width, ctx.height)).convert_alpha()
+            offscreen.fill((0, 0, 0, 255))
+            render_gameplay_frame_to_surface(
+                offscreen, ctx.width, ctx.height,
+                ctx.font, ctx.big_font, ctx.small_font,
+                game_state, {"app_ctx": ctx, "gameplay_ctx": gameplay_ctx_pause},
+            )
+            pause_stack = get_pause_shader_stack(ctx.config)
+            surf = offscreen
+            eff_ctx = {"time": time.perf_counter()}
+            for eff in pause_stack:
+                surf = eff.apply(surf, 0.016, eff_ctx)
+            ctx.screen.blit(surf, (0, 0))
+        current_scene = scene_stack.current()
+        if current_scene:
+            current_scene.render(render_ctx, game_state, screen_ctx)
+        elif current_state in SCREEN_HANDLERS and SCREEN_HANDLERS[current_state].get("render"):
+            SCREEN_HANDLERS[current_state]["render"](render_ctx, game_state, screen_ctx)
+        # Config-based shader stacks and legacy lightweight effects
+        if current_state == STATE_PAUSED and not getattr(ctx.config, "enable_pause_shaders", False):
+            apply_pause_effects(render_ctx.screen, ctx)
+        elif current_state in (STATE_TITLE, STATE_MENU):
+            apply_menu_effects(render_ctx.screen, ctx)
+        # Apply config-based menu shader stack when enable_menu_shaders and menu_shader_profile != "none"
+        if current_state in (STATE_TITLE, STATE_MENU):
+            try:
+                menu_stack = get_menu_shader_stack(ctx.config)
+                if menu_stack:
+                    display = render_ctx.screen
+                    surf = display
+                    eff_ctx = {"time": game_state.run_time}
+                    for eff in menu_stack:
+                        if surf is None:
+                            break
+                        surf = eff.apply(surf, 0.016, eff_ctx)
+                    if surf is not None and surf is not display:
+                        display.blit(surf, (0, 0))
+            except Exception as e:
+                # If shader application fails, log and continue without shaders
+                print(f"[Menu shader] Error applying shader stack: {e}")
+                import traceback
+                traceback.print_exc()
+    elif current_state == STATE_GAME_OVER:
+        # Game over screen
+        # (Game over rendering would go here)
+        pass
+    elif current_state == STATE_VICTORY:
+        # Victory screen
+        # (Victory rendering would go here)
+        pass
+    elif current_state == STATE_CONTROLS:
+        # Controls menu
+        # (Controls menu rendering would go here)
+        pass
+
+
+def _handle_exit(ctx: AppContext, game_state: GameState) -> None:
+    """Handle cleanup and telemetry when exiting the game."""
+    run_ended_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if ctx.config.enable_telemetry and ctx.telemetry_client:
+        ctx.telemetry_client.end_run(
+            ended_at_iso=run_ended_at,
+            seconds_survived=game_state.run_time,
+            player_hp_end=game_state.player_hp,
+            shots_fired=game_state.shots_fired,
+            hits=game_state.hits,
+            damage_taken=game_state.damage_taken,
+            damage_dealt=game_state.damage_dealt,
+            enemies_spawned=game_state.enemies_spawned,
+            enemies_killed=game_state.enemies_killed,
+            deaths=game_state.deaths,
+            max_wave=game_state.wave_number,
+        )
+        ctx.telemetry_client.close()
+        print(f"Saved run_id={game_state.run_id} to game_telemetry.db")
+    pygame.quit()
+
+
 def _run_loop(app):
     """Run the main loop. app holds .ctx, .game_state, .scene_stack and loop params."""
     ctx = app.ctx
@@ -745,270 +1214,11 @@ def _run_loop(app):
             screen_ctx = {"WIDTH": ctx.width, "HEIGHT": ctx.height, "font": ctx.font, "big_font": ctx.big_font, "small_font": ctx.small_font, "get_high_scores": get_high_scores, "save_high_score": save_high_score, "difficulty": ctx.config.difficulty, "app_ctx": ctx}
 
             # Event handling
-            events = pygame.event.get()
-            for event in events:
-                if event.type == pygame.QUIT:
-                    running = False
-
-            handled_by_screen = False
-            # Try scene-driven input handling first
-            current_scene = _get_current_scene(scene_stack)
-            if running and current_scene is not None:
-                try:
-                    transition = current_scene.handle_input_transition(events, game_state, screen_ctx)
-                    # Always process the transition, even if NONE, to ensure handle_input was called
-                    if transition.kind != KIND_NONE:
-                        should_quit = _apply_scene_transition(transition, scene_stack, ctx, game_state)
-                        if should_quit:
-                            running = False
-                        handled_by_screen = True
-                        # Update state after transition
-                        current_state = _get_current_state(scene_stack) or game_state.current_screen
-                    else:
-                        # Transition is NONE, but handle_input was called (config changes applied)
-                        # For STATE_MENU, don't mark as handled so fallback can process start_game
-                        # For other scenes, mark as handled
-                        current_state = _get_current_state(scene_stack) or game_state.current_screen
-                        if current_state == STATE_MENU:
-                            # Don't mark as handled - let fallback path process start_game and other menu logic
-                            handled_by_screen = False
-                        elif current_state in (STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE):
-                            handled_by_screen = True
-                        elif current_state == STATE_PAUSED:
-                            # For pause, don't mark as handled - let fallback process restart/quit/screen changes
-                            handled_by_screen = False
-                except AttributeError:
-                    # Scene doesn't have handle_input_transition, fall through to old path
-                    pass
-            
-            # Fallback to old input handling if scene path didn't handle it
-            # Get current state from scene stack
-            current_state = _get_current_state(scene_stack) or game_state.current_screen
-            if running and not handled_by_screen and current_state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE, STATE_MENU):
-                if current_scene:
-                    result = current_scene.handle_input(events, game_state, screen_ctx)
-                else:
-                    h = SCREEN_HANDLERS.get(state)
-                    result = h["handle_events"](events, game_state, screen_ctx) if h and h.get("handle_events") else {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False, "replay": False, "pop": False}
-                # Apply result for both scene and fallback paths
-                if result.get("quit"):
-                    running = False
-                if result.get("pop"):
-                    scene_stack.pop()
-                    # State comes from scene stack now
-                    current_state = _get_current_state(scene_stack) or STATE_PLAYING
-                    game_state.current_screen = current_state
-                if result.get("restart") or result.get("restart_to_wave1") or result.get("replay"):
-                    game_state.reset_run(ctx, center_player=bool(result.get("restart_to_wave1") or result.get("replay")))
-                    if result.get("restart"):
-                        game_state.ui.menu_section = 0
-                    if result.get("restart_to_wave1") or result.get("replay"):
-                        spawn_system_start_wave(1, game_state)
-                        scene_stack.clear()
-                        scene_stack.push(GameplayScene(STATE_PLAYING))
-                        game_state.current_screen = STATE_PLAYING
-                        play_music("in-game", loop=True)
-                if result.get("start_game") and result.get("screen") == STATE_PLAYING:
-                    stop_music()
-                    play_music("in-game", loop=True)
-                    if ctx.config.enable_telemetry:
-                        ctx.telemetry_client = Telemetry(db_path="game_telemetry.db", flush_interval_s=0.5, max_buffer=700)
-                    else:
-                        ctx.telemetry_client = NoOpTelemetry()
-                    stats = player_class_stats[ctx.config.player_class]
-                    game_state.player_max_hp = int(1000 * stats["hp_mult"] * 0.75)
-                    game_state.player_hp = game_state.player_max_hp
-                    game_state.player_speed = int(ctx.config.player_base_speed * stats["speed_mult"])
-                    game_state.player_bullet_damage = int(ctx.config.player_base_damage * stats["damage_mult"])
-                    game_state.player_shoot_cooldown = ctx.config.player_base_shoot_cooldown / stats["firerate_mult"]
-                    if game_state.ui.endurance_mode_selected == 1:
-                        game_state.lives = 999
-                        game_state.current_screen = STATE_ENDURANCE
-                        game_state.previous_screen = STATE_ENDURANCE
-                        scene_stack.clear()
-                        scene_stack.push(GameplayScene(STATE_ENDURANCE))
-                    else:
-                        game_state.current_screen = STATE_PLAYING
-                        game_state.previous_screen = STATE_PLAYING
-                        scene_stack.clear()
-                        scene_stack.push(GameplayScene(STATE_PLAYING))
-                    if game_state.level_context:
-                        game_state.level_context["telemetry"] = ctx.telemetry_client
-                        game_state.level_context["telemetry_enabled"] = ctx.config.enable_telemetry
-                        game_state.level_context["difficulty"] = ctx.config.difficulty
-                        game_state.level_context["testing_mode"] = ctx.config.testing_mode
-                        game_state.level_context["invulnerability_mode"] = ctx.config.invulnerability_mode
-                    game_state.run_id = ctx.telemetry_client.start_run(game_state.run_started_at, game_state.player_max_hp) if ctx.config.enable_telemetry else None
-                    ctx.last_telemetry_sample_t = -1.0
-                    game_state.wave_reset_log.clear()
-                    game_state.wave_start_reason = "menu_start"
-                    spawn_system_start_wave(game_state.wave_number, game_state)
-                current_state = _get_current_state(scene_stack) or game_state.current_screen
-                if current_state == STATE_PAUSED:
-                    pause_selected = game_state.ui.pause_selected
-                if result.get("screen") is not None and not result.get("start_game"):
-                    # Apply screen change via transition
-                    new_screen = result["screen"]
-                    game_state.current_screen = new_screen
-                    if new_screen == STATE_MENU:
-                        play_music("ambient2", loop=True)
-                        scene_stack.clear()
-                        scene_stack.push(OptionsScene())
-                    elif new_screen == STATE_TITLE:
-                        scene_stack.clear()
-                        scene_stack.push(TitleScene())
-                    elif new_screen == STATE_PAUSED:
-                        scene_stack.push(PauseScene())
-                    elif new_screen == STATE_NAME_INPUT:
-                        scene_stack.push(NameInputScene())
-                    elif new_screen == STATE_HIGH_SCORES:
-                        scene_stack.push(HighScoreScene())
-                    elif new_screen in (STATE_PLAYING, STATE_ENDURANCE):
-                        # Resume from pause - pop pause scene instead of clearing
-                        if current_state == STATE_PAUSED:
-                            scene_stack.pop()
-                        else:
-                            scene_stack.clear()
-                            scene_stack.push(GameplayScene(new_screen))
-                handled_by_screen = True
-                current_state = _get_current_state(scene_stack) or game_state.current_screen
-                if current_state == STATE_MENU:
-                    menu_section = game_state.ui.menu_section
-
-            for event in events:
-                if handled_by_screen:
-                    continue
-                if event.type == pygame.QUIT:
-                    running = False
-                    continue
-
-                # Get current state from scene stack for event handling
-                current_state = _get_current_state(scene_stack) or game_state.current_screen
-                
-                # Handle text input for name input screen
-                if current_state == STATE_NAME_INPUT and event.type == pygame.TEXTINPUT:
-                    if len(game_state.player_name_input) < 20:  # Limit name length
-                        game_state.player_name_input += event.text
-                
-                # Controls rebinding: accept right-click for direct_allies
-                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and current_state == STATE_CONTROLS and controls_rebinding:
-                    action = controls_actions[controls_selected]
-                    if action == "direct_allies":
-                        ctx.controls[action] = MOUSE_BUTTON_RIGHT
-                        save_controls(ctx.controls)
-                        controls_rebinding = False
-
-                # Handle keyboard events
-                if event.type == pygame.KEYDOWN:
-                    # Handle name input
-                    if current_state == STATE_NAME_INPUT:
-                        if event.key == pygame.K_BACKSPACE:
-                            game_state.player_name_input = game_state.player_name_input[:-1]
-                        elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
-                            if game_state.player_name_input.strip():
-                                save_high_score(
-                                    game_state.player_name_input.strip(),
-                                    game_state.final_score_for_high_score,
-                                    game_state.wave_number - 1,
-                                    game_state.survival_time,
-                                    game_state.enemies_killed,
-                                    ctx.config.difficulty
-                                )
-                            game_state.current_screen = STATE_HIGH_SCORES
-                            game_state.name_input_active = False
-                            # Update scene stack: pop name input, push high scores
-                            scene_stack.pop()  # Remove NameInputScene
-                            scene_stack.push(HighScoreScene())
-                    
-                    # ESC key handling
-                    if event.key == pygame.K_ESCAPE:
-                        if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
-                            previous_game_state = current_state
-                            game_state.previous_screen = previous_game_state
-                            game_state.ui.pause_selected = 0
-                            game_state.current_screen = STATE_PAUSED
-                            scene_stack.push(PauseScene())
-                        elif current_state == STATE_PAUSED:
-                            scene_stack.pop()
-                            new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
-                            game_state.current_screen = new_state
-                        elif current_state == STATE_CONTINUE:
-                            running = False
-                        elif current_state == STATE_CONTROLS:
-                            game_state.ui.pause_selected = 0
-                            game_state.current_screen = STATE_PAUSED
-                            scene_stack.push(PauseScene())
-                        elif current_state == STATE_VICTORY or current_state == STATE_GAME_OVER or current_state == STATE_HIGH_SCORES:
-                            running = False
-                        elif current_state == STATE_NAME_INPUT:
-                            if game_state.player_name_input.strip():
-                                save_high_score(
-                                    game_state.player_name_input.strip(),
-                                    game_state.final_score_for_high_score,
-                                    game_state.wave_number - 1,
-                                    game_state.survival_time,
-                                    game_state.enemies_killed,
-                                    ctx.config.difficulty
-                                )
-                            game_state.current_screen = STATE_HIGH_SCORES
-                            game_state.name_input_active = False
-                            # Update scene stack: pop name input, push high scores
-                            scene_stack.pop()  # Remove NameInputScene
-                            scene_stack.push(HighScoreScene())
-                    
-                    # P key for pause
-                    if event.key == pygame.K_p:
-                        if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
-                            previous_game_state = current_state
-                            game_state.previous_screen = previous_game_state
-                            game_state.ui.pause_selected = 0
-                            game_state.current_screen = STATE_PAUSED
-                            scene_stack.push(PauseScene())
-                        elif current_state == STATE_PAUSED:
-                            scene_stack.pop()
-                            new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
-                            game_state.current_screen = new_state
-                    # F3: debug-only — print active shader profiles (no cycling)
-                    if event.key == pygame.K_F3:
-                        _print_active_shader_profiles(ctx.config)
-                    # Pause menu navigation (fallback when not using screen handler)
-                    if current_state == STATE_PAUSED:
-                        if event.key == pygame.K_UP or event.key == pygame.K_w:
-                            pause_selected = (pause_selected - 1) % len(pause_options)
-                            game_state.ui.pause_selected = pause_selected
-                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                            pause_selected = (pause_selected + 1) % len(pause_options)
-                            game_state.ui.pause_selected = pause_selected
-                        elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                            choice = pause_options[pause_selected]
-                            if choice == "Continue":
-                                scene_stack.pop()
-                                new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
-                                game_state.current_screen = new_state
-                            elif choice == "Restart (Wave 1)":
-                                game_state.reset_run(ctx, center_player=True)
-                                scene_stack.clear()
-                                scene_stack.push(GameplayScene(STATE_PLAYING))
-                                game_state.current_screen = STATE_PLAYING
-                                spawn_system_start_wave(1, game_state)
-                                play_music("in-game", loop=True)
-                            elif choice == "Exit to main menu":
-                                play_music("ambient2", loop=True)
-                                scene_stack.clear()
-                                scene_stack.push(OptionsScene())
-                                game_state.current_screen = STATE_MENU
-                            elif choice == "Quit":
-                                running = False
-                    
-                    # Controls rebinding
-                    if current_state == STATE_CONTROLS and controls_rebinding:
-                        if event.key != pygame.K_ESCAPE:
-                            action = controls_actions[controls_selected]
-                            ctx.controls[action] = event.key
-                            save_controls(ctx.controls)
-                            controls_rebinding = False
-                        else:
-                            controls_rebinding = False
+            events = _poll_events()
+            running, previous_game_state, pause_selected, controls_selected, controls_rebinding = _handle_events(
+                events, ctx, game_state, scene_stack, screen_ctx,
+                previous_game_state, pause_selected, controls_selected, controls_rebinding
+            )
 
             # Game state updates (only when playing)
             current_state = _get_current_state(scene_stack) or game_state.current_screen
@@ -1075,29 +1285,12 @@ def _run_loop(app):
                 handle_gameplay_input(events, game_state, gameplay_input_ctx)
 
                 # Fixed-step simulation: run one or more steps with FIXED_DT
-                simulation_accumulator += dt
-                steps = 0
-                while simulation_accumulator >= FIXED_DT and steps < MAX_SIMULATION_STEPS:
-                    # Try scene-driven update first
-                    current_scene = _get_current_scene(scene_stack)
-                    if current_scene is not None:
-                        try:
-                            transition = current_scene.update_transition(FIXED_DT, game_state, screen_ctx)
-                            if transition.kind != KIND_NONE:
-                                should_quit = _apply_scene_transition(transition, scene_stack, ctx, game_state)
-                                if should_quit:
-                                    running = False
-                                    break
-                                # State updated by transition
-                                current_state = _get_current_state(scene_stack) or game_state.current_screen
-                        except AttributeError:
-                            # Scene doesn't have update_transition, fall through to old path
-                            pass
-                    
-                    # Run simulation update (for gameplay scenes)
-                    _update_simulation(FIXED_DT, game_state, ctx)
-                    simulation_accumulator -= FIXED_DT
-                    steps += 1
+                simulation_accumulator, should_quit = _step_simulation(
+                    simulation_accumulator, dt, FIXED_DT, MAX_SIMULATION_STEPS,
+                    _update_simulation, ctx, game_state, scene_stack, screen_ctx
+                )
+                if should_quit:
+                    running = False
                 # Optional: for future render interpolation (smooth between steps)
                 setattr(game_state, "simulation_interpolation", simulation_accumulator / FIXED_DT if FIXED_DT else 0.0)
                 update_telemetry(game_state, dt, ctx)
@@ -1105,149 +1298,7 @@ def _run_loop(app):
                 current_state = _get_current_state(scene_stack) or game_state.current_screen
 
             # Rendering
-            current_state = _get_current_state(scene_stack) or game_state.current_screen
-            theme = level_themes.get(game_state.current_level, level_themes[1])
-            if current_state not in (STATE_PLAYING, STATE_ENDURANCE):
-                ctx.screen.fill(theme["bg_color"])
-
-            if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
-                lv = game_state.level
-                gameplay_ctx = {
-                    "level_themes": level_themes,
-                    "trapezoid_blocks": lv.trapezoid_blocks if lv else [],
-                    "triangle_blocks": lv.triangle_blocks if lv else [],
-                    "destructible_blocks": lv.destructible_blocks if lv else [],
-                    "moveable_destructible_blocks": lv.moveable_blocks if lv else [],
-                    "giant_blocks": lv.giant_blocks if lv else [],
-                    "super_giant_blocks": lv.super_giant_blocks if lv else [],
-                    "hazard_obstacles": lv.hazard_obstacles if lv else [],
-                    "moving_health_zone": lv.moving_health_zone if lv else None,
-                    "teleporter_pads": game_state.teleporter_pads,
-                    "small_font": ctx.small_font,
-                    "weapon_names": WEAPON_NAMES,
-                    "WIDTH": ctx.width,
-                    "HEIGHT": ctx.height,
-                    "font": ctx.font,
-                    "big_font": ctx.big_font,
-                    "ui_show_hud": ctx.config.show_hud,
-                    "ui_show_metrics": ctx.config.show_metrics,
-                    "ui_show_health_bars": ctx.config.show_health_bars,
-                    "overshield_max": overshield_max,
-                    "grenade_cooldown": grenade_cooldown,
-                    "missile_cooldown": missile_cooldown,
-                    "ally_drop_cooldown": ally_drop_cooldown,
-                    "overshield_recharge_cooldown": overshield_recharge_cooldown,
-                    "shield_duration": shield_duration,
-                    "aiming_mode": ctx.config.aim_mode,
-                    "current_state": current_state,
-                    "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
-                    "screen_flash_duration": getattr(ctx.config, "screen_flash_duration", 0.25),
-                    "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
-                    "enable_wave_banner": getattr(ctx.config, "enable_wave_banner", True),
-                }
-                render_ctx = RenderContext.from_app_ctx(ctx)
-                render_gameplay_with_optional_shaders(render_ctx, game_state, {"app_ctx": ctx, "gameplay_ctx": gameplay_ctx})
-                
-                # Clean up expired UI tokens (state updates; timers decremented in update loop)
-                for dmg_num in game_state.damage_numbers[:]:
-                    if dmg_num["timer"] <= 0:
-                        game_state.damage_numbers.remove(dmg_num)
-                for msg in game_state.weapon_pickup_messages[:]:
-                    if msg["timer"] <= 0:
-                        game_state.weapon_pickup_messages.remove(msg)
-            elif current_state in (STATE_TITLE, STATE_MENU, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
-                render_ctx = RenderContext.from_app_ctx(ctx)
-                # When paused + enable_pause_shaders: render gameplay frame, apply pause stack, then draw UI on top
-                if current_state == STATE_PAUSED and getattr(ctx.config, "enable_pause_shaders", False):
-                    lv = game_state.level
-                    gameplay_ctx_pause = {
-                        "level_themes": level_themes,
-                        "trapezoid_blocks": lv.trapezoid_blocks if lv else [],
-                        "triangle_blocks": lv.triangle_blocks if lv else [],
-                        "destructible_blocks": lv.destructible_blocks if lv else [],
-                        "moveable_destructible_blocks": lv.moveable_blocks if lv else [],
-                        "giant_blocks": lv.giant_blocks if lv else [],
-                        "super_giant_blocks": lv.super_giant_blocks if lv else [],
-                        "hazard_obstacles": lv.hazard_obstacles if lv else [],
-                        "moving_health_zone": lv.moving_health_zone if lv else None,
-                        "teleporter_pads": game_state.teleporter_pads,
-                        "small_font": ctx.small_font,
-                        "weapon_names": WEAPON_NAMES,
-                        "WIDTH": ctx.width,
-                        "HEIGHT": ctx.height,
-                        "font": ctx.font,
-                        "big_font": ctx.big_font,
-                        "ui_show_hud": ctx.config.show_hud,
-                        "ui_show_metrics": ctx.config.show_metrics,
-                        "ui_show_health_bars": ctx.config.show_health_bars,
-                        "overshield_max": overshield_max,
-                        "grenade_cooldown": grenade_cooldown,
-                        "missile_cooldown": missile_cooldown,
-                        "ally_drop_cooldown": ally_drop_cooldown,
-                        "overshield_recharge_cooldown": overshield_recharge_cooldown,
-                        "shield_duration": shield_duration,
-                        "aiming_mode": ctx.config.aim_mode,
-                        "current_state": current_state,
-                        "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
-                        "screen_flash_duration": getattr(ctx.config, "screen_flash_duration", 0.25),
-                        "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
-                        "enable_wave_banner": getattr(ctx.config, "enable_wave_banner", True),
-                    }
-                    offscreen = pygame.Surface((ctx.width, ctx.height)).convert_alpha()
-                    offscreen.fill((0, 0, 0, 255))
-                    render_gameplay_frame_to_surface(
-                        offscreen, ctx.width, ctx.height,
-                        ctx.font, ctx.big_font, ctx.small_font,
-                        game_state, {"app_ctx": ctx, "gameplay_ctx": gameplay_ctx_pause},
-                    )
-                    pause_stack = get_pause_shader_stack(ctx.config)
-                    surf = offscreen
-                    eff_ctx = {"time": time.perf_counter()}
-                    for eff in pause_stack:
-                        surf = eff.apply(surf, 0.016, eff_ctx)
-                    ctx.screen.blit(surf, (0, 0))
-                current_scene = scene_stack.current()
-                if current_scene:
-                    current_scene.render(render_ctx, game_state, screen_ctx)
-                elif current_state in SCREEN_HANDLERS and SCREEN_HANDLERS[current_state].get("render"):
-                    SCREEN_HANDLERS[current_state]["render"](render_ctx, game_state, screen_ctx)
-                # Config-based shader stacks and legacy lightweight effects
-                if current_state == STATE_PAUSED and not getattr(ctx.config, "enable_pause_shaders", False):
-                    apply_pause_effects(render_ctx.screen, ctx)
-                elif current_state in (STATE_TITLE, STATE_MENU):
-                    apply_menu_effects(render_ctx.screen, ctx)
-                # Apply config-based menu shader stack when enable_menu_shaders and menu_shader_profile != "none"
-                if current_state in (STATE_TITLE, STATE_MENU):
-                    try:
-                        menu_stack = get_menu_shader_stack(ctx.config)
-                        if menu_stack:
-                            display = render_ctx.screen
-                            surf = display
-                            eff_ctx = {"time": game_state.run_time}
-                            for eff in menu_stack:
-                                if surf is None:
-                                    break
-                                surf = eff.apply(surf, 0.016, eff_ctx)
-                            if surf is not None and surf is not display:
-                                display.blit(surf, (0, 0))
-                    except Exception as e:
-                        # If shader application fails, log and continue without shaders
-                        print(f"[Menu shader] Error applying shader stack: {e}")
-                        import traceback
-                        traceback.print_exc()
-            elif current_state == STATE_GAME_OVER:
-                # Game over screen
-                # (Game over rendering would go here)
-                pass
-            elif current_state == STATE_VICTORY:
-                # Victory screen
-                # (Victory rendering would go here)
-                pass
-            elif current_state == STATE_CONTROLS:
-                # Controls menu
-                # (Controls menu rendering would go here)
-                pass
-            
+            _render_current_scene(ctx, game_state, scene_stack, screen_ctx)
             pygame.display.flip()
 
             # Write flow state back to GameState after this iteration
@@ -1272,24 +1323,7 @@ def _run_loop(app):
         raise
     
     finally:
-        run_ended_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        if ctx.config.enable_telemetry and ctx.telemetry_client:
-            ctx.telemetry_client.end_run(
-                ended_at_iso=run_ended_at,
-                seconds_survived=game_state.run_time,
-                player_hp_end=game_state.player_hp,
-                shots_fired=game_state.shots_fired,
-                hits=game_state.hits,
-                damage_taken=game_state.damage_taken,
-                damage_dealt=game_state.damage_dealt,
-                enemies_spawned=game_state.enemies_spawned,
-                enemies_killed=game_state.enemies_killed,
-                deaths=game_state.deaths,
-                max_wave=game_state.wave_number,
-            )
-            ctx.telemetry_client.close()
-            print(f"Saved run_id={game_state.run_id} to game_telemetry.db")
-        pygame.quit()
+        _handle_exit(ctx, game_state)
 
 
 def main():
