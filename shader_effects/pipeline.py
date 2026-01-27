@@ -10,6 +10,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 import logging
 
+from shader_effects.registry import get_shader_spec, ShaderCategory as RegistryCategory
+from shader_effects.context import ShaderContext
+
 if TYPE_CHECKING:
     import pygame
 
@@ -33,6 +36,8 @@ class ShaderEntry:
     render_pass: Optional[Callable[[Any, float, dict], Any]] = None
     default_uniforms: dict[str, Any] = field(default_factory=dict)
     custom_uniforms: dict[str, Any] = field(default_factory=dict)
+    fail_count: int = 0
+    max_failures: int = 5
 
 
 class ShaderPipelineManager:
@@ -76,9 +81,27 @@ class ShaderPipelineManager:
             render_pass=pass_fn,
             default_uniforms=default_uniforms or {},
         )
+        
+        # Look up registry defaults
+        spec = get_shader_spec(name)
+        if spec is not None:
+            # Only populate uniforms if they're not already provided
+            if not entry.default_uniforms:
+                entry.default_uniforms.update(spec.default_uniforms)
+            else:
+                # Merge: registry defaults for missing keys
+                for key, value in spec.default_uniforms.items():
+                    if key not in entry.default_uniforms:
+                        entry.default_uniforms[key] = value
+        
         self._shaders.append(entry)
         self._shader_map[name] = entry
         self._sort_shaders()
+        
+        # Log pipeline order once after setup
+        if len(self._shaders) == 1:  # First shader added
+            logger.info("Shader pipeline initialized")
+        logger.debug("Shader pipeline order: %s", [e.name for e in self._shaders])
     
     def remove_shader(self, name: str) -> bool:
         """
@@ -152,7 +175,7 @@ class ShaderPipelineManager:
         self,
         screen_texture: "pygame.Surface",
         dt: float = 0.016,
-        context: Optional[dict] = None,
+        context: Optional[ShaderContext] = None,
     ) -> "pygame.Surface":
         """
         Execute all enabled shaders in the pipeline order.
@@ -176,7 +199,7 @@ class ShaderPipelineManager:
             
             try:
                 # Merge default and custom uniforms into context
-                shader_ctx = {**context}
+                shader_ctx: dict[str, Any] = {**context}
                 shader_ctx.update(entry.default_uniforms)
                 shader_ctx.update(entry.custom_uniforms)
                 
@@ -184,10 +207,21 @@ class ShaderPipelineManager:
                 if result is not None:
                     current_surface = result
             except Exception as e:
-                if self._safe_mode:
-                    logger.error(f"Shader '{entry.name}' failed: {e}", exc_info=True)
-                    # Continue with next shader
-                else:
+                entry.fail_count += 1
+                cat = getattr(entry, "category", None)
+                cat_name = getattr(cat, "name", str(cat)) if cat else "unknown"
+                logger.error(
+                    "Shader '%s' (category %s) failed (%d/%d): %s",
+                    entry.name, cat_name, entry.fail_count, entry.max_failures, e,
+                    exc_info=True,
+                )
+                if self._safe_mode and entry.fail_count >= entry.max_failures:
+                    entry.enabled = False
+                    logger.error(
+                        "Disabling shader '%s' after %d repeated failures",
+                        entry.name, entry.max_failures
+                    )
+                if not self._safe_mode:
                     raise
         
         return current_surface

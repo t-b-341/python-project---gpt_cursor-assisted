@@ -1,14 +1,15 @@
-#version 330
+#version 330 core
+// Pixelation shader; u_PixelSize is block size in screen pixels.
 
 uniform sampler2D u_frame_texture;
-uniform float u_PixelSize;  // Pixel size multiplier (1.0 = no pixelation)
+uniform float u_PixelSize;
 
 in vec2 v_uv;
 out vec4 fragColor;
 
 void main() {
-    // Quantize UV coordinates to create pixelation effect
-    vec2 pixelated_uv = floor(v_uv * u_PixelSize) / u_PixelSize;
-    
-    fragColor = texture(u_frame_texture, pixelated_uv);
+    vec2 texSize = vec2(textureSize(u_frame_texture, 0));
+    vec2 pixelSize = vec2(u_PixelSize) / texSize;
+    vec2 uvQuantized = floor(v_uv / pixelSize) * pixelSize;
+    fragColor = texture(u_frame_texture, uvQuantized);
 }

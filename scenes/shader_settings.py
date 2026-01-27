@@ -22,33 +22,18 @@ from gpu_gl_utils import (
 )
 from shader_effects.managers import get_shockwave_manager, get_screenshake_manager, get_light_manager
 from shader_effects.pipeline import ShaderPipelineManager, ShaderCategory as PipelineCategory
+from shader_effects.registry import SHADER_SPECS, ShaderCategory as RegistryCategory, get_shader_spec
+from collections import defaultdict
 
 if TYPE_CHECKING:
     from state import GameState
 
 SHADER_SETTINGS_STATE_ID = "SHADER_SETTINGS"
 
-# Default shader uniform values
-DEFAULT_UNIFORMS: Dict[str, Dict[str, Any]] = {
-    "vignette": {"u_Radius": 0.78, "u_Smoothness": 0.22, "u_Intensity": 0.4},
-    "pixelate": {"u_PixelSize": 1.0},
-    "chromatic_aberration": {"u_Intensity": 0.3},
-    "distortion": {"u_Strength": 0.3, "u_Time": 0.0},
-    "shockwave": {"u_Center": (0.5, 0.5), "u_Time": 0.0, "u_Amplitude": 5.0, "u_Speed": 10.0},
-    "screenshake": {"u_ShakeIntensity": 0.0, "u_ShakeTime": 0.0},
-    "gradient_fog": {"u_Start": 0.0, "u_End": 0.7, "u_FogColor": (0.5, 0.6, 0.8), "u_Intensity": 0.5},
-    "film_grain": {"u_Intensity": 0.1, "u_Time": 0.0},
-    "crt_scanlines": {"u_Time": 0.0},
-    "radial_light_mask": {"u_LightCenter": (0.5, 0.5), "u_InnerRadius": 0.1, "u_OuterRadius": 0.8, "u_Intensity": 1.0},
-    "edge_detect": {"u_Threshold": 0.1, "u_Color": (1.0, 1.0, 0.0), "u_Intensity": 0.5},
-    "time_warp": {"u_TimeScale": 1.0, "u_Time": 0.0, "u_ChromaticAberration": 0.0},
-    "water_ripple": {"u_Center": (0.5, 0.5), "u_Time": 0.0, "u_Speed": 2.0, "u_Frequency": 5.0, "u_Amplitude": 0.5},
-    "additive_light": {"u_Color": (1.0, 1.0, 1.0), "u_Intensity": 0.5},
-    "bloom_extract": {"u_Threshold": 0.7},
-    "bloom_combine": {"u_Intensity": 0.5},
-    "color_grade": {"u_LUT_Size": 16.0, "u_Intensity": 0.5},
-    "lighting": {"u_ambient_color": (0.2, 0.2, 0.3), "u_ambient_intensity": 0.3},
-}
+# Build shaders by category from registry
+shaders_by_category: dict[RegistryCategory, list[str]] = defaultdict(list)
+for spec in SHADER_SPECS.values():
+    shaders_by_category[spec.category].append(spec.name)
 
 
 class ShaderSettingsScreen:
@@ -72,9 +57,9 @@ class ShaderSettingsScreen:
         self.shader_uniforms: Dict[str, Dict[str, Any]] = {}
         self.shader_enabled: Dict[str, bool] = {}
         
-        # Initialize with defaults first
-        for shader_name, defaults in DEFAULT_UNIFORMS.items():
-            self.shader_uniforms[shader_name] = defaults.copy()
+        # Initialize with defaults from registry
+        for shader_name, spec in SHADER_SPECS.items():
+            self.shader_uniforms[shader_name] = spec.default_uniforms.copy()
         
         # Load saved settings (will merge with defaults)
         self._load_settings()
@@ -130,37 +115,53 @@ class ShaderSettingsScreen:
         """Navigate up in current selection."""
         if self.selected_shader:
             # Navigate shader list
-            shaders = get_shaders_by_category(self.selected_category or ShaderCategory.CORE)
+            try:
+                cat_enum = RegistryCategory[self.selected_category] if self.selected_category else RegistryCategory.CORE
+                shaders = shaders_by_category.get(cat_enum, [])
+            except KeyError:
+                shaders = []
             if shaders:
                 idx = shaders.index(self.selected_shader) if self.selected_shader in shaders else 0
                 idx = max(0, idx - 1)
                 self.selected_shader = shaders[idx]
         elif self.selected_category:
             # Navigate category list
-            categories = get_all_categories()
+            categories = list(RegistryCategory)
             if categories:
-                idx = categories.index(self.selected_category) if self.selected_category in categories else 0
+                try:
+                    current_cat = RegistryCategory[self.selected_category]
+                    idx = categories.index(current_cat)
+                except (KeyError, ValueError):
+                    idx = 0
                 idx = max(0, idx - 1)
-                self.selected_category = categories[idx]
+                self.selected_category = categories[idx].value.upper()
                 # Select first shader in new category
-                shaders = get_shaders_by_category(self.selected_category)
+                shaders = shaders_by_category.get(categories[idx], [])
                 self.selected_shader = shaders[0] if shaders else None
     
     def _navigate_down(self) -> None:
         """Navigate down in current selection."""
         if self.selected_shader:
-            shaders = get_shaders_by_category(self.selected_category or ShaderCategory.CORE)
+            try:
+                cat_enum = RegistryCategory[self.selected_category] if self.selected_category else RegistryCategory.CORE
+                shaders = shaders_by_category.get(cat_enum, [])
+            except KeyError:
+                shaders = []
             if shaders:
                 idx = shaders.index(self.selected_shader) if self.selected_shader in shaders else 0
                 idx = min(len(shaders) - 1, idx + 1)
                 self.selected_shader = shaders[idx]
         elif self.selected_category:
-            categories = get_all_categories()
+            categories = list(RegistryCategory)
             if categories:
-                idx = categories.index(self.selected_category) if self.selected_category in categories else 0
+                try:
+                    current_cat = RegistryCategory[self.selected_category]
+                    idx = categories.index(current_cat)
+                except (KeyError, ValueError):
+                    idx = 0
                 idx = min(len(categories) - 1, idx + 1)
-                self.selected_category = categories[idx]
-                shaders = get_shaders_by_category(self.selected_category)
+                self.selected_category = categories[idx].value.upper()
+                shaders = shaders_by_category.get(categories[idx], [])
                 self.selected_shader = shaders[0] if shaders else None
     
     def _navigate_left(self) -> None:
@@ -171,7 +172,11 @@ class ShaderSettingsScreen:
     def _navigate_right(self) -> None:
         """Navigate to shader selection."""
         if self.selected_category and not self.selected_shader:
-            shaders = get_shaders_by_category(self.selected_category)
+            try:
+                cat_enum = RegistryCategory[self.selected_category]
+                shaders = shaders_by_category.get(cat_enum, [])
+            except KeyError:
+                shaders = []
             self.selected_shader = shaders[0] if shaders else None
     
     def _toggle_selected_shader(self) -> None:
@@ -303,16 +308,17 @@ class ShaderSettingsScreen:
         pygame.draw.rect(screen, (30, 30, 40), (x, y, w, h))
         pygame.draw.rect(screen, (60, 60, 80), (x, y, w, h), 2)
         
-        categories = get_all_categories()
+        categories = list(RegistryCategory)
         font = render_ctx.font
         start_y = y + 20
         
         for i, cat in enumerate(categories):
-            color = (255, 255, 255) if cat == self.selected_category else (180, 180, 180)
-            if cat == self.selected_category:
+            cat_name = cat.value.upper()
+            color = (255, 255, 255) if cat_name == self.selected_category else (180, 180, 180)
+            if cat_name == self.selected_category:
                 pygame.draw.rect(screen, (60, 60, 100), (x + 5, start_y + i * 30 - 2, w - 10, 26))
             
-            text = font.render(cat, True, color)
+            text = font.render(cat_name, True, color)
             screen.blit(text, (x + 10, start_y + i * 30))
     
     def _render_shader_list(self, screen: pygame.Surface, x: int, y: int, w: int, h: int, render_ctx: RenderContext) -> None:
@@ -325,7 +331,13 @@ class ShaderSettingsScreen:
             screen.blit(text, (x + 10, y + 20))
             return
         
-        shaders = get_shaders_by_category(self.selected_category)
+        # Find category enum from string
+        try:
+            cat_enum = RegistryCategory[self.selected_category]
+            shaders = shaders_by_category.get(cat_enum, [])
+        except KeyError:
+            shaders = []
+        
         font = render_ctx.font
         start_y = y + 20
         
@@ -461,14 +473,16 @@ class ShaderSettingsScreen:
             saved_enabled = settings.get("enabled", {})
             self.shader_enabled.update(saved_enabled)
             
-            # Load uniforms, merging with defaults
+            # Load uniforms, merging with registry defaults
             saved_uniforms = settings.get("uniforms", {})
             for shader_name, saved_values in saved_uniforms.items():
-                if shader_name in self.shader_uniforms:
-                    # Update existing defaults with saved values
+                spec = get_shader_spec(shader_name)
+                if spec:
+                    # Start with registry defaults, then apply saved values
+                    self.shader_uniforms[shader_name] = spec.default_uniforms.copy()
                     self.shader_uniforms[shader_name].update(saved_values)
                 else:
-                    # New shader not in defaults
+                    # Unknown shader, use saved values as-is
                     self.shader_uniforms[shader_name] = saved_values
             
             print(f"[ShaderSettings] Loaded settings from {config_path}")
@@ -478,11 +492,17 @@ class ShaderSettingsScreen:
     
     def on_enter(self, game_state: "GameState", ctx: dict) -> None:
         """Called when scene is entered."""
+        if not HAS_MODERNGL:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("Shader settings unavailable: moderngl not installed")
+            return
+        
         if not self.selected_category:
-            categories = get_all_categories()
-            self.selected_category = categories[0] if categories else None
-            if self.selected_category:
-                shaders = get_shaders_by_category(self.selected_category)
+            categories = list(RegistryCategory)
+            if categories:
+                self.selected_category = categories[0].value.upper()
+                shaders = shaders_by_category.get(categories[0], [])
                 self.selected_shader = shaders[0] if shaders else None
     
     def on_exit(self, game_state: "GameState", ctx: dict) -> None:

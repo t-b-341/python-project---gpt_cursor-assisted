@@ -5,10 +5,15 @@ Provides a consistent interface for setting shader uniforms across different
 shader backends (moderngl, pygame shaders, etc.).
 """
 from __future__ import annotations
+
+import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import moderngl
+
+logger = logging.getLogger(__name__)
+_FAILED_UNIFORMS: set[tuple[int, str]] = set()
 
 
 def set_float(shader: Any, name: str, value: float) -> None:
@@ -21,8 +26,14 @@ def set_float(shader: Any, name: str, value: float) -> None:
         elif hasattr(shader, "set_uniform"):
             shader.set_uniform(name, float(value))
     except (AttributeError, KeyError, TypeError) as e:
-        # Silently fail if shader doesn't support this uniform
-        pass
+        key = (id(shader), name)
+        if key not in _FAILED_UNIFORMS:
+            _FAILED_UNIFORMS.add(key)
+            logger.debug(
+                "Failed to set uniform '%s' on shader %r: %s",
+                name, shader, e,
+            )
+        return
 
 
 def set_int(shader: Any, name: str, value: int) -> None:
@@ -35,8 +46,14 @@ def set_int(shader: Any, name: str, value: int) -> None:
         elif hasattr(shader, "set_uniform"):
             shader.set_uniform(name, int(value))
     except (AttributeError, KeyError, TypeError) as e:
-        # Silently fail if shader doesn't support this uniform
-        pass
+        key = (id(shader), name)
+        if key not in _FAILED_UNIFORMS:
+            _FAILED_UNIFORMS.add(key)
+            logger.debug(
+                "Failed to set uniform '%s' on shader %r: %s",
+                name, shader, e,
+            )
+        return
 
 
 def set_vec2(shader: Any, name: str, value: tuple[float, float]) -> None:
@@ -50,8 +67,14 @@ def set_vec2(shader: Any, name: str, value: tuple[float, float]) -> None:
         elif hasattr(shader, "set_uniform"):
             shader.set_uniform(name, (x, y))
     except (AttributeError, KeyError, TypeError, IndexError) as e:
-        # Silently fail if shader doesn't support this uniform
-        pass
+        key = (id(shader), name)
+        if key not in _FAILED_UNIFORMS:
+            _FAILED_UNIFORMS.add(key)
+            logger.debug(
+                "Failed to set uniform '%s' on shader %r: %s",
+                name, shader, e,
+            )
+        return
 
 
 def set_vec3(shader: Any, name: str, value: tuple[float, float, float]) -> None:
@@ -65,8 +88,14 @@ def set_vec3(shader: Any, name: str, value: tuple[float, float, float]) -> None:
         elif hasattr(shader, "set_uniform"):
             shader.set_uniform(name, (r, g, b))
     except (AttributeError, KeyError, TypeError, IndexError) as e:
-        # Silently fail if shader doesn't support this uniform
-        pass
+        key = (id(shader), name)
+        if key not in _FAILED_UNIFORMS:
+            _FAILED_UNIFORMS.add(key)
+            logger.debug(
+                "Failed to set uniform '%s' on shader %r: %s",
+                name, shader, e,
+            )
+        return
 
 
 def set_sampler(shader: Any, name: str, texture: Any) -> None:
@@ -79,5 +108,11 @@ def set_sampler(shader: Any, name: str, texture: Any) -> None:
         elif hasattr(shader, "set_uniform"):
             shader.set_uniform(name, texture)
     except (AttributeError, KeyError, TypeError) as e:
-        # Silently fail if shader doesn't support this uniform
-        pass
+        key = (id(shader), name)
+        if key not in _FAILED_UNIFORMS:
+            _FAILED_UNIFORMS.add(key)
+            logger.debug(
+                "Failed to set uniform '%s' on shader %r: %s",
+                name, shader, e,
+            )
+        return

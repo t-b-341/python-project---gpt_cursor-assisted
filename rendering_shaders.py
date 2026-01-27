@@ -1,12 +1,15 @@
 """Optional shader-based gameplay rendering wrapper. Renders to offscreen then blit; ready for future GPU pass."""
 from __future__ import annotations
 
+import logging
 import time
 import pygame
 
 from rendering import RenderContext
 from visual_effects import apply_gameplay_effects, apply_gameplay_final_blit
 from shader_effects import get_gameplay_shader_stack
+from shader_effects.pipeline import ShaderPipelineManager
+from shader_effects.context import ShaderContext
 
 try:
     from gpu_gl_utils import get_gl_context, get_fullscreen_quad, gpu_upscale_surface, HAS_MODERNGL
@@ -15,6 +18,33 @@ except ImportError:
     get_gl_context = None  # type: ignore[assignment]
     get_fullscreen_quad = None  # type: ignore[assignment]
     gpu_upscale_surface = None  # type: ignore[assignment]
+
+logger = logging.getLogger(__name__)
+
+# Global shader pipeline (initialized on first use)
+_shader_pipeline: ShaderPipelineManager | None = None
+
+# Log rendering path on first import
+_rendering_path_logged = False
+
+def _log_rendering_path(config) -> None:
+    """Log which rendering path is being used."""
+    global _rendering_path_logged
+    if _rendering_path_logged:
+        return
+    
+    use_gpu_pipeline = (
+        config is not None
+        and getattr(config, "use_gpu_shader_pipeline", False)
+        and HAS_MODERNGL
+    )
+    
+    if use_gpu_pipeline and HAS_MODERNGL:
+        logger.info("Using GPU shader pipeline")
+    else:
+        logger.info("Using CPU visual effects pipeline")
+    
+    _rendering_path_logged = True
 
 _gl_start_time = time.perf_counter()
 
@@ -121,6 +151,7 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
     Renders to an offscreen surface, then blits (or runs GL post-process) according to
     config.use_shaders / config.use_gpu_shaders and config.shader_profile.
     GPU path when (use_gpu_shaders or use_shaders) and profile "gl_basic".
+    GPU shader pipeline when config.use_gpu_shader_pipeline is True.
     CPU effects can use config.internal_resolution_scale for a smaller offscreen, then scale up.
     """
     config = getattr(ctx, "config", None)
@@ -156,6 +187,9 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
     )
     offscreen_surface.fill((0, 0, 0, 255))
     _render_gameplay_frame(temp_ctx, game_state, ctx)
+    
+    # Log rendering path once
+    _log_rendering_path(config)
 
     # Config-based gameplay shader stack when enable_gameplay_shaders and gameplay_shader_profile != "none"
     # Run CPU effect chain at reduced resolution (default 0.5) to keep framerate up at full screen sizes.
@@ -181,8 +215,42 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
                 scaled_back = pygame.transform.smoothscale(surf, (offscreen_w, offscreen_h))
             offscreen_surface.blit(scaled_back, (0, 0))
 
+    # GPU shader pipeline path (when use_gpu_shader_pipeline is enabled)
+    use_gpu_pipeline = (
+        config is not None
+        and getattr(config, "use_gpu_shader_pipeline", False)
+        and HAS_MODERNGL
+    )
+    
+    if use_gpu_pipeline:
+        global _shader_pipeline
+        if _shader_pipeline is None:
+            _shader_pipeline = ShaderPipelineManager()
+            logger.info("Initialized GPU shader pipeline")
+        
+        # Build shader context
+        t = time.perf_counter() - _gl_start_time
+        shader_ctx: ShaderContext = {
+            "time": t,
+            "delta_time": 0.016,
+        }
+        if game_state is not None:
+            max_hp = max(1, getattr(game_state, "player_max_hp", 100))
+            current_hp = getattr(game_state, "player_hp", 100)
+            shader_ctx["health"] = current_hp / max_hp
+        
+        # Execute GPU shader pipeline
+        try:
+            processed = _shader_pipeline.execute_pipeline(offscreen_surface, dt=0.016, context=shader_ctx)
+            offscreen_surface = processed
+        except Exception as e:
+            logger.error(f"GPU shader pipeline failed: {e}", exc_info=True)
+            # Fall through to CPU path
+    
     # Lightweight CPU effects (vignette, scanlines) by gameplay_effect_profile when enable_gameplay_shaders
-    apply_gameplay_effects(offscreen_surface, ctx, game_state)
+    # Only apply if NOT using GPU pipeline (avoid double-processing)
+    if not use_gpu_pipeline:
+        apply_gameplay_effects(offscreen_surface, ctx, game_state)
 
     if use_gl_path:
         ok = _gl_postprocess_offscreen_surface(offscreen_surface, render_ctx, ctx, game_state)

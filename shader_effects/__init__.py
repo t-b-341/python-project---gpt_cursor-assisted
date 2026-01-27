@@ -20,6 +20,8 @@ from .base import (
     get_menu_shader_stack,
     get_pause_shader_stack,
 )
+from .registry import SHADER_SPECS, ShaderCategory, ShaderSpec, get_shader_spec
+from .context import ShaderContext
 from . import color_effects
 from . import distort_effects
 
@@ -89,4 +91,9 @@ __all__ = [
     "get_shockwave_manager",
     "get_screenshake_manager",
     "get_light_manager",
+    "SHADER_SPECS",
+    "ShaderCategory",
+    "ShaderSpec",
+    "get_shader_spec",
+    "ShaderContext",
 ]

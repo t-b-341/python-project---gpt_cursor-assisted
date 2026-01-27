@@ -10,20 +10,15 @@ import pygame
 from rendering import draw_centered_text
 from scenes.transitions import SceneTransition, KIND_POP
 from shader_effects.pipeline import ShaderPipelineManager, ShaderCategory
-from shader_effects import (
-    BloomEffect,
-    VignetteEffect,
-    ChromaticAberrationEffect,
-    PixelateEffect,
-    ShockwaveEffect,
-    DistortionEffect,
-    ColorGradingEffect,
-    BarrelDistortionEffect,
-    VHSNoiseEffect,
-    HeatDistortionEffect,
-    MotionTrailEffect,
-    PulseGlowEffect,
-)
+from shader_effects.registry import SHADER_SPECS, ShaderCategory as RegistryCategory
+from shader_effects.context import ShaderContext
+
+try:
+    from gpu_gl_utils import get_gl_context, get_fullscreen_quad, HAS_MODERNGL
+except ImportError:
+    HAS_MODERNGL = False
+    get_gl_context = None  # type: ignore[assignment]
+    get_fullscreen_quad = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from state import GameState
@@ -84,6 +79,12 @@ class ShaderTestScene:
     """
 
     def __init__(self) -> None:
+        if not HAS_MODERNGL:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("Shader test unavailable: moderngl not installed")
+            # Will be handled in on_enter
+        
         self._logged = False
         self.time = 0.0
         self.gl = get_gl_context() if (get_gl_context is not None and HAS_MODERNGL) else None
@@ -100,66 +101,26 @@ class ShaderTestScene:
         self.intensity = 1.0
         self.shockwave_time = -1.0  # -1 means inactive
         
-        # Available shaders (name, category, factory function)
-        # Note: factory functions are closures that capture self for dynamic parameter updates
+        # Derive shader list from registry (filter out DEBUG category)
+        test_shader_names = [
+            spec.name for spec in SHADER_SPECS.values()
+            if spec.category != RegistryCategory.DEBUG
+        ]
+        # Map to pipeline categories (simplified mapping)
+        category_map = {
+            RegistryCategory.CORE: ShaderCategory.EARLY,
+            RegistryCategory.RETRO: ShaderCategory.EARLY,
+            RegistryCategory.COMBAT: ShaderCategory.MID,
+            RegistryCategory.WATER: ShaderCategory.MID,
+            RegistryCategory.ATMOSPHERE: ShaderCategory.LATE,
+            RegistryCategory.OUTLINES: ShaderCategory.MID,
+            RegistryCategory.LIGHTING: ShaderCategory.LATE,
+        }
         self.shader_list = [
-            ("pixelate", ShaderCategory.EARLY, self._make_pixelate),
-            ("bloom", ShaderCategory.MID, self._make_bloom),
-            ("distortion", ShaderCategory.MID, self._make_distortion),
-            ("shockwave", ShaderCategory.MID, self._make_shockwave),
-            ("chromatic_aberration", ShaderCategory.MID, self._make_chromatic_aberration),
-            ("barrel_distortion", ShaderCategory.MID, self._make_barrel_distortion),
-            ("heat_distortion", ShaderCategory.MID, self._make_heat_distortion),
-            ("color_grading", ShaderCategory.LATE, self._make_color_grading),
-            ("vignette", ShaderCategory.LAST, self._make_vignette),
-            ("vhs_noise", ShaderCategory.LATE, self._make_vhs_noise),
-            ("motion_trail", ShaderCategory.MID, self._make_motion_trail),
-            ("pulse_glow", ShaderCategory.LATE, self._make_pulse_glow),
+            (name, category_map.get(SHADER_SPECS[name].category, ShaderCategory.MID), None)
+            for name in test_shader_names
         ]
     
-    def _make_pixelate(self) -> PixelateEffect:
-        # PixelateEffect uses pixel_scale parameter
-        return PixelateEffect(pixel_scale=max(1, int(4 * self.intensity)), blend_amount=0.7)
-    
-    def _make_bloom(self) -> BloomEffect:
-        return BloomEffect(intensity=0.4 * self.intensity, threshold=210, blur_size=2)
-    
-    def _make_distortion(self) -> DistortionEffect:
-        return DistortionEffect(intensity=1.5 * self.intensity, scale=0.02, speed=2.0)
-    
-    def _make_shockwave(self) -> ShockwaveEffect:
-        radius = max(10.0, self.shockwave_time * 200.0) if self.shockwave_time >= 0 else 80.0
-        return ShockwaveEffect(
-            origin=(0.5, 0.5),
-            radius=radius,
-            amplitude=4.0 * self.intensity,
-            falloff=0.03,
-        )
-    
-    def _make_chromatic_aberration(self) -> ChromaticAberrationEffect:
-        return ChromaticAberrationEffect(shift_strength=0.3 * self.intensity, direction="radial")
-    
-    def _make_barrel_distortion(self) -> BarrelDistortionEffect:
-        return BarrelDistortionEffect(curvature_strength=0.04 * self.intensity, edge_softness=0.12)
-    
-    def _make_heat_distortion(self) -> HeatDistortionEffect:
-        return HeatDistortionEffect(intensity=2.0 * self.intensity, wave_scale=0.025, speed=4.0)
-    
-    def _make_color_grading(self) -> ColorGradingEffect:
-        return ColorGradingEffect(mode="neon", strength=0.2 * self.intensity)
-    
-    def _make_vignette(self) -> VignetteEffect:
-        return VignetteEffect(radius=0.78, softness=0.22, intensity=0.4 * self.intensity, color=(0, 0, 0))
-    
-    def _make_vhs_noise(self) -> VHSNoiseEffect:
-        return VHSNoiseEffect(jitter_strength=max(1, int(self.intensity)), noise_strength=max(1, int(6 * self.intensity)), roll_speed=0.3)
-    
-    def _make_motion_trail(self) -> MotionTrailEffect:
-        return MotionTrailEffect(history_blend=0.8 + 0.1 * self.intensity, fade_speed=0.9)
-    
-    def _make_pulse_glow(self) -> PulseGlowEffect:
-        return PulseGlowEffect(period=2.5, min_intensity=0.97, max_intensity=1.0 + 0.06 * self.intensity, tint_color=(100, 150, 255))
-        
         # Add first shader by default
         if self.shader_list:
             self._add_current_shader()
@@ -172,18 +133,25 @@ class ShaderTestScene:
         """Add the current shader to the pipeline."""
         if not self.shader_list:
             return
-        name, category, factory = self.shader_list[self.current_shader_index]
-        try:
-            effect = factory()
+        name, category, _ = self.shader_list[self.current_shader_index]
+        # For GPU shaders, we'd create a render pass function
+        # For now, this is a placeholder - actual GPU integration would go here
+        spec = SHADER_SPECS.get(name)
+        if spec:
+            uniforms = spec.default_uniforms.copy()
+            uniforms["intensity"] = self.intensity
+            # Placeholder pass function (would use GPU shader program in real implementation)
+            def pass_fn(surface, dt, ctx):
+                return surface  # Placeholder
             self.pipeline.add_shader(
                 name=name,
                 category=category,
-                pass_fn=effect.apply,
-                default_uniforms={"intensity": self.intensity},
+                pass_fn=pass_fn,
+                default_uniforms=uniforms,
             )
             self._log_shader_change(f"Added shader: {name}")
-        except Exception as e:
-            print(f"[ShaderTest] Failed to add shader {name}: {e}")
+        else:
+            print(f"[ShaderTest] Shader {name} not found in registry")
     
     def _remove_current_shader(self) -> None:
         """Remove the current shader from the pipeline."""
@@ -197,20 +165,18 @@ class ShaderTestScene:
         """Update the current shader with new intensity."""
         if not self.shader_list:
             return
-        name, category, factory = self.shader_list[self.current_shader_index]
-        # Remove and re-add with new parameters
-        self.pipeline.remove_shader(name)
-        try:
-            effect = factory()
-            self.pipeline.add_shader(
-                name=name,
-                category=category,
-                pass_fn=effect.apply,
-                default_uniforms={"intensity": self.intensity},
-            )
+        name, category, _ = self.shader_list[self.current_shader_index]
+        # Update uniforms in pipeline
+        spec = SHADER_SPECS.get(name)
+        if spec:
+            uniforms = spec.default_uniforms.copy()
+            uniforms["intensity"] = self.intensity
+            # Update pipeline uniforms
+            for key, value in uniforms.items():
+                self.pipeline.set_uniform(name, key, value)
             self._log_shader_change(f"Updated shader: {name} (intensity={self.intensity:.2f})")
-        except Exception as e:
-            print(f"[ShaderTest] Failed to update shader {name}: {e}")
+        else:
+            print(f"[ShaderTest] Shader {name} not found in registry")
     
     def _log_shader_change(self, message: str) -> None:
         """Log shader and uniform changes."""
@@ -286,13 +252,12 @@ class ShaderTestScene:
                 self._update_current_shader()
             elif "shockwave" in self.pipeline._shader_map:
                 # Update shockwave even if not current (it's in the pipeline)
-                name, category, factory = [s for s in self.shader_list if s[0] == "shockwave"][0]
-                self.pipeline.remove_shader("shockwave")
-                try:
-                    effect = factory()
-                    self.pipeline.add_shader(name=name, category=category, pass_fn=effect.apply, default_uniforms={"intensity": self.intensity})
-                except Exception:
-                    pass
+                spec = SHADER_SPECS.get("shockwave")
+                if spec:
+                    uniforms = spec.default_uniforms.copy()
+                    uniforms["intensity"] = self.intensity
+                    for key, value in uniforms.items():
+                        self.pipeline.set_uniform("shockwave", key, value)
 
     def handle_input_transition(self, events, game_state: "GameState", ctx: dict) -> SceneTransition:
         """Handle input and return transition."""
@@ -307,6 +272,40 @@ class ShaderTestScene:
         return SceneTransition.none()
 
     def render(self, render_ctx, game_state: "GameState", ctx: dict) -> None:
+        """Render shader test scene."""
+        if not HAS_MODERNGL:
+            # Fallback rendering when moderngl not available
+            render_ctx.screen.fill((30, 30, 45))
+            draw_centered_text(
+                render_ctx.screen,
+                render_ctx.font,
+                render_ctx.big_font,
+                render_ctx.width,
+                "Shader Test Unavailable",
+                render_ctx.height // 2 - 30,
+                color=(255, 100, 100),
+                use_big=False,
+            )
+            draw_centered_text(
+                render_ctx.screen,
+                render_ctx.font,
+                render_ctx.big_font,
+                render_ctx.width,
+                "moderngl not installed",
+                render_ctx.height // 2 + 10,
+                color=(180, 180, 180),
+            )
+            draw_centered_text(
+                render_ctx.screen,
+                render_ctx.font,
+                render_ctx.big_font,
+                render_ctx.width,
+                "Press ESC to return",
+                render_ctx.height // 2 + 50,
+                color=(160, 160, 160),
+            )
+            return
+        
         target_size = (render_ctx.width, render_ctx.height)
         
         # Create or update test texture
@@ -320,11 +319,15 @@ class ShaderTestScene:
         # Copy test texture to offscreen
         self.offscreen_surface.blit(self.test_texture, (0, 0))
         
-        # Apply shader pipeline
+        # Apply shader pipeline with typed context
+        shader_ctx: ShaderContext = {
+            "time": self.time,
+            "delta_time": 0.016,
+        }
         processed_surface = self.pipeline.execute_pipeline(
             self.offscreen_surface,
             dt=0.016,
-            context={"time": self.time},
+            context=shader_ctx,
         )
         
         # Render to screen (with or without moderngl)
@@ -400,9 +403,15 @@ class ShaderTestScene:
 
     def on_enter(self, game_state: "GameState", ctx: dict) -> None:
         """Called when scene is entered."""
+        if not HAS_MODERNGL:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("Shader test unavailable: moderngl not installed")
+            return
+        
         print("[ShaderTest] Entered shader test scene")
         if self.shader_list:
-            name, _, _ = self.shader_list[self.current_shader_index]
+            name = self.shader_list[self.current_shader_index][0]
             print(f"[ShaderTest] Current shader: {name}")
 
     def on_exit(self, game_state: "GameState", ctx: dict) -> None:

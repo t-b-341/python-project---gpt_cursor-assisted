@@ -92,6 +92,7 @@ class GameConfig:
     # Graphics/performance preset (centralized; future presets low/medium/high/ultra can map onto these)
     graphics_preset: str = "low"  # "low" | "medium" | "high" | "ultra"; currently informational, values drive the flags below.
     use_gpu_shaders: bool = False  # When True, use GPU (OpenGL) path for shader postprocess when shader_profile allows.
+    use_gpu_shader_pipeline: bool = False  # When True, use GPU shader pipeline instead of CPU visual effects.
     internal_resolution_scale: float = 1.0  # Scale for CPU-based effect offscreen (e.g. 0.5 = half-res); 1.0 = full res.
 
     # Audio (used by systems.audio_system)

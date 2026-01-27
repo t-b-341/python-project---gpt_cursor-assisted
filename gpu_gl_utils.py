@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import struct
 from pathlib import Path
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, List
 
 try:
     import moderngl  # type: ignore[import-untyped]
@@ -14,9 +14,16 @@ except ImportError:
     moderngl = None  # type: ignore[assignment]
     HAS_MODERNGL = False
 
+# Export HAS_MODERNGL as public constant
+__all__ = ["HAS_MODERNGL", "get_gl_context", "get_fullscreen_quad", "gpu_upscale_surface",
+           "load_shader_file", "register_utility_shader", "get_utility_shader",
+           "create_utility_shader_program", "get_shaders_by_category", "get_all_categories",
+           "get_all_shaders", "ShaderCategory"]
+
 _gl_ctx: Optional["moderngl.Context"] = None
 
-# Shader categories
+# Shader categories (DEPRECATED: use shader_effects.registry.ShaderCategory instead)
+# Kept for backward compatibility with gpu_gl_utils registration
 class ShaderCategory:
     """Shader category constants."""
     CORE = "CORE"
