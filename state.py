@@ -8,6 +8,7 @@ from typing import Any, Iterator, Optional, Type
 import pygame
 
 from level_state import LevelState
+from ui_state import UiState
 
 
 @dataclass
@@ -158,32 +159,11 @@ class GameState:
     current_screen: str = "MENU"
     previous_screen: Optional[str] = None
 
-    # Title screen: show "quit?" when ESC pressed
-    title_confirm_quit: bool = False
-    # Options/menu: show "quit?" when ESC pressed (same dialog as title)
-    menu_confirm_quit: bool = False
-
-    # Menu and pause UI state
-    menu_section: int = 0
-    pause_selected: int = 0
-    continue_blink_t: float = 0.0
-    controls_selected: int = 0
+    # UI state (menu selections, visibility flags, UI timers)
+    ui: UiState = field(default_factory=UiState)
+    
+    # Controls rebinding state (gameplay-related, not pure UI)
     controls_rebinding: bool = False
-
-    # Pre-game menu selection indices (moved from module-level globals)
-    difficulty_selected: int = 1
-    aiming_mode_selected: int = 0
-    use_character_profile_selected: int = 0
-    character_profile_selected: int = 0
-    custom_profile_stat_selected: int = 0
-    player_class_selected: int = 0
-    ui_show_metrics_selected: int = 0
-    beam_selection_selected: int = 3
-    endurance_mode_selected: int = 0
-    ui_telemetry_enabled_selected: int = 1
-    shader_options_selected_row: int = 0  # main menu shader section (0..5)
-    pause_shader_options_row: int = 0     # pause submenu shader row (0..3)
-    pause_submenu: str | None = None      # "shaders" when in pause shader options, else None
     custom_profile_stats: dict = field(default_factory=lambda: {"hp_mult": 1.0, "speed_mult": 1.0, "damage_mult": 1.0, "firerate_mult": 1.0})
     beam_selection_pattern: str = "giant"
 

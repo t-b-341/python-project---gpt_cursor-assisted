@@ -1,0 +1,48 @@
+"""UI state container for menu selections, UI visibility flags, and UI-only state."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class UiState:
+    """Container for all UI/menu-related state that doesn't affect gameplay logic.
+    
+    This includes menu selections, UI visibility flags, and UI-only timers.
+    Separated from GameState to keep UI concerns separate from gameplay state.
+    """
+    # Menu navigation state
+    menu_section: int = 0  # 0 = difficulty, 1.5 = character profile yes/no, 2 = class, 3 = HUD options, 3.5 = Telemetry options, 4 = beam_selection, 5 = start
+    pause_selected: int = 0
+    controls_selected: int = 0
+    
+    # Menu selection indices (pre-game menu)
+    difficulty_selected: int = 1
+    aiming_mode_selected: int = 0
+    use_character_profile_selected: int = 0
+    character_profile_selected: int = 0
+    custom_profile_stat_selected: int = 0
+    player_class_selected: int = 0
+    ui_show_metrics_selected: int = 0
+    beam_selection_selected: int = 3
+    endurance_mode_selected: int = 0
+    ui_telemetry_enabled_selected: int = 1
+    shader_options_selected_row: int = 0  # main menu shader section (0..6)
+    pause_shader_options_row: int = 0     # pause submenu shader row (0..3)
+    pause_submenu: str | None = None      # "shaders" when in pause shader options, else None
+    
+    # UI visibility flags
+    ui_show_hud: bool = True
+    ui_show_health_bars: bool = True
+    ui_show_stats: bool = True
+    ui_show_all_ui: bool = True
+    ui_show_block_health_bars: bool = False  # Health bars for destructible blocks
+    ui_show_player_health_bar: bool = True  # Health bar above player character
+    ui_show_metrics: bool = True  # Show metrics/stats in HUD - Default: Enabled
+    
+    # UI timers
+    continue_blink_t: float = 0.0
+    
+    # Confirmation dialogs
+    title_confirm_quit: bool = False
+    menu_confirm_quit: bool = False

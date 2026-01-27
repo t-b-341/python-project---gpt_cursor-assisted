@@ -610,10 +610,10 @@ def _run_loop(app):
             # Get current state from scene stack (single source of truth)
             state = _get_current_state(scene_stack) or game_state.current_screen
             previous_game_state = game_state.previous_screen
-            menu_section = game_state.menu_section
-            pause_selected = game_state.pause_selected
-            continue_blink_t = game_state.continue_blink_t
-            controls_selected = game_state.controls_selected
+            menu_section = game_state.ui.menu_section
+            pause_selected = game_state.ui.pause_selected
+            continue_blink_t = game_state.ui.continue_blink_t
+            controls_selected = game_state.ui.controls_selected
             controls_rebinding = game_state.controls_rebinding
 
             # Context for screen handlers (shared by event and render)
@@ -676,7 +676,7 @@ def _run_loop(app):
                 if result.get("restart") or result.get("restart_to_wave1") or result.get("replay"):
                     game_state.reset_run(ctx, center_player=bool(result.get("restart_to_wave1") or result.get("replay")))
                     if result.get("restart"):
-                        game_state.menu_section = 0
+                        game_state.ui.menu_section = 0
                     if result.get("restart_to_wave1") or result.get("replay"):
                         spawn_system_start_wave(1, game_state)
                         scene_stack.clear()
@@ -696,7 +696,7 @@ def _run_loop(app):
                     game_state.player_speed = int(ctx.config.player_base_speed * stats["speed_mult"])
                     game_state.player_bullet_damage = int(ctx.config.player_base_damage * stats["damage_mult"])
                     game_state.player_shoot_cooldown = ctx.config.player_base_shoot_cooldown / stats["firerate_mult"]
-                    if game_state.endurance_mode_selected == 1:
+                    if game_state.ui.endurance_mode_selected == 1:
                         game_state.lives = 999
                         game_state.current_screen = STATE_ENDURANCE
                         game_state.previous_screen = STATE_ENDURANCE
@@ -720,7 +720,7 @@ def _run_loop(app):
                     spawn_system_start_wave(game_state.wave_number, game_state)
                 current_state = _get_current_state(scene_stack) or game_state.current_screen
                 if current_state == STATE_PAUSED:
-                    pause_selected = game_state.pause_selected
+                    pause_selected = game_state.ui.pause_selected
                 if result.get("screen") is not None and not result.get("start_game"):
                     # Apply screen change via transition
                     new_screen = result["screen"]
@@ -748,7 +748,7 @@ def _run_loop(app):
                 handled_by_screen = True
                 current_state = _get_current_state(scene_stack) or game_state.current_screen
                 if current_state == STATE_MENU:
-                    menu_section = game_state.menu_section
+                    menu_section = game_state.ui.menu_section
 
             for event in events:
                 if handled_by_screen:
@@ -800,7 +800,7 @@ def _run_loop(app):
                         if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
                             previous_game_state = current_state
                             game_state.previous_screen = previous_game_state
-                            game_state.pause_selected = 0
+                            game_state.ui.pause_selected = 0
                             game_state.current_screen = STATE_PAUSED
                             scene_stack.push(PauseScene())
                         elif current_state == STATE_PAUSED:
@@ -810,7 +810,7 @@ def _run_loop(app):
                         elif current_state == STATE_CONTINUE:
                             running = False
                         elif current_state == STATE_CONTROLS:
-                            game_state.pause_selected = 0
+                            game_state.ui.pause_selected = 0
                             game_state.current_screen = STATE_PAUSED
                             scene_stack.push(PauseScene())
                         elif current_state == STATE_VICTORY or current_state == STATE_GAME_OVER or current_state == STATE_HIGH_SCORES:
@@ -836,7 +836,7 @@ def _run_loop(app):
                         if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
                             previous_game_state = current_state
                             game_state.previous_screen = previous_game_state
-                            game_state.pause_selected = 0
+                            game_state.ui.pause_selected = 0
                             game_state.current_screen = STATE_PAUSED
                             scene_stack.push(PauseScene())
                         elif current_state == STATE_PAUSED:
@@ -850,8 +850,10 @@ def _run_loop(app):
                     if current_state == STATE_PAUSED:
                         if event.key == pygame.K_UP or event.key == pygame.K_w:
                             pause_selected = (pause_selected - 1) % len(pause_options)
+                            game_state.ui.pause_selected = pause_selected
                         elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
                             pause_selected = (pause_selected + 1) % len(pause_options)
+                            game_state.ui.pause_selected = pause_selected
                         elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                             choice = pause_options[pause_selected]
                             if choice == "Continue":
@@ -974,7 +976,7 @@ def _run_loop(app):
                 # Optional: for future render interpolation (smooth between steps)
                 setattr(game_state, "simulation_interpolation", simulation_accumulator / FIXED_DT if FIXED_DT else 0.0)
                 update_telemetry(game_state, dt, ctx)
-                continue_blink_t = game_state.continue_blink_t
+                continue_blink_t = game_state.ui.continue_blink_t
                 current_state = _get_current_state(scene_stack) or game_state.current_screen
 
             # Rendering
@@ -1131,9 +1133,9 @@ def _run_loop(app):
             game_state.previous_screen = previous_game_state
             # menu_section is already updated directly in game_state by scenes, so don't overwrite it
             # game_state.menu_section = menu_section  # Removed - scenes update it directly
-            game_state.pause_selected = pause_selected
-            game_state.continue_blink_t = continue_blink_t
-            game_state.controls_selected = controls_selected
+            game_state.ui.pause_selected = pause_selected
+            game_state.ui.continue_blink_t = continue_blink_t
+            game_state.ui.controls_selected = controls_selected
             game_state.controls_rebinding = controls_rebinding
             app.simulation_accumulator = simulation_accumulator
 
@@ -1178,81 +1180,33 @@ controls = {}
 # Telemetry and run_started_at are stored in AppContext (built in main()).
 
 # Game state constants are now imported from constants.py
+# UI state is now in GameState.ui (UiState) - see ui_state.py
+# Character profile stats are now in GameState.custom_profile_stats
 
-state = STATE_MENU
-previous_game_state = None  # Track previous game state for pause/unpause (STATE_PLAYING or STATE_ENDURANCE)
-menu_section = 0  # 0 = difficulty, 1 = aiming, 1.5 = character profile yes/no, 2 = class, 3 = HUD options, 3.5 = Telemetry options, 4 = beam_selection, 5 = start
-ui_show_metrics_selected = 0  # 0 = Show, 1 = Hide - Default: Show (enabled)
-ui_show_hud = True  # HUD visibility (follows metrics setting)
-ui_options_selected = 0  # 0 = Metrics, 1 = Telemetry (which option is currently focused)
-endurance_mode_selected = 0  # 0 = Normal, 1 = Endurance Mode
-
-# Character profile system
-use_character_profile = False  # Whether to use character profiles
-use_character_profile_selected = 0  # 0 = No, 1 = Yes
-character_profile_selected = 0  # 0 = Premade, 1 = Custom
-# character_profile_options is now imported from constants.py
-custom_profile_stat_selected = 0  # Which stat is being edited
-custom_profile_stats = {
-    "hp_mult": 1.0,
-    "speed_mult": 1.0,
-    "damage_mult": 1.0,
-    "firerate_mult": 1.0,
-}
-# custom_profile_stats_list and custom_profile_stats_keys are now imported from constants.py
-
-# Side quests and goal tracking
-side_quests = {
-    "no_hit_wave": {
-        "name": "Perfect Wave",
-        "description": "Complete wave without getting hit",
-        "bonus_points": 10000,
-        "active": False,
-        "completed": False,
-    }
-}
-wave_damage_taken = 0  # Track damage taken in current wave
+# Side quests and goal tracking are now in GameState.side_quests and GameState.wave_damage_taken
 # Beam selection for testing (harder to access - requires testing mode)
-testing_mode = True  # Set to True to enable weapon selection menu and testing options
-invulnerability_mode = False  # Set to True to make player invulnerable (testing mode only)
-beam_selection_selected = 3  # 0 = laser, 1 = triple, 2 = giant, 3 = basic (default)
-beam_selection_pattern = "giant"  # Default weapon pattern
+# testing_mode and invulnerability_mode are now in AppContext.config
+# beam_selection_selected is now in GameState.ui.beam_selection_selected
+# beam_selection_pattern is now in GameState.beam_selection_pattern
 
 # Level system - 3 levels, each with 3 waves (boss on wave 3)
-current_level = 1
-max_level = 3
-wave_in_level = 1  # Track which wave within current level (1, 2, or 3)
+# current_level, max_level, wave_in_level are now in GameState
 # level_themes is now imported from constants.py
 
-# Difficulty / aiming / class: applied values live in AppContext (ctx); only menu selection indices here.
-difficulty_selected = 1  # 0 = Easy, 1 = Normal, 2 = Hard
-aiming_mode_selected = 0  # 0 = Mouse, 1 = Arrows
-player_class_selected = 0  # 0 = Balanced, 1 = Tank, 2 = Speedster, 3 = Sniper
+# Difficulty / aiming / class: applied values live in AppContext (ctx)
+# Menu selection indices are now in GameState.ui (difficulty_selected, aiming_mode_selected, player_class_selected)
 
-# Mod settings
-mod_enemy_spawn_multiplier = 1.0  # Custom enemy spawn multiplier
-mod_custom_waves_enabled = False
-custom_waves: list[dict] = []  # Custom wave definitions
+# Mod settings - these may be moved to config or GameState if needed
+# mod_enemy_spawn_multiplier, mod_custom_waves_enabled, custom_waves are currently unused globals
 
-# UI customization settings
-ui_show_health_bars = True
-ui_show_stats = True
-ui_show_all_ui = True
-ui_show_block_health_bars = False  # Health bars for destructible blocks
-ui_show_player_health_bar = True  # Health bar above player character
-ui_show_metrics = True  # Show metrics/stats in HUD - Default: Enabled
-ui_telemetry_enabled_selected = 1  # 0 = Enabled, 1 = Disabled (for menu) - Default: Disabled
+# UI customization settings are now in GameState.ui (UiState)
 
-# Alternative aiming mechanics
-aiming_mechanic = "mouse"  # "mouse", "lockon", "predictive", "directional", "hybrid"
+# Alternative aiming mechanics - currently unused, may be moved to config if needed
+# aiming_mechanic is currently an unused global
 
 # difficulty_multipliers and pause_options are now imported from constants.py
-pause_selected = 0
-continue_blink_t = 0.0
-
-# Controls menu state (constants imported from constants.py)
-controls_selected = 0
-controls_rebinding = False
+# pause_selected, continue_blink_t, controls_selected are now in GameState.ui
+# controls_rebinding is now in GameState.controls_rebinding
 
 # ----------------------------
 # Player (initialized in main() after WIDTH/HEIGHT are set)
@@ -1351,35 +1305,35 @@ def build_level_geometry(width: int, height: int) -> LevelState:
     """Build all level blocks, trapezoids, triangles, zones. Used once at startup; result stored in game_state.level."""
     static_blocks: list = []
     destructible_blocks = [
-        {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 500, "max_hp": 500, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-        {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-        {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 600, "max_hp": 600, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-        {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-        {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-        {"rect": pygame.Rect(1100, 300, 90, 90), "color": (180, 120, 180), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-        {"rect": pygame.Rect(1300, 500, 70, 70), "color": (120, 180, 120), "is_moveable": True},
-        {"rect": pygame.Rect(1000, 800, 80, 60), "color": (200, 120, 100), "is_moveable": True},
-        {"rect": pygame.Rect(400, 1000, 100, 50), "color": (150, 150, 220), "is_moveable": True},
-        {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "is_moveable": True},
-        {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "is_moveable": True},
-        {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "is_moveable": True},
+    {"rect": pygame.Rect(300, 200, 80, 80), "color": (150, 100, 200), "hp": 500, "max_hp": 500, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(450, 300, 60, 60), "color": (100, 200, 150), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(200, 500, 90, 50), "color": (200, 150, 100), "hp": 600, "max_hp": 600, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(750, 600, 70, 70), "color": (150, 150, 200), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(150, 700, 100, 40), "color": (200, 200, 100), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(1100, 300, 90, 90), "color": (180, 120, 180), "hp": 550, "max_hp": 550, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(1300, 500, 70, 70), "color": (120, 180, 120), "is_moveable": True},
+    {"rect": pygame.Rect(1000, 800, 80, 60), "color": (200, 120, 100), "is_moveable": True},
+    {"rect": pygame.Rect(400, 1000, 100, 50), "color": (150, 150, 220), "is_moveable": True},
+    {"rect": pygame.Rect(800, 1200, 70, 70), "color": (220, 200, 120), "is_moveable": True},
+    {"rect": pygame.Rect(1200, 1000, 90, 40), "color": (200, 150, 200), "is_moveable": True},
+    {"rect": pygame.Rect(1400, 700, 60, 60), "color": (100, 200, 200), "is_moveable": True},
     ]
     moveable_destructible_blocks = [
-        {"rect": pygame.Rect(350, 400, 120, 120), "color": (200, 100, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-        {"rect": pygame.Rect(850, 500, 120, 120), "color": (100, 200, 100), "hp": 350, "max_hp": 350, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-        {"rect": pygame.Rect(650, 700, 120, 120), "color": (200, 150, 100), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
-        {"rect": pygame.Rect(1050, 300, 120, 120), "color": (200, 120, 150), "is_moveable": True},
-        {"rect": pygame.Rect(200, 600, 120, 120), "color": (150, 150, 200), "is_moveable": True},
-        {"rect": pygame.Rect(500, 900, 120, 120), "color": (200, 100, 150), "is_moveable": True},
+    {"rect": pygame.Rect(350, 400, 120, 120), "color": (200, 100, 100), "hp": 400, "max_hp": 400, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(850, 500, 120, 120), "color": (100, 200, 100), "hp": 350, "max_hp": 350, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(650, 700, 120, 120), "color": (200, 150, 100), "hp": 450, "max_hp": 450, "is_destructible": True, "is_moveable": True, "crack_level": 0},
+    {"rect": pygame.Rect(1050, 300, 120, 120), "color": (200, 120, 150), "is_moveable": True},
+    {"rect": pygame.Rect(200, 600, 120, 120), "color": (150, 150, 200), "is_moveable": True},
+    {"rect": pygame.Rect(500, 900, 120, 120), "color": (200, 100, 150), "is_moveable": True},
     ]
     giant_blocks = [
-        {"rect": pygame.Rect(200, 200, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
-        {"rect": pygame.Rect(1000, 400, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
-        {"rect": pygame.Rect(600, 800, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
+    {"rect": pygame.Rect(200, 200, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
+    {"rect": pygame.Rect(1000, 400, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
+    {"rect": pygame.Rect(600, 800, 200, 200), "color": (80, 80, 120), "is_moveable": False, "size": "giant"},
     ]
     super_giant_blocks = [
-        {"rect": pygame.Rect(500, 300, 300, 300), "color": (60, 60, 100), "is_moveable": False, "size": "super_giant"},
-        {"rect": pygame.Rect(1200, 700, 300, 300), "color": (60, 60, 100), "is_moveable": False, "size": "super_giant"},
+    {"rect": pygame.Rect(500, 300, 300, 300), "color": (60, 60, 100), "is_moveable": False, "size": "super_giant"},
+    {"rect": pygame.Rect(1200, 700, 300, 300), "color": (60, 60, 100), "is_moveable": False, "size": "super_giant"},
     ]
     trapezoid_blocks = []
     triangle_blocks = []
@@ -1902,7 +1856,7 @@ def move_enemy_with_push(enemy_rect: pygame.Rect, move_x: int, move_y: int, leve
         if not collision and state.player_rect is not None:
             if enemy_rect.colliderect(state.player_rect):
                 collision = True
-
+        
         # Check friendly AI (skip self when rect is a friendly's own rect so allies can move)
         if not collision:
             for f in state.friendly_ai:
@@ -1960,7 +1914,7 @@ def random_spawn_position(size: tuple[int, int], state: GameState, max_attempts:
         player_center = pygame.Vector2(state.player_rect.center)
         player_size = max(state.player_rect.w, state.player_rect.h)
     min_distance = player_size * 10
-
+    
     for _ in range(max_attempts):
         x = random.randint(0, WIDTH - w)
         y = random.randint(0, HEIGHT - h)
@@ -2180,7 +2134,7 @@ def spawn_pickup(pickup_type: str, state: GameState):
                 break
         if state.level and state.level.moving_health_zone and r.colliderect(state.level.moving_health_zone["rect"]):
             overlaps = True
-
+        
         if not overlaps:
             # All pickups look the same (mystery) - randomized color so player doesn't know what they're getting
             mystery_colors = [
@@ -2229,7 +2183,7 @@ def spawn_weapon_drop(enemy: dict, state: GameState):
     """Spawn a drop from a killed enemy: giant (only weapon drop), health, armor, sprint, speed, or dash_recharge."""
     # 15% chance to drop something (0.5x former 30% rate)
     if random.random() >= 0.15:
-        return
+            return
     drop_types = ["giant", "health", "armor", "sprint", "speed", "dash_recharge"]
     pickup_type = random.choice(drop_types)
     size = (56, 56)
@@ -2251,7 +2205,7 @@ def spawn_weapon_drop(enemy: dict, state: GameState):
         "rect": r,
         "color": drop_colors.get(pickup_type, (180, 100, 255)),
         "timer": 10.0,
-        "age": 0.0,
+            "age": 0.0,
         "is_weapon_drop": pickup_type == "giant",
     })
 
@@ -2377,18 +2331,18 @@ def spawn_player_bullet_and_log(state: GameState, ctx: AppContext):
         else:
             rocket_explosion = max(weapon_config["explosion_radius"], state.player_stat_multipliers["bullet_explosion_radius"])
 
-        r = pygame.Rect(
-            state.player_rect.centerx - effective_size[0] // 2,
-            state.player_rect.centery - effective_size[1] // 2,
-            effective_size[0],
-            effective_size[1],
-        )
-        state.player_bullets.append({
-                "rect": r,
-                "vel": d * effective_speed,
-                "shape": shape,
-                "color": weapon_config.get("color", player_bullets_color),  # Use weapon color from config
-                "damage": effective_damage,
+    r = pygame.Rect(
+        state.player_rect.centerx - effective_size[0] // 2,
+        state.player_rect.centery - effective_size[1] // 2,
+        effective_size[0],
+        effective_size[1],
+    )
+    state.player_bullets.append({
+        "rect": r,
+        "vel": d * effective_speed,
+        "shape": shape,
+        "color": weapon_config.get("color", player_bullets_color),  # Use weapon color from config
+            "damage": effective_damage,
                 "penetration": int(state.player_stat_multipliers["bullet_penetration"]),
                 "explosion_radius": rocket_explosion,
                 "knockback": state.player_stat_multipliers["bullet_knockback"],
@@ -2399,28 +2353,28 @@ def spawn_player_bullet_and_log(state: GameState, ctx: AppContext):
 
     if ctx.config.enable_telemetry and ctx.telemetry_client:
         ctx.telemetry_client.log_shot(
-            ShotEvent(
+        ShotEvent(
                 t=state.run_time,
                 origin_x=state.player_rect.centerx,
                 origin_y=state.player_rect.centery,
-                target_x=mx,
-                target_y=my,
-                dir_x=float(d.x),
-                dir_y=float(d.y),
-            )
+            target_x=mx,
+            target_y=my,
+            dir_x=float(d.x),
+            dir_y=float(d.y),
         )
-
-        # Log bullet metadata
+    )
+    
+    # Log bullet metadata
         ctx.telemetry_client.log_bullet_metadata(
-            BulletMetadataEvent(
+        BulletMetadataEvent(
                 t=state.run_time,
-                bullet_type="player",
-                shape=shape,
-                color_r=player_bullets_color[0],
-                color_g=player_bullets_color[1],
-                color_b=player_bullets_color[2],
-            )
+            bullet_type="player",
+            shape=shape,
+            color_r=player_bullets_color[0],
+            color_g=player_bullets_color[1],
+            color_b=player_bullets_color[2],
         )
+    )
 
 
 def spawn_enemy_projectile(enemy: dict, state: GameState, telemetry_client=None, telemetry_enabled: bool = False):
@@ -2431,7 +2385,7 @@ def spawn_enemy_projectile(enemy: dict, state: GameState, telemetry_client=None,
     ctx = getattr(state, "level_context", None)
     allow_player = id(enemy) in ctx.get("_player_targeting_slots", set()) if ctx else True
     threat_result = find_nearest_threat(e_pos, state.player_rect, state.friendly_ai, allow_player=allow_player)
-
+    
     # Calculate direction
     if threat_result:
         threat_pos, threat_type = threat_result
@@ -2442,7 +2396,7 @@ def spawn_enemy_projectile(enemy: dict, state: GameState, telemetry_client=None,
     else:
         # No threat and not allowed to target player; fire in a neutral direction
         d = pygame.Vector2(1, 0)
-
+    
     from config.projectile_defs import get_projectile_def
     edef = get_projectile_def("enemy_default")
     proj_size = edef["size"] if edef else enemy_projectile_size
@@ -2687,12 +2641,12 @@ def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
             if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
                 ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
-                    action_type="weapon_switch",
+                action_type="weapon_switch",
                     x=state.player_rect.centerx,
                     y=state.player_rect.centery,
-                    duration=None,
-                    success=True
-                ))
+                duration=None,
+                success=True
+            ))
     elif pickup_type in ["triple_shot", "triple"]:
         state.unlocked_weapons.add("triple")
         state.previous_weapon_mode = state.current_weapon_mode
@@ -2710,12 +2664,12 @@ def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
             if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
                 ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
-                    action_type="weapon_switch",
+                action_type="weapon_switch",
                     x=state.player_rect.centerx,
                     y=state.player_rect.centery,
-                    duration=None,
-                    success=True
-                ))
+                duration=None,
+                success=True
+            ))
     elif pickup_type == "laser":
         state.unlocked_weapons.add("laser")
         state.previous_weapon_mode = state.current_weapon_mode
@@ -2731,12 +2685,12 @@ def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
             if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
                 ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
-                    action_type="weapon_switch",
+                action_type="weapon_switch",
                     x=state.player_rect.centerx,
                     y=state.player_rect.centery,
-                    duration=None,
-                    success=True
-                ))
+                duration=None,
+                success=True
+            ))
     elif pickup_type == "basic":
         state.unlocked_weapons.add("basic")  # Should already be unlocked, but ensure it
         state.previous_weapon_mode = state.current_weapon_mode
@@ -2754,12 +2708,12 @@ def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
             if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
                 ctx.telemetry_client.log_player_action(PlayerActionEvent(
                     t=state.run_time,
-                    action_type="weapon_switch",
+                action_type="weapon_switch",
                     x=state.player_rect.centerx,
                     y=state.player_rect.centery,
-                    duration=None,
-                    success=True
-                ))
+                duration=None,
+                success=True
+            ))
 
 
 # render_hud_text is now imported from rendering.py

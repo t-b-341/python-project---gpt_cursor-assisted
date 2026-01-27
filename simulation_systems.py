@@ -38,7 +38,7 @@ def _sim_player_and_ability_timers(gs: GameState, sim_dt: float, app_ctx: AppCon
     gs.teleporter_cooldown = max(0.0, getattr(gs, "teleporter_cooldown", 0.0) - sim_dt)
     gs.fire_rate_buff_t += sim_dt
     gs.pos_timer += sim_dt
-    gs.continue_blink_t += sim_dt
+    gs.ui.continue_blink_t += sim_dt
 
 
 def _sim_damage_and_weapon_message_cleanup(gs: GameState, sim_dt: float, app_ctx: AppContext) -> None:

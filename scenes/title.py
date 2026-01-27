@@ -20,17 +20,17 @@ class TitleScene:
             if event.type != pygame.KEYDOWN:
                 continue
             if event.key == pygame.K_ESCAPE:
-                if game_state.title_confirm_quit:
-                    game_state.title_confirm_quit = False
+                if game_state.ui.title_confirm_quit:
+                    game_state.ui.title_confirm_quit = False
                 else:
-                    game_state.title_confirm_quit = True
+                    game_state.ui.title_confirm_quit = True
                 continue
-            if game_state.title_confirm_quit:
+            if game_state.ui.title_confirm_quit:
                 if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_y):
                     out["quit"] = True
                     return out
                 if event.key == pygame.K_n:
-                    game_state.title_confirm_quit = False
+                    game_state.ui.title_confirm_quit = False
             else:
                 if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                     out["screen"] = STATE_MENU
@@ -62,7 +62,7 @@ class TitleScene:
         screen = render_ctx.screen
         w, h = render_ctx.width, render_ctx.height
         font, big_font = render_ctx.font, render_ctx.big_font
-        if game_state.title_confirm_quit:
+        if game_state.ui.title_confirm_quit:
             draw_centered_text(screen, font, big_font, w, "Are you sure you want to exit?", h // 2 - 40, color=(220, 220, 220))
             draw_centered_text(screen, font, big_font, w, "ENTER or Y to quit", h // 2 + 20, (180, 180, 180))
             draw_centered_text(screen, font, big_font, w, "ESC or N to stay", h // 2 + 60, (180, 180, 180))
