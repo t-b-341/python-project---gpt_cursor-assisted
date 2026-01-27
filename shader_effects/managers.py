@@ -1,10 +1,11 @@
 """
-Managers for shader effects that require state tracking (shockwave, screenshake, etc.).
+Managers for shader effects that require state tracking (shockwave, screenshake, lighting, etc.).
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, List, Tuple
 import math
+import pygame
 
 
 class ShockwaveManager:
@@ -120,3 +121,115 @@ def get_screenshake_manager() -> ScreenShakeManager:
     if _screenshake_manager is None:
         _screenshake_manager = ScreenShakeManager()
     return _screenshake_manager
+
+
+class Light:
+    """Represents a single light source."""
+    
+    def __init__(
+        self,
+        pos: Tuple[float, float],
+        color: Tuple[float, float, float] = (1.0, 1.0, 1.0),
+        radius: float = 0.2,
+        intensity: float = 1.0,
+    ) -> None:
+        self.pos = pos  # Screen space (0.0 to 1.0)
+        self.color = color  # RGB (0.0 to 1.0)
+        self.radius = radius  # Screen space radius
+        self.intensity = intensity  # Light intensity multiplier
+
+
+class LightManager:
+    """Manages 2D dynamic lighting system."""
+    
+    def __init__(self) -> None:
+        self.lights: List[Light] = []
+        self.max_lights = 8  # Match shader array size
+        self.ambient_color = (0.2, 0.2, 0.3)  # Default ambient (slightly blue)
+        self.ambient_intensity = 0.3
+    
+    def add_light(
+        self,
+        pos: Tuple[float, float],
+        color: Tuple[float, float, float] = (1.0, 1.0, 1.0),
+        radius: float = 0.2,
+        intensity: float = 1.0,
+    ) -> Optional[Light]:
+        """
+        Add a light to the scene.
+        
+        Args:
+            pos: Light position in screen space (0.0 to 1.0)
+            color: Light color (RGB, 0.0 to 1.0)
+            radius: Light radius in screen space
+            intensity: Light intensity multiplier
+        
+        Returns:
+            Light object or None if max lights reached
+        """
+        if len(self.lights) >= self.max_lights:
+            return None
+        
+        light = Light(pos, color, radius, intensity)
+        self.lights.append(light)
+        return light
+    
+    def remove_light(self, light: Light) -> bool:
+        """Remove a light from the scene. Returns True if removed."""
+        if light in self.lights:
+            self.lights.remove(light)
+            return True
+        return False
+    
+    def clear_lights(self) -> None:
+        """Remove all lights."""
+        self.lights.clear()
+    
+    def get_light_data(self) -> Tuple[List[Tuple[float, float]], List[Tuple[float, float, float]], List[float], List[float]]:
+        """
+        Get light data formatted for shader uniforms.
+        
+        Returns:
+            Tuple of (positions, colors, radii, intensities) lists
+        """
+        positions = [light.pos for light in self.lights]
+        colors = [light.color for light in self.lights]
+        radii = [light.radius for light in self.lights]
+        intensities = [light.intensity for light in self.lights]
+        
+        # Pad to max_lights with zeros
+        while len(positions) < self.max_lights:
+            positions.append((0.0, 0.0))
+            colors.append((0.0, 0.0, 0.0))
+            radii.append(0.0)
+            intensities.append(0.0)
+        
+        return positions, colors, radii, intensities
+    
+    def update_light_positions(self, dt: float) -> None:
+        """Update light positions (for moving lights). Override in subclasses if needed."""
+        pass
+
+
+# Global light manager
+_light_manager: Optional[LightManager] = None
+
+
+def get_light_manager() -> LightManager:
+    """Get or create the global LightManager instance."""
+    global _light_manager
+    if _light_manager is None:
+        _light_manager = LightManager()
+    return _light_manager
+
+
+# Export LightManager and Light
+__all__ = [
+    "ShockwaveManager",
+    "ScreenShakeManager",
+    "LightManager",
+    "Light",
+    "get_shockwave_manager",
+    "get_screenshake_manager",
+    "get_light_manager",
+]

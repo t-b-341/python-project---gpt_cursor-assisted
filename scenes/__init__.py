@@ -6,6 +6,7 @@ from .name_input import NameInputScene
 from .options import OptionsScene
 from .pause import PauseScene
 from .shader_test import ShaderTestScene
+from .shader_settings import ShaderSettingsScreen
 from .title import TitleScene
 from .transitions import SceneTransition
 
@@ -19,5 +20,6 @@ __all__ = [
     "NameInputScene",
     "OptionsScene",
     "ShaderTestScene",
+    "ShaderSettingsScreen",
     "TitleScene",
 ]

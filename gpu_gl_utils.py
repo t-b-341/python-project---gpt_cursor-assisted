@@ -16,8 +16,20 @@ except ImportError:
 
 _gl_ctx: Optional["moderngl.Context"] = None
 
-# Utility shader registry: name -> (vertex_shader_source, fragment_shader_source)
-_utility_shaders: Dict[str, Tuple[str, str]] = {}
+# Shader categories
+class ShaderCategory:
+    """Shader category constants."""
+    CORE = "CORE"
+    ATMOSPHERE = "ATMOSPHERE"
+    RETRO = "RETRO"
+    COMBAT = "COMBAT"
+    WATER = "WATER"
+    OUTLINES = "OUTLINES"
+    LIGHTING = "LIGHTING"
+    DEBUG = "DEBUG"
+
+# Utility shader registry: name -> (vertex_shader_source, fragment_shader_source, category)
+_utility_shaders: Dict[str, Tuple[str, str, str]] = {}
 
 # Fullscreen quad NDC pos+uv, triangle strip (same layout for all callers)
 QUAD_POS_UV = struct.pack(
@@ -210,7 +222,12 @@ def load_shader_file(shader_path: str | Path) -> Optional[str]:
         return None
 
 
-def register_utility_shader(name: str, vertex_shader: Optional[str] = None, fragment_shader: Optional[str] = None) -> bool:
+def register_utility_shader(
+    name: str,
+    vertex_shader: Optional[str] = None,
+    fragment_shader: Optional[str] = None,
+    category: str = ShaderCategory.CORE,
+) -> bool:
     """
     Register a utility shader that can be used for post-processing.
     
@@ -218,6 +235,7 @@ def register_utility_shader(name: str, vertex_shader: Optional[str] = None, frag
         name: Unique name for the shader (e.g., "blur")
         vertex_shader: Vertex shader source code (uses default if None)
         fragment_shader: Fragment shader source code or path to .frag file
+        category: Shader category (default: CORE)
     
     Returns:
         True if registration successful, False otherwise
@@ -241,12 +259,12 @@ def register_utility_shader(name: str, vertex_shader: Optional[str] = None, frag
         print(f"[Shader] Fragment shader required for utility shader '{name}'")
         return False
     
-    _utility_shaders[name] = (vert_src, frag_src)
-    print(f"[Shader] Registered utility shader: {name}")
+    _utility_shaders[name] = (vert_src, frag_src, category)
+    print(f"[Shader] Registered utility shader: {name} (category: {category})")
     return True
 
 
-def get_utility_shader(name: str) -> Optional[Tuple[str, str]]:
+def get_utility_shader(name: str) -> Optional[Tuple[str, str, str]]:
     """
     Get a registered utility shader by name.
     
@@ -254,9 +272,43 @@ def get_utility_shader(name: str) -> Optional[Tuple[str, str]]:
         name: Shader name (e.g., "blur")
     
     Returns:
-        Tuple of (vertex_shader_source, fragment_shader_source) or None if not found
+        Tuple of (vertex_shader_source, fragment_shader_source, category) or None if not found
     """
     return _utility_shaders.get(name)
+
+
+def get_shaders_by_category(category: str) -> List[str]:
+    """
+    Get all shader names in a specific category.
+    
+    Args:
+        category: Category name (e.g., ShaderCategory.CORE)
+    
+    Returns:
+        List of shader names in that category
+    """
+    return [name for name, (_, _, cat) in _utility_shaders.items() if cat == category]
+
+
+def get_all_categories() -> List[str]:
+    """
+    Get all unique shader categories.
+    
+    Returns:
+        List of category names
+    """
+    categories = set(cat for _, _, cat in _utility_shaders.values())
+    return sorted(list(categories))
+
+
+def get_all_shaders() -> Dict[str, str]:
+    """
+    Get all registered shaders with their categories.
+    
+    Returns:
+        Dictionary mapping shader name to category
+    """
+    return {name: cat for name, (_, _, cat) in _utility_shaders.items()}
 
 
 def create_utility_shader_program(ctx: "moderngl.Context", name: str) -> Optional["moderngl.Program"]:
@@ -275,7 +327,7 @@ def create_utility_shader_program(ctx: "moderngl.Context", name: str) -> Optiona
         print(f"[Shader] Utility shader '{name}' not found")
         return None
     
-    vert_src, frag_src = shader_sources
+    vert_src, frag_src, _ = shader_sources
     try:
         return ctx.program(vertex_shader=vert_src, fragment_shader=frag_src)
     except Exception as e:
@@ -285,36 +337,47 @@ def create_utility_shader_program(ctx: "moderngl.Context", name: str) -> Optiona
 
 # Register built-in utility shaders on module load
 def _register_builtin_utility_shaders() -> None:
-    """Register built-in utility shaders."""
+    """Register built-in utility shaders with categories."""
     if not HAS_MODERNGL:
         return
     
     # Core utility shaders
-    register_utility_shader("blur", fragment_shader="assets/shaders/blur.frag")
+    register_utility_shader("blur", fragment_shader="assets/shaders/blur.frag", category=ShaderCategory.CORE)
     
-    # Post-processing effects
-    register_utility_shader("vignette", fragment_shader="assets/shaders/vignette.frag")
-    register_utility_shader("pixelate", fragment_shader="assets/shaders/pixelate.frag")
-    register_utility_shader("chromatic_aberration", fragment_shader="assets/shaders/chromatic_aberration.frag")
-    register_utility_shader("distortion", fragment_shader="assets/shaders/distortion.frag")
-    register_utility_shader("shockwave", fragment_shader="assets/shaders/shockwave.frag")
-    register_utility_shader("screenshake", fragment_shader="assets/shaders/screenshake.frag")
-    register_utility_shader("gradient_fog", fragment_shader="assets/shaders/gradient_fog.frag")
-    register_utility_shader("film_grain", fragment_shader="assets/shaders/film_grain.frag")
-    register_utility_shader("crt_scanlines", fragment_shader="assets/shaders/crt_scanlines.frag")
-    register_utility_shader("radial_light_mask", fragment_shader="assets/shaders/radial_light_mask.frag")
-    register_utility_shader("edge_detect", fragment_shader="assets/shaders/edge_detect.frag")
-    register_utility_shader("time_warp", fragment_shader="assets/shaders/time_warp.frag")
-    register_utility_shader("water_ripple", fragment_shader="assets/shaders/water_ripple.frag")
-    register_utility_shader("additive_light", fragment_shader="assets/shaders/additive_light.frag")
-    register_utility_shader("shockwave_sprite", fragment_shader="assets/shaders/shockwave_sprite.frag")
+    # Atmosphere effects
+    register_utility_shader("vignette", fragment_shader="assets/shaders/vignette.frag", category=ShaderCategory.ATMOSPHERE)
+    register_utility_shader("gradient_fog", fragment_shader="assets/shaders/gradient_fog.frag", category=ShaderCategory.ATMOSPHERE)
+    register_utility_shader("film_grain", fragment_shader="assets/shaders/film_grain.frag", category=ShaderCategory.ATMOSPHERE)
     
-    # Bloom pipeline shaders
-    register_utility_shader("bloom_extract", fragment_shader="assets/shaders/bloom_extract.frag")
-    register_utility_shader("bloom_combine", fragment_shader="assets/shaders/bloom_combine.frag")
+    # Retro effects
+    register_utility_shader("pixelate", fragment_shader="assets/shaders/pixelate.frag", category=ShaderCategory.RETRO)
+    register_utility_shader("crt_scanlines", fragment_shader="assets/shaders/crt_scanlines.frag", category=ShaderCategory.RETRO)
+    register_utility_shader("chromatic_aberration", fragment_shader="assets/shaders/chromatic_aberration.frag", category=ShaderCategory.RETRO)
     
-    # Color grading (requires LUT texture)
-    register_utility_shader("color_grade", fragment_shader="assets/shaders/color_grade.frag")
+    # Combat effects
+    register_utility_shader("shockwave", fragment_shader="assets/shaders/shockwave.frag", category=ShaderCategory.COMBAT)
+    register_utility_shader("screenshake", fragment_shader="assets/shaders/screenshake.frag", category=ShaderCategory.COMBAT)
+    register_utility_shader("time_warp", fragment_shader="assets/shaders/time_warp.frag", category=ShaderCategory.COMBAT)
+    register_utility_shader("shockwave_sprite", fragment_shader="assets/shaders/shockwave_sprite.frag", category=ShaderCategory.COMBAT)
+    
+    # Water effects
+    register_utility_shader("water_ripple", fragment_shader="assets/shaders/water_ripple.frag", category=ShaderCategory.WATER)
+    register_utility_shader("distortion", fragment_shader="assets/shaders/distortion.frag", category=ShaderCategory.WATER)
+    
+    # Outlines
+    register_utility_shader("edge_detect", fragment_shader="assets/shaders/edge_detect.frag", category=ShaderCategory.OUTLINES)
+    
+    # Lighting
+    register_utility_shader("lighting", fragment_shader="assets/shaders/lighting.frag", category=ShaderCategory.LIGHTING)
+    register_utility_shader("radial_light_mask", fragment_shader="assets/shaders/radial_light_mask.frag", category=ShaderCategory.LIGHTING)
+    register_utility_shader("additive_light", fragment_shader="assets/shaders/additive_light.frag", category=ShaderCategory.LIGHTING)
+    
+    # Bloom pipeline shaders (CORE)
+    register_utility_shader("bloom_extract", fragment_shader="assets/shaders/bloom_extract.frag", category=ShaderCategory.CORE)
+    register_utility_shader("bloom_combine", fragment_shader="assets/shaders/bloom_combine.frag", category=ShaderCategory.CORE)
+    
+    # Color grading (ATMOSPHERE)
+    register_utility_shader("color_grade", fragment_shader="assets/shaders/color_grade.frag", category=ShaderCategory.ATMOSPHERE)
 
 
 # Auto-register on import

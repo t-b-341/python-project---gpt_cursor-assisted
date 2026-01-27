@@ -684,6 +684,9 @@ def _apply_scene_transition(transition: SceneTransition, scene_stack: SceneStack
             scene_stack.push(GameplayScene(scene_name))
         elif scene_name == "SHADER_TEST":
             scene_stack.push(ShaderTestScene())
+        elif scene_name == "SHADER_SETTINGS":
+            from scenes.shader_settings import ShaderSettingsScreen
+            scene_stack.push(ShaderSettingsScreen())
         else:
             # Unknown scene name, fall back to state machine
             if scene_name:
@@ -707,6 +710,9 @@ def _apply_scene_transition(transition: SceneTransition, scene_stack: SceneStack
             scene_stack.push(GameplayScene(scene_name))
         elif scene_name == "SHADER_TEST":
             scene_stack.push(ShaderTestScene())
+        elif scene_name == "SHADER_SETTINGS":
+            from scenes.shader_settings import ShaderSettingsScreen
+            scene_stack.push(ShaderSettingsScreen())
         else:
             # Unknown scene name, fall back to state machine
             if scene_name:
@@ -768,7 +774,7 @@ def _handle_events(
     
     # Fallback to old input handling if scene path didn't handle it
     current_state = _get_current_state(scene_stack) or game_state.current_screen
-    if not handled_by_screen and current_state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE, STATE_MENU):
+    if not handled_by_screen and current_state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", "SHADER_SETTINGS", STATE_TITLE, STATE_MENU):
         if current_scene:
             result = current_scene.handle_input(events, game_state, screen_ctx)
         else:
@@ -1076,7 +1082,7 @@ def _render_current_scene(
         for msg in game_state.weapon_pickup_messages[:]:
             if msg["timer"] <= 0:
                 game_state.weapon_pickup_messages.remove(msg)
-    elif current_state in (STATE_TITLE, STATE_MENU, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
+    elif current_state in (STATE_TITLE, STATE_MENU, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", "SHADER_SETTINGS"):
         render_ctx = RenderContext.from_app_ctx(ctx)
         # When paused + enable_pause_shaders: render gameplay frame, apply pause stack, then draw UI on top
         if current_state == STATE_PAUSED and pause_shaders_enabled:

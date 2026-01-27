@@ -51,8 +51,11 @@ from .distort_effects import (
 from .managers import (
     ShockwaveManager,
     ScreenShakeManager,
+    LightManager,
+    Light,
     get_shockwave_manager,
     get_screenshake_manager,
+    get_light_manager,
 )
 
 __all__ = [
@@ -81,6 +84,9 @@ __all__ = [
     "MotionTrailEffect",
     "ShockwaveManager",
     "ScreenShakeManager",
+    "LightManager",
+    "Light",
     "get_shockwave_manager",
     "get_screenshake_manager",
+    "get_light_manager",
 ]
