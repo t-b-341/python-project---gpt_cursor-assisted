@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 # Global shader pipeline (initialized on first use)
 _shader_pipeline: ShaderPipelineManager | None = None
 
-# Log rendering path on first import
+# Log rendering path once per session
 _rendering_path_logged = False
 
 def _log_rendering_path(config) -> None:
-    """Log which rendering path is being used."""
+    """Log which rendering path is being used (called once per session)."""
     global _rendering_path_logged
     if _rendering_path_logged:
         return

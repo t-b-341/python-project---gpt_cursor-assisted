@@ -1,5 +1,14 @@
 """
 Central shader registry with categories and default uniforms.
+
+This module defines SHADER_SPECS, which is the single source of truth for shader
+metadata (name, category, default uniform values). UI and pipeline code should
+use this registry instead of hardcoding shader uniforms and categories.
+
+To add a new shader:
+1. Create the shader .frag file in assets/shaders/
+2. Add a ShaderSpec entry to SHADER_SPECS with appropriate category and defaults
+3. The shader will automatically appear in ShaderTestScene and ShaderSettingsScreen
 """
 from __future__ import annotations
 
@@ -177,6 +186,15 @@ SHADER_SPECS: Dict[str, ShaderSpec] = {
     ),
     "lighting": ShaderSpec(
         name="lighting",
+        category=ShaderCategory.LIGHTING,
+        default_uniforms={
+            "u_ambient_color": (0.2, 0.2, 0.3),
+            "u_ambient_intensity": 0.3,
+        },
+    ),
+    # Note: "lighting_2d" is an alias for "lighting" - both refer to the same shader
+    "lighting_2d": ShaderSpec(
+        name="lighting_2d",
         category=ShaderCategory.LIGHTING,
         default_uniforms={
             "u_ambient_color": (0.2, 0.2, 0.3),

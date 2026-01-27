@@ -126,7 +126,16 @@ class ShaderTestScene:
             self._add_current_shader()
     
     def _initialize_shaders(self) -> None:
-        """Initialize the shader pipeline with available effects."""
+        """Initialize the shader pipeline with available effects.
+        
+        TODO: This is a placeholder. In the future, this should:
+        - Create moderngl shader programs for each shader in self.shader_list
+        - Create render_pass functions that apply GPU shaders to surfaces
+        - Attach these render_pass functions to the pipeline via pipeline.add_shader()
+        
+        For now, the scene renders a test texture and allows cycling through shader
+        names, but actual GPU shader effects are not yet applied.
+        """
         pass  # Shaders are added dynamically
     
     def _add_current_shader(self) -> None:

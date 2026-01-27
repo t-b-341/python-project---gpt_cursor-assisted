@@ -276,6 +276,39 @@ class ShaderSettingsScreen:
     
     def render(self, render_ctx: RenderContext, game_state: "GameState", ctx: dict) -> None:
         """Render shader settings screen."""
+        if not HAS_MODERNGL:
+            # Fallback rendering when moderngl not available
+            render_ctx.screen.fill((20, 20, 30))
+            draw_centered_text(
+                render_ctx.screen,
+                render_ctx.font,
+                render_ctx.big_font,
+                render_ctx.width,
+                "Shader Settings Unavailable",
+                render_ctx.height // 2 - 30,
+                color=(255, 100, 100),
+                use_big=False,
+            )
+            draw_centered_text(
+                render_ctx.screen,
+                render_ctx.font,
+                render_ctx.big_font,
+                render_ctx.width,
+                "moderngl not installed",
+                render_ctx.height // 2 + 10,
+                color=(180, 180, 180),
+            )
+            draw_centered_text(
+                render_ctx.screen,
+                render_ctx.font,
+                render_ctx.big_font,
+                render_ctx.width,
+                "Press ESC to return",
+                render_ctx.height // 2 + 50,
+                color=(160, 160, 160),
+            )
+            return
+        
         screen = render_ctx.screen
         width, height = render_ctx.width, render_ctx.height
         
@@ -496,6 +529,7 @@ class ShaderSettingsScreen:
             import logging
             logger = logging.getLogger(__name__)
             logger.info("Shader settings unavailable: moderngl not installed")
+            # Scene will handle this gracefully in render() by showing a message
             return
         
         if not self.selected_category:

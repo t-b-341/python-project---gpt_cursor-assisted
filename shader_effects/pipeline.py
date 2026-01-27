@@ -53,6 +53,7 @@ class ShaderPipelineManager:
         self._shaders: list[ShaderEntry] = []
         self._shader_map: dict[str, ShaderEntry] = {}
         self._safe_mode: bool = True  # Skip failed shaders instead of crashing
+        self._order_logged: bool = False  # Track if we've logged the order
     
     def add_shader(
         self,
@@ -98,10 +99,10 @@ class ShaderPipelineManager:
         self._shader_map[name] = entry
         self._sort_shaders()
         
-        # Log pipeline order once after setup
-        if len(self._shaders) == 1:  # First shader added
-            logger.info("Shader pipeline initialized")
-        logger.debug("Shader pipeline order: %s", [e.name for e in self._shaders])
+        # Log pipeline order once when first shader is added
+        if not self._order_logged and len(self._shaders) > 0:
+            logger.info("Shader pipeline order: %s", [e.name for e in self._shaders])
+            self._order_logged = True
     
     def remove_shader(self, name: str) -> bool:
         """
@@ -229,7 +230,8 @@ class ShaderPipelineManager:
     def _sort_shaders(self) -> None:
         """Sort shaders by category, then by insertion order."""
         # Sort by category enum value, then maintain insertion order (stable sort)
-        self._shaders.sort(key=lambda s: s.category.value)
+        # Filter out any entries with None category (shouldn't happen, but be safe)
+        self._shaders.sort(key=lambda s: s.category.value if s.category is not None else 999)
     
     def clear(self) -> None:
         """Remove all shaders from the pipeline."""
