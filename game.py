@@ -210,6 +210,7 @@ from screens import SCREEN_HANDLERS
 from screens.gameplay import render as gameplay_render
 from rendering_shaders import render_gameplay_with_optional_shaders, render_gameplay_frame_to_surface
 from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene, ShaderTestScene, TitleScene, OptionsScene
+from scenes.transitions import SceneTransition, KIND_NONE, KIND_PUSH, KIND_POP, KIND_REPLACE, KIND_QUIT_GAME
 from visual_effects import apply_menu_effects, apply_pause_effects
 from shader_effects import get_menu_shader_stack, get_pause_shader_stack, get_gameplay_shader_stack
 from simulation_systems import SIMULATION_SYSTEMS
@@ -563,6 +564,79 @@ def _print_active_shader_profiles(config) -> None:
         print(f"[Shader profiles] could not report: {e}")
 
 
+def _get_current_scene(scene_stack: SceneStack):
+    """Return the current scene from the stack, or None if empty."""
+    return scene_stack.current()
+
+
+def _apply_scene_transition(transition: SceneTransition, scene_stack: SceneStack, ctx, game_state) -> bool:
+    """Apply a SceneTransition to the scene stack and game state.
+    
+    Returns True if the transition should cause the loop to exit (QUIT_GAME).
+    For PUSH/REPLACE, scene_name should be a state constant like STATE_PAUSED, STATE_MENU, etc.
+    Falls back to old state-machine logic where needed.
+    """
+    if transition.kind == KIND_NONE:
+        return False
+    
+    if transition.kind == KIND_QUIT_GAME:
+        return True  # Signal to exit loop
+    
+    if transition.kind == KIND_POP:
+        scene_stack.pop()
+        # Restore previous screen state
+        state = game_state.previous_screen or STATE_PLAYING
+        game_state.current_screen = state
+        return False
+    
+    if transition.kind == KIND_PUSH:
+        scene_name = transition.scene_name
+        if scene_name == STATE_PAUSED:
+            scene_stack.push(PauseScene())
+        elif scene_name == STATE_MENU:
+            scene_stack.push(OptionsScene())
+        elif scene_name == STATE_TITLE:
+            scene_stack.push(TitleScene())
+        elif scene_name == STATE_NAME_INPUT:
+            scene_stack.push(NameInputScene())
+        elif scene_name == STATE_HIGH_SCORES:
+            scene_stack.push(HighScoreScene())
+        elif scene_name in (STATE_PLAYING, STATE_ENDURANCE):
+            scene_stack.push(GameplayScene(scene_name))
+        elif scene_name == "SHADER_TEST":
+            scene_stack.push(ShaderTestScene())
+        else:
+            # Unknown scene name, fall back to state machine
+            if scene_name:
+                game_state.current_screen = scene_name
+        return False
+    
+    if transition.kind == KIND_REPLACE:
+        scene_name = transition.scene_name
+        scene_stack.clear()
+        if scene_name == STATE_PAUSED:
+            scene_stack.push(PauseScene())
+        elif scene_name == STATE_MENU:
+            scene_stack.push(OptionsScene())
+        elif scene_name == STATE_TITLE:
+            scene_stack.push(TitleScene())
+        elif scene_name == STATE_NAME_INPUT:
+            scene_stack.push(NameInputScene())
+        elif scene_name == STATE_HIGH_SCORES:
+            scene_stack.push(HighScoreScene())
+        elif scene_name in (STATE_PLAYING, STATE_ENDURANCE):
+            scene_stack.push(GameplayScene(scene_name))
+        elif scene_name == "SHADER_TEST":
+            scene_stack.push(ShaderTestScene())
+        else:
+            # Unknown scene name, fall back to state machine
+            if scene_name:
+                game_state.current_screen = scene_name
+        return False
+    
+    return False
+
+
 def _run_loop(app):
     """Run the main loop. app holds .ctx, .game_state, .scene_stack and loop params."""
     ctx = app.ctx
@@ -602,8 +676,24 @@ def _run_loop(app):
                     running = False
 
             handled_by_screen = False
-            if running and state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE, STATE_MENU):
-                current_scene = scene_stack.current()
+            # Try scene-driven input handling first
+            current_scene = _get_current_scene(scene_stack)
+            if running and current_scene is not None:
+                try:
+                    transition = current_scene.handle_input_transition(events, game_state, screen_ctx)
+                    if transition.kind != KIND_NONE:
+                        should_quit = _apply_scene_transition(transition, scene_stack, ctx, game_state)
+                        if should_quit:
+                            running = False
+                        handled_by_screen = True
+                        # Update state after transition
+                        state = game_state.current_screen
+                except AttributeError:
+                    # Scene doesn't have handle_input_transition, fall through to old path
+                    pass
+            
+            # Fallback to old input handling if scene path didn't handle it
+            if running and not handled_by_screen and state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE, STATE_MENU):
                 if current_scene:
                     result = current_scene.handle_input(events, game_state, screen_ctx)
                 else:
@@ -857,6 +947,23 @@ def _run_loop(app):
                 simulation_accumulator += dt
                 steps = 0
                 while simulation_accumulator >= FIXED_DT and steps < MAX_SIMULATION_STEPS:
+                    # Try scene-driven update first
+                    current_scene = _get_current_scene(scene_stack)
+                    if current_scene is not None:
+                        try:
+                            transition = current_scene.update_transition(FIXED_DT, game_state, screen_ctx)
+                            if transition.kind != KIND_NONE:
+                                should_quit = _apply_scene_transition(transition, scene_stack, ctx, game_state)
+                                if should_quit:
+                                    running = False
+                                    break
+                                # Update state after transition
+                                state = game_state.current_screen
+                        except AttributeError:
+                            # Scene doesn't have update_transition, fall through to old path
+                            pass
+                    
+                    # Run simulation update (for gameplay scenes)
                     _update_simulation(FIXED_DT, game_state, ctx)
                     simulation_accumulator -= FIXED_DT
                     steps += 1
