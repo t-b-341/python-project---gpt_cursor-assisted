@@ -19,7 +19,7 @@ Tuning guide (which values to tweak for feel):
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from constants import (
     AIM_MOUSE,
@@ -59,6 +59,7 @@ class GameConfig:
     difficulty: str = DIFFICULTY_NORMAL
     player_class: str = PLAYER_CLASS_BALANCED
     aim_mode: str = AIM_MOUSE
+    aiming_mechanic: str = "mouse"  # "mouse", "lockon", "predictive", "directional", "hybrid"
     enable_telemetry: bool = False
     show_metrics: bool = True
     show_hud: bool = True
@@ -68,6 +69,10 @@ class GameConfig:
     testing_mode: bool = False
     invulnerability_mode: bool = False
     default_weapon_mode: str = "giant"
+    # Mod settings (for custom game modes)
+    mod_enemy_spawn_multiplier: float = 1.0  # Custom enemy spawn multiplier
+    mod_custom_waves_enabled: bool = False
+    custom_waves: list = field(default_factory=list)  # Custom wave definitions (list of dicts)
     debug_draw_overlay: bool = False  # When True, gameplay shows a small debug HUD (wave, enemies, HP, lives).
     use_shaders: bool = False  # When True, use GPU shaders for rendering (requires moderngl).
     shader_profile: str = "none"  # "none" | "cpu_tint" | "gl_basic"; only applies when use_shaders=True.

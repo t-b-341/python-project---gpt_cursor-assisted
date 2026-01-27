@@ -282,6 +282,7 @@ def _create_app():
     cfg = GameConfig(
         difficulty=DIFFICULTY_NORMAL,
         aim_mode=AIM_MOUSE,
+        aiming_mechanic="mouse",
         player_class=PLAYER_CLASS_BALANCED,
         enable_telemetry=False,
         show_metrics=True,
@@ -292,6 +293,8 @@ def _create_app():
         testing_mode=True,
         invulnerability_mode=False,
         default_weapon_mode="giant",
+        mod_enemy_spawn_multiplier=1.0,
+        mod_custom_waves_enabled=False,
     )
     ctx = AppContext(
         screen=screen,
@@ -1196,13 +1199,9 @@ controls = {}
 # Difficulty / aiming / class: applied values live in AppContext (ctx)
 # Menu selection indices are now in GameState.ui (difficulty_selected, aiming_mode_selected, player_class_selected)
 
-# Mod settings - these may be moved to config or GameState if needed
-# mod_enemy_spawn_multiplier, mod_custom_waves_enabled, custom_waves are currently unused globals
-
+# Mod settings are now in GameConfig (mod_enemy_spawn_multiplier, mod_custom_waves_enabled, custom_waves)
 # UI customization settings are now in GameState.ui (UiState)
-
-# Alternative aiming mechanics - currently unused, may be moved to config if needed
-# aiming_mechanic is currently an unused global
+# Alternative aiming mechanics are now in GameConfig.aiming_mechanic
 
 # difficulty_multipliers and pause_options are now imported from constants.py
 # pause_selected, continue_blink_t, controls_selected are now in GameState.ui
