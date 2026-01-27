@@ -289,8 +289,32 @@ def _register_builtin_utility_shaders() -> None:
     if not HAS_MODERNGL:
         return
     
-    # Register blur shader
+    # Core utility shaders
     register_utility_shader("blur", fragment_shader="assets/shaders/blur.frag")
+    
+    # Post-processing effects
+    register_utility_shader("vignette", fragment_shader="assets/shaders/vignette.frag")
+    register_utility_shader("pixelate", fragment_shader="assets/shaders/pixelate.frag")
+    register_utility_shader("chromatic_aberration", fragment_shader="assets/shaders/chromatic_aberration.frag")
+    register_utility_shader("distortion", fragment_shader="assets/shaders/distortion.frag")
+    register_utility_shader("shockwave", fragment_shader="assets/shaders/shockwave.frag")
+    register_utility_shader("screenshake", fragment_shader="assets/shaders/screenshake.frag")
+    register_utility_shader("gradient_fog", fragment_shader="assets/shaders/gradient_fog.frag")
+    register_utility_shader("film_grain", fragment_shader="assets/shaders/film_grain.frag")
+    register_utility_shader("crt_scanlines", fragment_shader="assets/shaders/crt_scanlines.frag")
+    register_utility_shader("radial_light_mask", fragment_shader="assets/shaders/radial_light_mask.frag")
+    register_utility_shader("edge_detect", fragment_shader="assets/shaders/edge_detect.frag")
+    register_utility_shader("time_warp", fragment_shader="assets/shaders/time_warp.frag")
+    register_utility_shader("water_ripple", fragment_shader="assets/shaders/water_ripple.frag")
+    register_utility_shader("additive_light", fragment_shader="assets/shaders/additive_light.frag")
+    register_utility_shader("shockwave_sprite", fragment_shader="assets/shaders/shockwave_sprite.frag")
+    
+    # Bloom pipeline shaders
+    register_utility_shader("bloom_extract", fragment_shader="assets/shaders/bloom_extract.frag")
+    register_utility_shader("bloom_combine", fragment_shader="assets/shaders/bloom_combine.frag")
+    
+    # Color grading (requires LUT texture)
+    register_utility_shader("color_grade", fragment_shader="assets/shaders/color_grade.frag")
 
 
 # Auto-register on import

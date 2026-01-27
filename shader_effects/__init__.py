@@ -47,6 +47,14 @@ from .distort_effects import (
     MotionTrailEffect,
 )
 
+# Export managers
+from .managers import (
+    ShockwaveManager,
+    ScreenShakeManager,
+    get_shockwave_manager,
+    get_screenshake_manager,
+)
+
 __all__ = [
     "PostProcessEffect",
     "EffectDef",
@@ -71,4 +79,8 @@ __all__ = [
     "PixelateEffect",
     "ShockwaveEffect",
     "MotionTrailEffect",
+    "ShockwaveManager",
+    "ScreenShakeManager",
+    "get_shockwave_manager",
+    "get_screenshake_manager",
 ]
