@@ -1017,7 +1017,14 @@ def _step_simulation(
     return simulation_accumulator, should_quit
 
 
-def _render_current_scene(ctx: AppContext, game_state: GameState, scene_stack: SceneStack, screen_ctx: dict) -> None:
+def _render_current_scene(
+    ctx: AppContext,
+    game_state: GameState,
+    scene_stack: SceneStack,
+    screen_ctx: dict,
+    pause_shaders_enabled: bool = False,
+    menu_shaders_enabled: bool = False,
+) -> None:
     """Render the current scene based on game state."""
     current_state = _get_current_state(scene_stack) or game_state.current_screen
     theme = level_themes.get(game_state.current_level, level_themes[1])
@@ -1072,7 +1079,7 @@ def _render_current_scene(ctx: AppContext, game_state: GameState, scene_stack: S
     elif current_state in (STATE_TITLE, STATE_MENU, STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST"):
         render_ctx = RenderContext.from_app_ctx(ctx)
         # When paused + enable_pause_shaders: render gameplay frame, apply pause stack, then draw UI on top
-        if current_state == STATE_PAUSED and getattr(ctx.config, "enable_pause_shaders", False):
+        if current_state == STATE_PAUSED and pause_shaders_enabled:
             lv = game_state.level
             gameplay_ctx_pause = {
                 "level_themes": level_themes,
@@ -1126,12 +1133,12 @@ def _render_current_scene(ctx: AppContext, game_state: GameState, scene_stack: S
         elif current_state in SCREEN_HANDLERS and SCREEN_HANDLERS[current_state].get("render"):
             SCREEN_HANDLERS[current_state]["render"](render_ctx, game_state, screen_ctx)
         # Config-based shader stacks and legacy lightweight effects
-        if current_state == STATE_PAUSED and not getattr(ctx.config, "enable_pause_shaders", False):
+        if current_state == STATE_PAUSED and not pause_shaders_enabled:
             apply_pause_effects(render_ctx.screen, ctx)
         elif current_state in (STATE_TITLE, STATE_MENU):
             apply_menu_effects(render_ctx.screen, ctx)
         # Apply config-based menu shader stack when enable_menu_shaders and menu_shader_profile != "none"
-        if current_state in (STATE_TITLE, STATE_MENU):
+        if current_state in (STATE_TITLE, STATE_MENU) and menu_shaders_enabled:
             try:
                 menu_stack = get_menu_shader_stack(ctx.config)
                 if menu_stack:
@@ -1196,6 +1203,25 @@ def _run_loop(app):
     _update_simulation = app.update_simulation
     simulation_accumulator = app.simulation_accumulator
     running = True
+    
+    # Create reusable screen_ctx once (only update mutable values per frame)
+    screen_ctx = {
+        "WIDTH": ctx.width,
+        "HEIGHT": ctx.height,
+        "font": ctx.font,
+        "big_font": ctx.big_font,
+        "small_font": ctx.small_font,
+        "get_high_scores": get_high_scores,
+        "save_high_score": save_high_score,
+        "difficulty": ctx.config.difficulty,
+        "app_ctx": ctx,
+    }
+    
+    # Pre-check telemetry/shader flags to avoid repeated attribute lookups
+    telemetry_enabled = ctx.config.enable_telemetry
+    pause_shaders_enabled = getattr(ctx.config, "enable_pause_shaders", False)
+    menu_shaders_enabled = getattr(ctx.config, "enable_menu_shaders", False)
+    
     try:
         while running:
             dt = ctx.clock.tick(FPS) / 1000.0  # Wall-clock delta for this frame
@@ -1211,9 +1237,9 @@ def _run_loop(app):
             continue_blink_t = game_state.ui.continue_blink_t
             controls_selected = game_state.ui.controls_selected
             controls_rebinding = game_state.controls_rebinding
-
-            # Context for screen handlers (shared by event and render)
-            screen_ctx = {"WIDTH": ctx.width, "HEIGHT": ctx.height, "font": ctx.font, "big_font": ctx.big_font, "small_font": ctx.small_font, "get_high_scores": get_high_scores, "save_high_score": save_high_score, "difficulty": ctx.config.difficulty, "app_ctx": ctx}
+            
+            # Update screen_ctx mutable values (width/height shouldn't change, but difficulty might)
+            screen_ctx["difficulty"] = ctx.config.difficulty
 
             # Event handling
             events = _poll_events()
@@ -1225,6 +1251,9 @@ def _run_loop(app):
             # Game state updates (only when playing)
             current_state = _get_current_state(scene_stack) or game_state.current_screen
             if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
+                # Get key state once per frame (used by multiple systems)
+                keys_pressed = pygame.key.get_pressed()
+                
                 # Gameplay input: movement, fire, weapons, abilities (handled in input_system)
                 def _try_spawn_bullet():
                     if not getattr(game_state, "fire_pressed", False):
@@ -1243,9 +1272,9 @@ def _run_loop(app):
                     if not pl:
                         return
                     if ctx.config.aim_mode == AIM_ARROWS:
-                        k = pygame.key.get_pressed()
-                        dx = (1 if k[pygame.K_RIGHT] else 0) - (1 if k[pygame.K_LEFT] else 0)
-                        dy = (1 if k[pygame.K_DOWN] else 0) - (1 if k[pygame.K_UP] else 0)
+                        # Use pre-fetched keys_pressed instead of calling get_pressed() again
+                        dx = (1 if keys_pressed[pygame.K_RIGHT] else 0) - (1 if keys_pressed[pygame.K_LEFT] else 0)
+                        dy = (1 if keys_pressed[pygame.K_DOWN] else 0) - (1 if keys_pressed[pygame.K_UP] else 0)
                         if dx == 0 and dy == 0:
                             direction = (
                                 game_state.last_move_velocity.normalize()
@@ -1295,12 +1324,14 @@ def _run_loop(app):
                     running = False
                 # Optional: for future render interpolation (smooth between steps)
                 setattr(game_state, "simulation_interpolation", simulation_accumulator / FIXED_DT if FIXED_DT else 0.0)
-                update_telemetry(game_state, dt, ctx)
+                # Only update telemetry if enabled (function already has guard, but avoid call overhead)
+                if telemetry_enabled:
+                    update_telemetry(game_state, dt, ctx)
                 continue_blink_t = game_state.ui.continue_blink_t
                 current_state = _get_current_state(scene_stack) or game_state.current_screen
 
             # Rendering
-            _render_current_scene(ctx, game_state, scene_stack, screen_ctx)
+            _render_current_scene(ctx, game_state, scene_stack, screen_ctx, pause_shaders_enabled, menu_shaders_enabled)
             pygame.display.flip()
 
             # Write flow state back to GameState after this iteration
