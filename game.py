@@ -218,6 +218,7 @@ from systems.spawn_system import start_wave as spawn_system_start_wave
 from systems.input_system import handle_gameplay_input
 from systems.telemetry_system import update_telemetry
 from systems.audio_system import init_mixer, sync_from_config, play_sfx, play_music, stop_music
+from pickups import apply_pickup_effect
 try:
     from telemetry.perf import record_frame as _perf_record_frame
 except ImportError:
@@ -2740,135 +2741,7 @@ def kill_enemy(enemy: dict, state: GameState, width: int, height: int) -> None:
     state.score += calculate_kill_score(state.wave_number, state.run_time)
 
 
-def apply_pickup_effect(pickup_type: str, state: GameState, ctx: AppContext):
-    """Apply the effect of a collected pickup."""
-    if pickup_type in ("boost", "sprint"):
-        state.boost_meter = min(boost_meter_max, state.boost_meter + 45.0)
-    elif pickup_type in ("armor", "overshield"):
-        state.overshield = min(overshield_max, state.overshield + 25)
-    elif pickup_type == "dash_recharge":
-        state.jump_cooldown_timer = jump_cooldown  # Dash ready immediately
-    elif pickup_type == "firerate":
-        state.fire_rate_buff_t = fire_rate_buff_duration
-    elif pickup_type == "health":
-        # Restore 100 HP (capped at max HP)
-        state.player_hp = min(state.player_max_hp, state.player_hp + 100)
-    elif pickup_type == "max_health":
-        state.player_max_hp += 15
-        state.player_hp += 15  # also heal by the same amount
-    elif pickup_type == "speed":
-        state.player_stat_multipliers["speed"] += 0.15
-    elif pickup_type == "firerate_permanent":
-        # Cap fire rate multiplier at 2.0 (2x firing speed max) to prevent performance issues
-        state.player_stat_multipliers["firerate"] = min(2.0, state.player_stat_multipliers["firerate"] + 0.12)
-    elif pickup_type == "bullet_size":
-        state.player_stat_multipliers["bullet_size"] += 0.20
-    elif pickup_type == "bullet_speed":
-        state.player_stat_multipliers["bullet_speed"] += 0.15
-    elif pickup_type == "bullet_damage":
-        state.player_stat_multipliers["bullet_damage"] += 0.20
-    elif pickup_type == "bullet_knockback":
-        state.player_stat_multipliers["bullet_knockback"] += 0.25
-    elif pickup_type == "bullet_penetration":
-        state.player_stat_multipliers["bullet_penetration"] += 1
-    elif pickup_type == "bullet_explosion":
-        state.player_stat_multipliers["bullet_explosion_radius"] += 25.0
-    elif pickup_type == "health_regen":
-        # Increase player health regeneration rate
-        state.player_health_regen_rate += 5.0  # Add 5 HP per second regeneration
-    elif pickup_type == "random_damage":
-        # Randomize damage multiplier (between 0.5x and 2.0x)
-        state.random_damage_multiplier = random.uniform(0.5, 2.0)  # Random multiplier between 0.5x and 2.0x
-    elif pickup_type == "spawn_boost":
-        # Reduce ally drop cooldown (boost player's ability to spawn allies)
-        global ally_drop_cooldown
-        ally_drop_cooldown = max(1.0, ally_drop_cooldown * 0.8)  # Reduce cooldown by 20% (minimum 1 second)
-    # Weapon pickups - unlock and switch to weapon
-    elif pickup_type in ["giant_bullets", "giant"]:
-        state.unlocked_weapons.add("giant")
-        state.previous_weapon_mode = state.current_weapon_mode
-        # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "laser":
-            state.laser_beams.clear()
-        state.current_weapon_mode = "giant"
-        # Log weapon switch from pickup
-        if state.previous_weapon_mode != state.current_weapon_mode:
-            if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
-                ctx.telemetry_client.log_player_action(PlayerActionEvent(
-                    t=state.run_time,
-                action_type="weapon_switch",
-                    x=state.player_rect.centerx,
-                    y=state.player_rect.centery,
-                duration=None,
-                success=True
-            ))
-    elif pickup_type in ["triple_shot", "triple"]:
-        state.unlocked_weapons.add("triple")
-        state.previous_weapon_mode = state.current_weapon_mode
-        # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "laser":
-            state.laser_beams.clear()
-        state.current_weapon_mode = "triple"
-        # Weapon names and colors are now imported from config_weapons.py
-        state.weapon_pickup_messages.append({
-            "weapon_name": WEAPON_NAMES.get("triple", "TRIPLE SHOT"),
-            "timer": 3.0,
-            "color": WEAPON_DISPLAY_COLORS.get("triple", (255, 255, 255))
-        })
-        if state.previous_weapon_mode != state.current_weapon_mode:
-            if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
-                ctx.telemetry_client.log_player_action(PlayerActionEvent(
-                    t=state.run_time,
-                action_type="weapon_switch",
-                    x=state.player_rect.centerx,
-                    y=state.player_rect.centery,
-                duration=None,
-                success=True
-            ))
-    elif pickup_type == "laser":
-        state.unlocked_weapons.add("laser")
-        state.previous_weapon_mode = state.current_weapon_mode
-        # Clear beams when switching away from beam weapons
-        state.current_weapon_mode = "laser"
-        # Weapon names and colors are now imported from config_weapons.py
-        state.weapon_pickup_messages.append({
-            "weapon_name": WEAPON_NAMES.get("laser", "LASER BEAM"),
-            "timer": 3.0,
-            "color": WEAPON_DISPLAY_COLORS.get("laser", (255, 255, 255))
-        })
-        if state.previous_weapon_mode != state.current_weapon_mode:
-            if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
-                ctx.telemetry_client.log_player_action(PlayerActionEvent(
-                    t=state.run_time,
-                action_type="weapon_switch",
-                    x=state.player_rect.centerx,
-                    y=state.player_rect.centery,
-                duration=None,
-                success=True
-            ))
-    elif pickup_type == "basic":
-        state.unlocked_weapons.add("basic")  # Should already be unlocked, but ensure it
-        state.previous_weapon_mode = state.current_weapon_mode
-        # Clear beams when switching away from beam weapons
-        if state.previous_weapon_mode == "laser":
-            state.laser_beams.clear()
-        state.current_weapon_mode = "basic"
-        # Weapon names and colors are now imported from config_weapons.py
-        state.weapon_pickup_messages.append({
-            "weapon_name": WEAPON_NAMES.get("basic", "BASIC FIRE"),
-            "timer": 3.0,
-            "color": WEAPON_DISPLAY_COLORS.get("basic", (255, 255, 255))
-        })
-        if state.previous_weapon_mode != state.current_weapon_mode:
-            if ctx.config.enable_telemetry and ctx.telemetry_client and state.player_rect:
-                ctx.telemetry_client.log_player_action(PlayerActionEvent(
-                    t=state.run_time,
-                action_type="weapon_switch",
-                    x=state.player_rect.centerx,
-                    y=state.player_rect.centery,
-                duration=None,
-                success=True
-            ))
+# apply_pickup_effect is now imported from pickups.py
 
 
 # render_hud_text is now imported from rendering.py
