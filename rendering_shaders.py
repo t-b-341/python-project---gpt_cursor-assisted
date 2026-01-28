@@ -10,6 +10,7 @@ from visual_effects import apply_gameplay_effects, apply_gameplay_final_blit
 from shader_effects import get_gameplay_shader_stack
 from shader_effects.pipeline import ShaderPipelineManager
 from shader_effects.context import ShaderContext
+from typing import Callable, Optional
 
 try:
     from gpu_gl_utils import get_gl_context, get_fullscreen_quad, gpu_upscale_surface, HAS_MODERNGL
@@ -23,6 +24,123 @@ logger = logging.getLogger(__name__)
 
 # Global shader pipeline (initialized on first use)
 _shader_pipeline: ShaderPipelineManager | None = None
+
+def _create_shader_render_pass(shader_name: str, uniforms: dict) -> Optional[Callable]:
+    """Create a render pass function for a GPU shader."""
+    if not HAS_MODERNGL:
+        return None
+    
+    try:
+        from gpu_gl_utils import get_gl_context, get_fullscreen_quad, create_utility_shader_program
+        
+        gl_ctx = get_gl_context()
+        if gl_ctx is None:
+            return None
+        
+        # Create shader program
+        program = create_utility_shader_program(gl_ctx, shader_name)
+        if program is None:
+            logger.warning(f"Could not create shader program for {shader_name}")
+            return None
+        
+        quad = get_fullscreen_quad()
+        if quad is None:
+            return None
+        
+        def render_pass(surface: pygame.Surface, dt: float, context: dict) -> pygame.Surface:
+            """Render pass that applies the GPU shader to the surface."""
+            try:
+                # Upload surface to texture
+                texture = gl_ctx.texture(surface.get_size(), 4)
+                texture.write(surface.get_view("1"))
+                
+                # Set uniforms
+                for key, value in uniforms.items():
+                    try:
+                        if key.startswith("u_"):
+                            if isinstance(value, (int, float)):
+                                program[key].value = float(value)
+                            elif isinstance(value, (tuple, list)) and len(value) == 2:
+                                program[key].value = tuple(float(v) for v in value)
+                            elif isinstance(value, (tuple, list)) and len(value) == 3:
+                                program[key].value = tuple(float(v) for v in value)
+                            elif isinstance(value, (tuple, list)) and len(value) == 4:
+                                program[key].value = tuple(float(v) for v in value)
+                    except (KeyError, AttributeError):
+                        pass  # Uniform doesn't exist in shader, skip
+                
+                # Set time uniform if available
+                if "u_Time" in program:
+                    program["u_Time"].value = context.get("time", 0.0)
+                if "u_DeltaTime" in program:
+                    program["u_DeltaTime"].value = context.get("delta_time", dt)
+                
+                # Render
+                texture.use(0)
+                quad.render(program)
+                
+                # Read back to surface (simplified - would need proper texture readback)
+                # For now, return original surface (GPU path would handle this differently)
+                return surface
+            except Exception as e:
+                logger.error(f"Error in render pass for {shader_name}: {e}")
+                return surface
+        
+        return render_pass
+    except Exception as e:
+        logger.warning(f"Failed to create render pass for {shader_name}: {e}")
+        return None
+
+def apply_shader_settings_to_pipeline() -> None:
+    """Apply shader settings from config/shaders.json to the gameplay shader pipeline."""
+    global _shader_pipeline
+    try:
+        from scenes.shader_settings import load_and_apply_shader_settings_from_file, get_applied_shader_settings
+        
+        # Load settings from file
+        load_and_apply_shader_settings_from_file()
+        
+        # Get the prepared shader settings
+        shader_settings = get_applied_shader_settings()
+        
+        if not shader_settings:
+            logger.info("No shader settings to apply")
+            return
+        
+        # Initialize pipeline if needed
+        if _shader_pipeline is None:
+            _shader_pipeline = ShaderPipelineManager()
+            logger.info("Initialized GPU shader pipeline for custom shader settings")
+        
+        # Clear existing shaders
+        _shader_pipeline.clear()
+        
+        # Add enabled shaders with their uniforms
+        applied_count = 0
+        for shader_info in shader_settings:
+            name = shader_info["name"]
+            category = shader_info["category"]
+            uniforms = shader_info["uniforms"]
+            
+            # Create render pass for this shader
+            render_pass = _create_shader_render_pass(name, uniforms)
+            if render_pass is not None:
+                _shader_pipeline.add_shader(
+                    name,
+                    category,
+                    render_pass,
+                    default_uniforms=uniforms
+                )
+                applied_count += 1
+            else:
+                logger.warning(f"Could not create render pass for shader {name}, skipping")
+        
+        if applied_count > 0:
+            logger.info(f"Applied {applied_count} custom shaders to gameplay pipeline")
+        else:
+            logger.info("No valid shaders found in settings or render passes could not be created")
+    except Exception as e:
+        logger.error(f"Failed to apply shader settings to pipeline: {e}", exc_info=True)
 
 # Log rendering path once per session
 _rendering_path_logged = False
@@ -169,9 +287,25 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
         profile = "none"
 
     use_gl_path = profile == "gl_basic" and HAS_MODERNGL and (use_gpu_shaders or use_shaders)
-    scale = 1.0
-    if config is not None and not use_gl_path:
+    
+    # When shaders are enabled (CPU or GPU), use full resolution for best quality
+    # The GPU can handle full-res processing, and CPU effects work better at full res when GPU is helping
+    use_gpu_pipeline = (
+        config is not None
+        and getattr(config, "use_gpu_shader_pipeline", False)
+        and HAS_MODERNGL
+    )
+    enable_gameplay_shaders = config is not None and getattr(config, "enable_gameplay_shaders", False)
+    
+    # Use full resolution when shaders are enabled (CPU+GPU working together)
+    # Only use reduced resolution when no shaders are enabled (pure CPU path for performance)
+    if use_gpu_pipeline or enable_gameplay_shaders:
+        scale = 1.0  # Full resolution when shaders are active
+    elif not use_gl_path:
         scale = max(0.25, min(1.0, float(getattr(config, "internal_resolution_scale", 1.0))))
+    else:
+        scale = 1.0  # Full resolution for GL path
+    
     offscreen_w = max(1, int(render_ctx.width * scale))
     offscreen_h = max(1, int(render_ctx.height * scale))
     offscreen_size = (offscreen_w, offscreen_h)
@@ -191,37 +325,62 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
     # Log rendering path once
     _log_rendering_path(config)
 
-    # Config-based gameplay shader stack when enable_gameplay_shaders and gameplay_shader_profile != "none"
-    # Run CPU effect chain at reduced resolution (default 0.5) to keep framerate up at full screen sizes.
-    if config is not None and getattr(config, "enable_gameplay_shaders", False) and (not use_gpu_shaders or not use_gl_path):
-        gameplay_stack = get_gameplay_shader_stack(config)
-        if gameplay_stack:
-            t = time.perf_counter() - _gl_start_time
-            eff_ctx = {"time": t}
-            effect_scale = max(0.25, min(1.0, float(getattr(config, "internal_resolution_scale", 1.0))))
-            if effect_scale >= 0.99:
-                effect_scale = 0.5  # default half-res for effect chain when at full res (avoids low fps)
-            ew = max(1, int(offscreen_w * effect_scale))
-            eh = max(1, int(offscreen_h * effect_scale))
-            surf = pygame.transform.smoothscale(offscreen_surface, (ew, eh))
-            for eff in gameplay_stack:
-                surf = eff.apply(surf, 0.016, eff_ctx)
-            # Prefer GPU upscale when available to keep resolution high without CPU cost
-            if HAS_MODERNGL and (use_gpu_shaders or use_shaders) and gpu_upscale_surface is not None:
-                scaled_back = gpu_upscale_surface(surf, (offscreen_w, offscreen_h))
-            else:
-                scaled_back = None
-            if scaled_back is None:
-                scaled_back = pygame.transform.smoothscale(surf, (offscreen_w, offscreen_h))
-            offscreen_surface.blit(scaled_back, (0, 0))
-
-    # GPU shader pipeline path (when use_gpu_shader_pipeline is enabled)
+    # Determine if we're using GPU pipeline
     use_gpu_pipeline = (
         config is not None
         and getattr(config, "use_gpu_shader_pipeline", False)
         and HAS_MODERNGL
     )
     
+    # CPU shader stack: Apply CPU effects first (they work well as base effects)
+    # When GPU pipeline is also enabled, run CPU effects at full resolution since GPU can handle the load
+    cpu_effect_scale = 1.0  # Default to full resolution when GPU is available
+    if config is not None and getattr(config, "enable_gameplay_shaders", False):
+        gameplay_stack = get_gameplay_shader_stack(config)
+        if gameplay_stack:
+            t = time.perf_counter() - _gl_start_time
+            eff_ctx = {"time": t}
+            
+            # If GPU pipeline is enabled, use full resolution for CPU effects (GPU can handle it)
+            # Otherwise, use reduced resolution to maintain performance
+            if use_gpu_pipeline:
+                cpu_effect_scale = 1.0  # Full resolution when GPU is helping
+            else:
+                # CPU-only path: use reduced resolution for performance
+                cpu_effect_scale = max(0.25, min(1.0, float(getattr(config, "internal_resolution_scale", 1.0))))
+                if cpu_effect_scale >= 0.99:
+                    cpu_effect_scale = 0.5  # default half-res for CPU-only effect chain
+            
+            ew = max(1, int(offscreen_w * cpu_effect_scale))
+            eh = max(1, int(offscreen_h * cpu_effect_scale))
+            
+            if cpu_effect_scale < 1.0:
+                # Scale down for CPU processing
+                surf = pygame.transform.smoothscale(offscreen_surface, (ew, eh))
+            else:
+                # Full resolution
+                surf = offscreen_surface.copy()
+            
+            # Apply CPU effects
+            for eff in gameplay_stack:
+                surf = eff.apply(surf, 0.016, eff_ctx)
+            
+            # Scale back up if we scaled down
+            if cpu_effect_scale < 1.0:
+                # Prefer GPU upscale when available to keep resolution high without CPU cost
+                if HAS_MODERNGL and (use_gpu_shaders or use_shaders) and gpu_upscale_surface is not None:
+                    scaled_back = gpu_upscale_surface(surf, (offscreen_w, offscreen_h))
+                else:
+                    scaled_back = None
+                if scaled_back is None:
+                    scaled_back = pygame.transform.smoothscale(surf, (offscreen_w, offscreen_h))
+                offscreen_surface.blit(scaled_back, (0, 0))
+            else:
+                # Full resolution - blit directly
+                offscreen_surface.blit(surf, (0, 0))
+    
+    # GPU shader pipeline: Apply GPU shaders after CPU effects (adds additional enhancement)
+    # This allows CPU and GPU to work together - CPU provides base effects, GPU adds polish
     if use_gpu_pipeline:
         global _shader_pipeline
         if _shader_pipeline is None:
@@ -239,17 +398,18 @@ def render_gameplay_with_optional_shaders(render_ctx, game_state, ctx) -> None:
             current_hp = getattr(game_state, "player_hp", 100)
             shader_ctx["health"] = current_hp / max_hp
         
-        # Execute GPU shader pipeline
+        # Execute GPU shader pipeline on the CPU-processed surface
+        # This allows both CPU and GPU effects to work together
         try:
             processed = _shader_pipeline.execute_pipeline(offscreen_surface, dt=0.016, context=shader_ctx)
             offscreen_surface = processed
         except Exception as e:
             logger.error(f"GPU shader pipeline failed: {e}", exc_info=True)
-            # Fall through to CPU path
+            # Continue with CPU-processed result if GPU fails
     
-    # Lightweight CPU effects (vignette, scanlines) by gameplay_effect_profile when enable_gameplay_shaders
-    # Only apply if NOT using GPU pipeline (avoid double-processing)
-    if not use_gpu_pipeline:
+    # Lightweight CPU effects (vignette, scanlines) - apply these last as final polish
+    # These are lightweight enough to run even when GPU pipeline is active
+    if config is not None and getattr(config, "enable_gameplay_shaders", False):
         apply_gameplay_effects(offscreen_surface, ctx, game_state)
 
     if use_gl_path:

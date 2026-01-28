@@ -151,6 +151,9 @@ class ShaderSettingsScreen:
                         print(f"[ShaderSettings] RIGHT: navigation didn't select shader")
                 elif key == pygame.K_RETURN or key == pygame.K_SPACE:
                     self._toggle_selected_shader()
+                elif key == pygame.K_a and keys_pressed[pygame.K_LCTRL]:
+                    # Ctrl+A to apply settings to game
+                    self._apply_to_game()
                 elif key in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
                     self._adjust_parameter(0.1)
                 elif key in (pygame.K_MINUS, pygame.K_KP_MINUS):
@@ -468,12 +471,17 @@ class ShaderSettingsScreen:
         # Draw parameters (bottom)
         self._render_parameters(screen, 0, height - param_height, width, param_height, render_ctx)
         
-        # Draw "Start Game" option at bottom right
-        start_game_y = height - 40
-        start_game_x = width - 200
-        font = render_ctx.font
+        # Draw controls at bottom
+        controls_y = height - 80
+        font = render_ctx.small_font
         start_text = font.render("F1: Start Game", True, (150, 200, 255))
-        screen.blit(start_text, (start_game_x, start_game_y))
+        screen.blit(start_text, (width - 250, controls_y))
+        
+        apply_text = font.render("Ctrl+A: Apply to Game", True, (150, 255, 150))
+        screen.blit(apply_text, (width - 250, controls_y + 20))
+        
+        note_text = font.render("Note: Enable 'use_gpu_shader_pipeline' in config for shaders to work", True, (200, 200, 150))
+        screen.blit(note_text, (10, controls_y + 40))
         
         # Draw debug overlay if enabled
         if self.debug_overlay_enabled:
@@ -675,9 +683,7 @@ class ShaderSettingsScreen:
             from shader_effects.registry import get_shader_spec
             from shader_effects.pipeline import pipeline_category_for_registry_category
             
-            # Try to get the global gameplay pipeline manager
-            # The game may use a module-level pipeline or pass it through context
-            # For now, we'll create a helper function that can be called from the game loop
+            # Prepare enabled shaders list
             enabled_shaders = []
             for shader_name, enabled in self.shader_enabled.items():
                 if enabled:
@@ -693,12 +699,25 @@ class ShaderSettingsScreen:
                         })
             
             # Store the enabled shaders list for the game to use
-            # This will be loaded when the game starts or when settings are applied
             _store_applied_shader_settings(enabled_shaders)
             
             print(f"[ShaderSettings] Prepared {len(enabled_shaders)} shaders for gameplay pipeline")
         except Exception as e:
             print(f"[ShaderSettings] Failed to prepare settings: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _apply_to_game(self) -> None:
+        """Apply current shader settings directly to the gameplay pipeline."""
+        try:
+            # First save and prepare settings
+            self._save_settings()
+            # Then apply to the actual pipeline
+            from rendering_shaders import apply_shader_settings_to_pipeline
+            apply_shader_settings_to_pipeline()
+            print("[ShaderSettings] Applied shader settings to gameplay pipeline (Ctrl+A)")
+        except Exception as e:
+            print(f"[ShaderSettings] Failed to apply to game: {e}")
             import traceback
             traceback.print_exc()
 

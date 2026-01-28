@@ -502,6 +502,13 @@ def _setup_initial_resources() -> None:
         except OSError:
             pass
     
+    # Load and apply shader settings from config/shaders.json if available
+    try:
+        from rendering_shaders import apply_shader_settings_to_pipeline
+        apply_shader_settings_to_pipeline()
+    except Exception as e:
+        print(f"[Game] Failed to load shader settings on startup: {e}")
+    
     # Main menu (title + pre-game options) uses ambient2 music
     play_music("ambient2", loop=True)
 
@@ -530,10 +537,10 @@ def _prompt_shader_mode(ctx: AppContext) -> None:
                     prompt_done = True
                     ctx.config.use_shaders = False
                 elif e.type == pygame.KEYDOWN:
-                    if e.key in (pygame.K_y, pygame.K_z):
+                    if e.key == pygame.K_y:
                         ctx.config.use_shaders = True
                         prompt_done = True
-                    elif e.key in (pygame.K_n, pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                    elif e.key == pygame.K_n:
                         ctx.config.use_shaders = False
                         prompt_done = True
     print("Shader mode: ON" if ctx.config.use_shaders else "Shader mode: OFF")

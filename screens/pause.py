@@ -89,7 +89,8 @@ def handle_events(events, game_state, ctx):
                 if row == 4:  # "Full Settings" option
                     # Open full shader settings screen
                     out["screen"] = "SHADER_SETTINGS"
-                    break
+                    return out  # Return immediately to ensure transition is processed
+                # For other rows, Enter does nothing (values changed with LEFT/RIGHT)
             continue
         
         # Handle ESCAPE key
