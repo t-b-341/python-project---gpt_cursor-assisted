@@ -707,6 +707,39 @@ class ShaderSettingsScreen:
             import traceback
             traceback.print_exc()
     
+    def _load_settings(self) -> None:
+        """Load shader settings from config file."""
+        config_path = Path("config/shaders.json")
+        
+        if not config_path.exists():
+            # Already initialized with defaults in __init__
+            return
+        
+        try:
+            with open(config_path, "r") as f:
+                settings = json.load(f)
+            
+            # Load enabled flags
+            saved_enabled = settings.get("enabled", {})
+            self.shader_enabled.update(saved_enabled)
+            
+            # Load uniforms, merging with registry defaults
+            saved_uniforms = settings.get("uniforms", {})
+            for shader_name, saved_values in saved_uniforms.items():
+                spec = get_shader_spec(shader_name)
+                if spec:
+                    # Start with registry defaults, then apply saved values
+                    self.shader_uniforms[shader_name] = spec.default_uniforms.copy()
+                    self.shader_uniforms[shader_name].update(saved_values)
+                else:
+                    # Unknown shader, use saved values as-is
+                    self.shader_uniforms[shader_name] = saved_values
+            
+            print(f"[ShaderSettings] Loaded settings from {config_path}")
+        except Exception as e:
+            print(f"[ShaderSettings] Failed to load: {e}")
+            # Keep defaults already set in __init__
+    
     def _apply_to_game(self) -> None:
         """Apply current shader settings directly to the gameplay pipeline."""
         try:
@@ -767,39 +800,6 @@ def load_and_apply_shader_settings_from_file() -> None:
         print(f"[ShaderSettings] Loaded {len(enabled_shaders)} shaders from {config_path}")
     except Exception as e:
         print(f"[ShaderSettings] Failed to load settings from file: {e}")
-    
-    def _load_settings(self) -> None:
-        """Load shader settings from config file."""
-        config_path = Path("config/shaders.json")
-        
-        if not config_path.exists():
-            # Already initialized with defaults in __init__
-            return
-        
-        try:
-            with open(config_path, "r") as f:
-                settings = json.load(f)
-            
-            # Load enabled flags
-            saved_enabled = settings.get("enabled", {})
-            self.shader_enabled.update(saved_enabled)
-            
-            # Load uniforms, merging with registry defaults
-            saved_uniforms = settings.get("uniforms", {})
-            for shader_name, saved_values in saved_uniforms.items():
-                spec = get_shader_spec(shader_name)
-                if spec:
-                    # Start with registry defaults, then apply saved values
-                    self.shader_uniforms[shader_name] = spec.default_uniforms.copy()
-                    self.shader_uniforms[shader_name].update(saved_values)
-                else:
-                    # Unknown shader, use saved values as-is
-                    self.shader_uniforms[shader_name] = saved_values
-            
-            print(f"[ShaderSettings] Loaded settings from {config_path}")
-        except Exception as e:
-            print(f"[ShaderSettings] Failed to load: {e}")
-            # Keep defaults already set in __init__
     
     def on_enter(self, game_state: "GameState", ctx: dict) -> None:
         """Called when scene is entered."""

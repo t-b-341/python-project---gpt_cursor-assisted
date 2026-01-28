@@ -734,6 +734,154 @@ def _poll_events() -> list:
     return pygame.event.get()
 
 
+def handle_global_events(events: list, ctx: AppContext, game_state: GameState, ui_state, scene_stack: SceneStack, screen_ctx: dict) -> bool:
+    """
+    Handle events that apply globally, regardless of which scene is active.
+    
+    Returns False if the game should stop running (e.g., QUIT event), True otherwise.
+    This function is PURELY about "does the game keep running?" and truly global shortcuts.
+    """
+    for event in events:
+        if event.type == pygame.QUIT:
+            return False
+    return True
+
+
+def handle_scene_events(events: list, ctx: AppContext, game_state: GameState, ui_state, scene_stack: SceneStack, screen_ctx: dict, previous_game_state: str | None) -> SceneTransition | None:
+    """
+    Delegate events to the active scene / SceneStack in the modern system.
+    
+    Returns a SceneTransition object (or None) describing what should happen (push, pop, quit, replace, none).
+    Does NOT handle legacy game_state.current_screen states - that's in handle_legacy_state_events.
+    """
+    current_scene = _get_current_scene(scene_stack)
+    if current_scene is None:
+        return None
+    
+    try:
+        transition = current_scene.handle_input_transition(events, game_state, screen_ctx)
+        return transition
+    except AttributeError:
+        # Scene doesn't have handle_input_transition, fall through to legacy handling
+        return None
+    except Exception as e:
+        # Log other errors but don't crash
+        import traceback
+        print(f"[handle_scene_events] Error in scene handle_input_transition: {e}")
+        traceback.print_exc()
+        return None
+
+
+def handle_legacy_state_events(events: list, ctx: AppContext, game_state: GameState, ui_state, screen_ctx: dict, scene_stack: SceneStack, handled_by_screen: bool, previous_game_state: str | None, pause_selected: int, controls_selected: int, controls_rebinding: bool) -> tuple[bool, str | None, int, int, bool, dict]:
+    """
+    TODO: This function contains legacy screen-based input handling. 
+    Once all screens are migrated to scenes, this should be removed.
+    
+    Handles legacy input that still uses game_state.current_screen, STATE_* constants, etc.
+    Returns (running, previous_game_state, pause_selected, controls_selected, controls_rebinding, result_dict).
+    """
+    running = True
+    result = {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False, "replay": False, "pop": False, "start_game": False}
+    
+    for event in events:
+        if handled_by_screen:
+            continue
+        if event.type == pygame.QUIT:
+            return False, previous_game_state, pause_selected, controls_selected, controls_rebinding, result
+        
+        current_state = _get_current_state(scene_stack) or game_state.current_screen
+        
+        if current_state == STATE_NAME_INPUT and event.type == pygame.TEXTINPUT:
+            if len(game_state.player_name_input) < 20:
+                game_state.player_name_input += event.text
+        
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and current_state == STATE_CONTROLS and controls_rebinding:
+            action = controls_actions[controls_selected]
+            if action == "direct_allies":
+                ctx.controls[action] = MOUSE_BUTTON_RIGHT
+                save_controls(ctx.controls)
+                controls_rebinding = False
+        
+        if event.type == pygame.KEYDOWN:
+            if current_state == STATE_NAME_INPUT:
+                if event.key == pygame.K_BACKSPACE:
+                    game_state.player_name_input = game_state.player_name_input[:-1]
+                elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+                    if game_state.player_name_input.strip():
+                        save_high_score(
+                            game_state.player_name_input.strip(),
+                            game_state.final_score_for_high_score,
+                            game_state.wave_number - 1,
+                            game_state.survival_time,
+                            game_state.enemies_killed,
+                            ctx.config.difficulty
+                        )
+                    game_state.current_screen = STATE_HIGH_SCORES
+                    game_state.name_input_active = False
+                    scene_stack.pop()
+                    scene_stack.push(HighScoreScene())
+            
+            if event.key == pygame.K_ESCAPE:
+                if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
+                    previous_game_state = current_state
+                    game_state.previous_screen = previous_game_state
+                    game_state.ui.pause_selected = 0
+                    game_state.current_screen = STATE_PAUSED
+                    scene_stack.push(PauseScene())
+                elif current_state == STATE_PAUSED:
+                    scene_stack.pop()
+                    new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
+                    game_state.current_screen = new_state
+                elif current_state == STATE_CONTINUE:
+                    return False, previous_game_state, pause_selected, controls_selected, controls_rebinding, result
+                elif current_state == STATE_CONTROLS:
+                    game_state.ui.pause_selected = 0
+                    game_state.current_screen = STATE_PAUSED
+                    scene_stack.push(PauseScene())
+                elif current_state == STATE_VICTORY or current_state == STATE_GAME_OVER or current_state == STATE_HIGH_SCORES:
+                    return False, previous_game_state, pause_selected, controls_selected, controls_rebinding, result
+                elif current_state == STATE_NAME_INPUT:
+                    if game_state.player_name_input.strip():
+                        save_high_score(
+                            game_state.player_name_input.strip(),
+                            game_state.final_score_for_high_score,
+                            game_state.wave_number - 1,
+                            game_state.survival_time,
+                            game_state.enemies_killed,
+                            ctx.config.difficulty
+                        )
+                    game_state.current_screen = STATE_HIGH_SCORES
+                    game_state.name_input_active = False
+                    scene_stack.pop()
+                    scene_stack.push(HighScoreScene())
+            
+            if event.key == pygame.K_p:
+                if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
+                    previous_game_state = current_state
+                    game_state.previous_screen = previous_game_state
+                    game_state.ui.pause_selected = 0
+                    game_state.current_screen = STATE_PAUSED
+                    scene_stack.push(PauseScene())
+                elif current_state == STATE_PAUSED:
+                    scene_stack.pop()
+                    new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
+                    game_state.current_screen = new_state
+            
+            if event.key == pygame.K_F3:
+                _print_active_shader_profiles(ctx.config)
+            
+            if current_state == STATE_CONTROLS and controls_rebinding:
+                if event.key != pygame.K_ESCAPE:
+                    action = controls_actions[controls_selected]
+                    ctx.controls[action] = event.key
+                    save_controls(ctx.controls)
+                    controls_rebinding = False
+                else:
+                    controls_rebinding = False
+    
+    return running, previous_game_state, pause_selected, controls_selected, controls_rebinding, result
+
+
 def _handle_events(
     events: list,
     ctx: AppContext,
@@ -747,55 +895,52 @@ def _handle_events(
 ) -> tuple[bool, str | None, int, int, bool]:
     """
     Handle all input events. Returns (running, previous_game_state, pause_selected, controls_selected, controls_rebinding).
-    This function processes scene-driven input, fallback input, and legacy event handling.
+    
+    This function coordinates three helper functions:
+    1. handle_global_events: Handles truly global events (QUIT, etc.)
+    2. handle_scene_events: Delegates to the modern scene system
+    3. handle_legacy_state_events: Handles legacy screen-based input (TODO: remove once migration complete)
+    
+    Migration path: As screens are fully migrated to scenes, handle_legacy_state_events will be removed,
+    and this function will become a thin coordinator of global and scene events only.
     """
-    running = True
+    # Step 1: Handle global events (QUIT, etc.)
+    running = handle_global_events(events, ctx, game_state, game_state.ui, scene_stack, screen_ctx)
+    if not running:
+        return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
+    
+    # Step 2: Try scene-driven input handling
     handled_by_screen = False
+    scene_result = None
     current_scene = _get_current_scene(scene_stack)
+    current_state = _get_current_state(scene_stack) or game_state.current_screen
     
-    # Check for QUIT events first
-    for event in events:
-        if event.type == pygame.QUIT:
-            return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
+    transition = handle_scene_events(events, ctx, game_state, game_state.ui, scene_stack, screen_ctx, previous_game_state)
     
-    # Try scene-driven input handling first
-    scene_result = None  # Store result from scene's handle_input for start_game check
-    if current_scene is not None:
-        try:
-            transition = current_scene.handle_input_transition(events, game_state, screen_ctx)
-            # Get the result from handle_input to check for start_game flag
-            # handle_input_transition calls handle_input internally, but we need the result
-            # So we call handle_input again to get the result (it's idempotent for input processing)
-            current_state = _get_current_state(scene_stack) or game_state.current_screen
-            if current_state == "SHADER_SETTINGS":
-                scene_result = current_scene.handle_input(events, game_state, screen_ctx)
-            
-            if transition.kind != KIND_NONE:
-                should_quit = _apply_scene_transition(transition, scene_stack, ctx, game_state)
-                if should_quit:
-                    return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
-                handled_by_screen = True
-            else:
-                # Transition is NONE, but handle_input was called (config changes applied)
-                # For PAUSED and SHADER_SETTINGS, the input was handled, so mark as handled
-                if current_state == STATE_MENU:
+    if transition is not None:
+        # Get the result from handle_input to check for start_game flag
+        # handle_input_transition calls handle_input internally, but we need the result
+        if current_state == "SHADER_SETTINGS":
+            scene_result = current_scene.handle_input(events, game_state, screen_ctx) if current_scene else None
+        
+        if transition.kind != KIND_NONE:
+            should_quit = _apply_scene_transition(transition, scene_stack, ctx, game_state)
+            if should_quit:
+                return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
+            handled_by_screen = True
+        else:
+            # Transition is NONE, but handle_input was called (config changes applied)
+            # For PAUSED and SHADER_SETTINGS, the input was handled, so mark as handled
+            if current_state == STATE_MENU:
+                handled_by_screen = False  # Let fallback process start_game
+            elif current_state == "SHADER_SETTINGS":
+                # Check if start_game was requested from shader settings
+                if scene_result and scene_result.get("start_game"):
                     handled_by_screen = False  # Let fallback process start_game
-                elif current_state == "SHADER_SETTINGS":
-                    # Check if start_game was requested from shader settings
-                    if scene_result and scene_result.get("start_game"):
-                        handled_by_screen = False  # Let fallback process start_game
-                    else:
-                        handled_by_screen = True  # Scene handled its own input
-                elif current_state in (STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE, STATE_PAUSED):
+                else:
                     handled_by_screen = True  # Scene handled its own input
-        except AttributeError as e:
-            # Scene doesn't have handle_input_transition, fall through to fallback
-            pass
-        except Exception as e:
-            # Log other errors but don't crash
-            import traceback
-            print(f"[_handle_events] Error in scene handle_input_transition: {e}")
-            traceback.print_exc()
+            elif current_state in (STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE, STATE_PAUSED):
+                handled_by_screen = True  # Scene handled its own input
     
     # Fallback to old input handling if scene path didn't handle it
     current_state = _get_current_state(scene_stack) or game_state.current_screen
@@ -888,106 +1033,12 @@ def _handle_events(
                     scene_stack.push(GameplayScene(new_screen))
         handled_by_screen = True
     
-    # Legacy event handling for specific states
-    for event in events:
-        if handled_by_screen:
-            continue
-        if event.type == pygame.QUIT:
-            return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
-        
-        current_state = _get_current_state(scene_stack) or game_state.current_screen
-        
-        if current_state == STATE_NAME_INPUT and event.type == pygame.TEXTINPUT:
-            if len(game_state.player_name_input) < 20:
-                game_state.player_name_input += event.text
-        
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and current_state == STATE_CONTROLS and controls_rebinding:
-            action = controls_actions[controls_selected]
-            if action == "direct_allies":
-                ctx.controls[action] = MOUSE_BUTTON_RIGHT
-                save_controls(ctx.controls)
-                controls_rebinding = False
-        
-        if event.type == pygame.KEYDOWN:
-            if current_state == STATE_NAME_INPUT:
-                if event.key == pygame.K_BACKSPACE:
-                    game_state.player_name_input = game_state.player_name_input[:-1]
-                elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
-                    if game_state.player_name_input.strip():
-                        save_high_score(
-                            game_state.player_name_input.strip(),
-                            game_state.final_score_for_high_score,
-                            game_state.wave_number - 1,
-                            game_state.survival_time,
-                            game_state.enemies_killed,
-                            ctx.config.difficulty
-                        )
-                    game_state.current_screen = STATE_HIGH_SCORES
-                    game_state.name_input_active = False
-                    scene_stack.pop()
-                    scene_stack.push(HighScoreScene())
-            
-            if event.key == pygame.K_ESCAPE:
-                if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
-                    previous_game_state = current_state
-                    game_state.previous_screen = previous_game_state
-                    game_state.ui.pause_selected = 0
-                    game_state.current_screen = STATE_PAUSED
-                    scene_stack.push(PauseScene())
-                elif current_state == STATE_PAUSED:
-                    scene_stack.pop()
-                    new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
-                    game_state.current_screen = new_state
-                elif current_state == STATE_CONTINUE:
-                    return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
-                elif current_state == STATE_CONTROLS:
-                    game_state.ui.pause_selected = 0
-                    game_state.current_screen = STATE_PAUSED
-                    scene_stack.push(PauseScene())
-                elif current_state == STATE_VICTORY or current_state == STATE_GAME_OVER or current_state == STATE_HIGH_SCORES:
-                    return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
-                elif current_state == STATE_NAME_INPUT:
-                    if game_state.player_name_input.strip():
-                        save_high_score(
-                            game_state.player_name_input.strip(),
-                            game_state.final_score_for_high_score,
-                            game_state.wave_number - 1,
-                            game_state.survival_time,
-                            game_state.enemies_killed,
-                            ctx.config.difficulty
-                        )
-                    game_state.current_screen = STATE_HIGH_SCORES
-                    game_state.name_input_active = False
-                    scene_stack.pop()
-                    scene_stack.push(HighScoreScene())
-            
-            if event.key == pygame.K_p:
-                if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
-                    previous_game_state = current_state
-                    game_state.previous_screen = previous_game_state
-                    game_state.ui.pause_selected = 0
-                    game_state.current_screen = STATE_PAUSED
-                    scene_stack.push(PauseScene())
-                elif current_state == STATE_PAUSED:
-                    scene_stack.pop()
-                    new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
-                    game_state.current_screen = new_state
-            
-            if event.key == pygame.K_F3:
-                _print_active_shader_profiles(ctx.config)
-            
-            # Pause menu input is now handled by PauseScene.handle_input, so skip legacy handling
-            # if current_state == STATE_PAUSED:
-            #     ... (removed - handled by scene)
-            
-            if current_state == STATE_CONTROLS and controls_rebinding:
-                if event.key != pygame.K_ESCAPE:
-                    action = controls_actions[controls_selected]
-                    ctx.controls[action] = event.key
-                    save_controls(ctx.controls)
-                    controls_rebinding = False
-                else:
-                    controls_rebinding = False
+    # Step 4: Handle legacy state events (TODO: remove once migration complete)
+    running, previous_game_state, pause_selected, controls_selected, controls_rebinding, _ = handle_legacy_state_events(
+        events, ctx, game_state, game_state.ui, screen_ctx, scene_stack, handled_by_screen, previous_game_state, pause_selected, controls_selected, controls_rebinding
+    )
+    if not running:
+        return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
     
     return running, previous_game_state, pause_selected, controls_selected, controls_rebinding
 

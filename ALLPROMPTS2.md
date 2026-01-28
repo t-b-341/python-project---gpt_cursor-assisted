@@ -1,1 +1,0 @@
-ALLPROMPTS2.md
