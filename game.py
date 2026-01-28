@@ -1732,7 +1732,7 @@ grenade_time_since_used = 999.0  # Time since last grenade
 missiles: list[dict] = []  # List of active missiles {rect, vel, target_enemy, speed, damage, explosion_radius}
 missile_time_since_used = 999.0  # Time since last missile
 missile_explosion_radius = 100  # Explosion radius
-missile_speed = 400  # Missile movement speed
+missile_speed = 200  # Missile movement speed (reduced by 0.5x)
 
 # ----------------------------
 # Enemy templates are now imported from config_enemies.py

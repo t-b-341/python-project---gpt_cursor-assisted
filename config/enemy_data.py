@@ -23,26 +23,12 @@ ENEMY_TEMPLATES: list[dict] = [
         "hp": 40,
         "max_hp": 40,
         "shoot_cooldown": 6.0,  # Fires one rocket at player every 6s (dodgeable)
-        "projectile_speed": 220,  # Slow enough to dodge
+        "projectile_speed": 110,  # Slow enough to dodge (reduced by 0.5x)
         "projectile_color": (200, 100, 80),
         "projectile_shape": "circle",
         "speed": 0,  # Stationary
         "is_ambient": True,
         "rocket_cooldown": 0.0,
-    },
-    {
-        "type": "pawn",
-        "rect": pygame.Rect(120, 450, 28, 28),
-        "color": (180, 180, 180),  # Gray
-        "hp": 50,
-        "max_hp": 50,
-        "shoot_cooldown": 1.0,  # Basic fire rate
-        "projectile_speed": 300,
-        "projectile_color": (200, 200, 200),
-        "projectile_shape": "circle",
-        "speed": 80,  # Basic movement speed
-        "enemy_class": "pawn",
-        "enemy_size_class": "basic",
     },
     {
         "type": "suicide",
@@ -66,7 +52,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "hp": 60,
         "max_hp": 60,
         "shoot_cooldown": 0.9,
-        "projectile_speed": 320,
+        "projectile_speed": 160,  # Reduced by 0.5x
         "projectile_color": (180, 220, 255),
         "projectile_shape": "square",
         "speed": 90,
@@ -79,64 +65,11 @@ ENEMY_TEMPLATES: list[dict] = [
         "hp": 80,
         "max_hp": 80,
         "shoot_cooldown": 1.2,
-        "projectile_speed": 280,
+        "projectile_speed": 140,  # Reduced by 0.5x
         "projectile_color": (255, 190, 120),
         "projectile_shape": "circle",
         "speed": 70,
         "enemy_size_class": "large",
-    },
-    {
-        "type": "stinky",
-        "rect": pygame.Rect(90, 450, 28, 28),
-        "color": (220, 80, 80),
-        "hp": 60,
-        "max_hp": 60,
-        "shoot_cooldown": 0.9,
-        "projectile_speed": 320,
-        "projectile_color": (180, 220, 255),
-        "projectile_shape": "diamond",
-        "speed": 110,
-        "enemy_size_class": "basic",
-    },
-    {
-        "type": "baka",
-        "rect": pygame.Rect(90, 450, 28, 28),
-        "color": (100, 80, 80),
-        "hp": 300,
-        "max_hp": 300,
-        "shoot_cooldown": 0.1,
-        "projectile_speed": 500,
-        "projectile_color": (255, 120, 180),
-        "projectile_shape": "square",
-        "speed": 150,
-        "is_predictive": True,
-        "enemy_size_class": "basic",
-    },
-    {
-        "type": "neko neko desu",
-        "rect": pygame.Rect(100, 450, 28, 28),
-        "color": (100, 80, 0),
-        "hp": 20,
-        "max_hp": 20,
-        "shoot_cooldown": 0.01,
-        "projectile_speed": 500,
-        "projectile_color": (200, 255, 140),
-        "projectile_shape": "circle",
-        "speed": 160,
-        "enemy_size_class": "basic",
-    },
-    {
-        "type": "BIG NEKU",
-        "rect": pygame.Rect(400, 450, 28, 28),
-        "color": (100, 200, 0),
-        "hp": 300,
-        "max_hp": 300,
-        "shoot_cooldown": 1,
-        "projectile_speed": 700,
-        "projectile_color": (160, 200, 255),
-        "projectile_shape": "diamond",
-        "speed": 60,
-        "enemy_size_class": "basic",
     },
     {
         "type": "bouncer",
@@ -145,7 +78,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "hp": 70,
         "max_hp": 70,
         "shoot_cooldown": 1.5,
-        "projectile_speed": 350,
+        "projectile_speed": 175,  # Reduced by 0.5x
         "projectile_color": (255, 150, 150),
         "projectile_shape": "square",
         "speed": 85,
@@ -158,7 +91,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "hp": 100,
         "max_hp": 100,
         "shoot_cooldown": 1.0,
-        "projectile_speed": 300,
+        "projectile_speed": 150,  # Reduced by 0.5x
         "projectile_color": (150, 200, 255),
         "projectile_shape": "circle",
         "speed": 60,
@@ -212,7 +145,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "hp": 5000,  # 5000 health (per GAME_IMPROVEMENTS.md line 60)
         "max_hp": 5000,
         "shoot_cooldown": 0.5,  # Increased rate of fire (reduced from 1.0s to 0.5s)
-        "projectile_speed": 350,
+        "projectile_speed": 175,  # Reduced by 0.5x
         "projectile_color": (150, 0, 0),
         "projectile_shape": "circle",
         "speed": 240,  # 3x standard speed (80 * 3)
@@ -229,7 +162,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "grenade_cooldown": 5.0,  # Grenade cooldown for queen
         "time_since_grenade": 999.0,
         "can_use_missiles": True,  # Queen can use missiles
-        "missile_cooldown": 10.0,  # Missile cooldown (10 seconds)
+        "missile_cooldown": 6.67,  # Missile cooldown (increased fire rate by 1.5x: 10.0 / 1.5)
         "time_since_missile": 999.0,
         "damage_taken_since_rage": 0,  # Track damage for rage mode
         "rage_mode_active": False,  # Rage mode after 300-500 damage
@@ -244,7 +177,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "hp": 150,
         "max_hp": 150,
         "shoot_cooldown": 0.5,
-        "projectile_speed": 400,
+        "projectile_speed": 200,  # Reduced by 0.5x
         "projectile_color": (200, 150, 255),
         "projectile_shape": "circle",
         "speed": 100,
@@ -260,7 +193,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "hp": 55,
         "max_hp": 55,
         "shoot_cooldown": 0.15,
-        "projectile_speed": 380,
+        "projectile_speed": 190,  # Reduced by 0.5x
         "projectile_color": (255, 120, 40),
         "projectile_shape": "circle",
         "speed": 70,
@@ -275,7 +208,7 @@ ENEMY_TEMPLATES: list[dict] = [
         "hp": 800,
         "max_hp": 800,
         "shoot_cooldown": 2.0,
-        "projectile_speed": 350,
+        "projectile_speed": 175,  # Reduced by 0.5x
         "projectile_color": (180, 100, 150),
         "projectile_shape": "circle",
         "speed": 20,
@@ -344,7 +277,7 @@ BOSS_TEMPLATE: dict = {
     "hp": 300,  # Note: This may be scaled at runtime
     "max_hp": 300,
     "shoot_cooldown": 0.5,
-    "projectile_speed": 400,
+    "projectile_speed": 200,  # Reduced by 0.5x
     "projectile_color": (255, 50, 50),
     "projectile_shape": "circle",
     "speed": 50,
@@ -385,7 +318,7 @@ FRIENDLY_AI_TEMPLATES: list[dict] = [
         "hp": 75,  # 50-100 health range (randomized at spawn)
         "max_hp": 75,
         "shoot_cooldown": 0.4,
-        "projectile_speed": 600,
+        "projectile_speed": 300,  # Reduced by 0.5x
         "projectile_color": (150, 220, 255),
         "projectile_shape": "circle",
         "speed": 180,
@@ -399,7 +332,7 @@ FRIENDLY_AI_TEMPLATES: list[dict] = [
         "hp": 100,  # 50-100 health range (randomized at spawn)
         "max_hp": 100,
         "shoot_cooldown": 0.6,
-        "projectile_speed": 500,
+        "projectile_speed": 250,  # Reduced by 0.5x
         "projectile_color": (150, 255, 200),
         "projectile_shape": "square",
         "speed": 120,
@@ -413,7 +346,7 @@ FRIENDLY_AI_TEMPLATES: list[dict] = [
         "hp": 60,  # 50-100 health range (randomized at spawn)
         "max_hp": 60,
         "shoot_cooldown": 1.2,
-        "projectile_speed": 800,
+        "projectile_speed": 400,  # Reduced by 0.5x
         "projectile_color": (255, 220, 150),
         "projectile_shape": "diamond",
         "speed": 100,
@@ -427,7 +360,7 @@ FRIENDLY_AI_TEMPLATES: list[dict] = [
         "hp": 100,  # 50-100 health range (randomized at spawn)
         "max_hp": 100,
         "shoot_cooldown": 0.8,
-        "projectile_speed": 400,
+        "projectile_speed": 200,  # Reduced by 0.5x
         "projectile_color": (220, 180, 255),
         "projectile_shape": "square",
         "speed": 80,
@@ -441,7 +374,7 @@ FRIENDLY_AI_TEMPLATES: list[dict] = [
         "hp": 70,
         "max_hp": 70,
         "shoot_cooldown": 2.0,
-        "projectile_speed": 400,
+        "projectile_speed": 200,  # Reduced by 0.5x
         "projectile_color": (255, 200, 120),
         "projectile_shape": "diamond",
         "speed": 140,

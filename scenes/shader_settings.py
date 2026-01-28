@@ -483,21 +483,38 @@ class ShaderSettingsScreen:
             screen.blit(text, (x + 10, y + 10))
             return
         
-        # Render parameter controls
+        # Build stable list of parameter keys for the currently selected shader
         uniforms = self.shader_uniforms.get(self.selected_shader, {})
+        param_items = list(uniforms.items())
+        self._param_keys = [key for key, _ in param_items]
+        
+        # Render parameter controls
         font = render_ctx.small_font
         start_y = y + 10
         
-        for i, (key, value) in enumerate(uniforms.items()):
+        for idx, (key, value) in enumerate(param_items):
+            is_selected = (idx == self.selected_param_index)
+            
+            # Highlight selected parameter
+            if is_selected:
+                # Draw highlight background
+                pygame.draw.rect(screen, (50, 60, 80), (x + 5, start_y + idx * 25 - 2, w - 10, 22))
+                # Use brighter color for selected
+                text_color = (255, 255, 150)
+                prefix = "▶ "
+            else:
+                text_color = (200, 200, 200)
+                prefix = "  "
+            
             if isinstance(value, (int, float)):
-                text = font.render(f"{key}: {value:.2f} (+/- to adjust)", True, (200, 200, 200))
-                screen.blit(text, (x + 10, start_y + i * 25))
+                text = font.render(f"{prefix}{key}: {value:.2f} (+/- to adjust)", True, text_color)
+                screen.blit(text, (x + 10, start_y + idx * 25))
             elif isinstance(value, tuple) and len(value) == 2:
-                text = font.render(f"{key}: ({value[0]:.2f}, {value[1]:.2f})", True, (200, 200, 200))
-                screen.blit(text, (x + 10, start_y + i * 25))
+                text = font.render(f"{prefix}{key}: ({value[0]:.2f}, {value[1]:.2f})", True, text_color)
+                screen.blit(text, (x + 10, start_y + idx * 25))
             elif isinstance(value, tuple) and len(value) == 3:
-                text = font.render(f"{key}: ({value[0]:.2f}, {value[1]:.2f}, {value[2]:.2f})", True, (200, 200, 200))
-                screen.blit(text, (x + 10, start_y + i * 25))
+                text = font.render(f"{prefix}{key}: ({value[0]:.2f}, {value[1]:.2f}, {value[2]:.2f})", True, text_color)
+                screen.blit(text, (x + 10, start_y + idx * 25))
     
     def _render_debug_overlay(self, screen: pygame.Surface, render_ctx: RenderContext) -> None:
         """Render debug overlay showing active shaders and uniforms."""

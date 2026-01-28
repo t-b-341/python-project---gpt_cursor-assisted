@@ -7,7 +7,7 @@ that are gameplay configuration; constants.py re-exports these for backward comp
 player_bullet_shapes = ["circle", "square", "diamond"]
 player_bullets_color = (10, 200, 200)
 player_bullet_size = (8, 8)
-player_bullet_speed = 900
+player_bullet_speed = 450  # Reduced by 0.5x
 player_bullet_damage = 20
 player_shoot_cooldown = 0.12
 
@@ -50,7 +50,7 @@ grenade_cooldown = 2.0
 grenade_damage = 1500
 
 # Missile
-missile_cooldown = 0.4
+missile_cooldown = 0.267  # Increased fire rate by 1.5x (0.4 / 1.5)
 missile_damage = 800
 
 # Ally drop
