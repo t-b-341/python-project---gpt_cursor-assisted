@@ -92,7 +92,7 @@ class ShaderSettingsScreen:
         return SHADER_SETTINGS_STATE_ID
     
     def handle_input(self, events, game_state: "GameState", ctx: dict) -> dict:
-        out = {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False, "replay": False, "pop": False}
+        out = {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False, "replay": False, "pop": False, "start_game": False}
         
         keys_pressed = pygame.key.get_pressed()
         
@@ -107,6 +107,12 @@ class ShaderSettingsScreen:
                 if key == pygame.K_ESCAPE:
                     out["pop"] = True
                     break
+                elif key == pygame.K_F1:
+                    # F1 to start game directly from shader settings
+                    from constants import STATE_PLAYING
+                    out["screen"] = STATE_PLAYING
+                    out["start_game"] = True
+                    break
                 elif key == pygame.K_F12:
                     self.debug_overlay_enabled = not self.debug_overlay_enabled
                 elif key == pygame.K_s and keys_pressed[pygame.K_LCTRL]:
@@ -116,31 +122,23 @@ class ShaderSettingsScreen:
                     # Ctrl+L to load
                     self._load_settings()
                 elif key == pygame.K_UP:
-                    # Navigate parameter list if shader selected, otherwise navigate categories/shaders
-                    if self.selected_shader and self._param_keys:
-                        old_idx = self.selected_param_index
+                    # Navigate parameter list if shader selected AND we're at the first parameter, otherwise navigate categories/shaders
+                    # If at first parameter, navigate shader list instead
+                    if self.selected_shader and self._param_keys and self.selected_param_index > 0:
+                        # Navigate within parameters
                         self.selected_param_index = max(0, self.selected_param_index - 1)
-                        if old_idx == self.selected_param_index and old_idx > 0:
-                            print(f"[ShaderSettings] UP: param index unchanged at {self.selected_param_index}")
                     else:
-                        old_cat = self.selected_category
-                        old_shader = self.selected_shader
+                        # Navigate shader list or category list
                         self._navigate_up()
-                        if old_cat == self.selected_category and old_shader == self.selected_shader:
-                            print(f"[ShaderSettings] UP: navigation didn't change selection")
                 elif key == pygame.K_DOWN:
-                    # Navigate parameter list if shader selected, otherwise navigate categories/shaders
-                    if self.selected_shader and self._param_keys:
-                        old_idx = self.selected_param_index
+                    # Navigate parameter list if shader selected AND not at last parameter, otherwise navigate categories/shaders
+                    # If at last parameter, navigate shader list instead
+                    if self.selected_shader and self._param_keys and self.selected_param_index < len(self._param_keys) - 1:
+                        # Navigate within parameters
                         self.selected_param_index = min(len(self._param_keys) - 1, self.selected_param_index + 1)
-                        if old_idx == self.selected_param_index and old_idx < len(self._param_keys) - 1:
-                            print(f"[ShaderSettings] DOWN: param index unchanged at {self.selected_param_index}")
                     else:
-                        old_cat = self.selected_category
-                        old_shader = self.selected_shader
+                        # Navigate shader list or category list
                         self._navigate_down()
-                        if old_cat == self.selected_category and old_shader == self.selected_shader:
-                            print(f"[ShaderSettings] DOWN: navigation didn't change selection")
                 elif key == pygame.K_LEFT:
                     old_shader = self.selected_shader
                     self._navigate_left()
@@ -399,6 +397,10 @@ class ShaderSettingsScreen:
         result = self.handle_input(events, game_state, ctx)
         if result.get("pop"):
             return SceneTransition.pop()
+        if result.get("start_game") or result.get("screen") == "PLAYING":
+            # Start game - return to menu or start directly
+            # The start_game flag will be handled by the game loop
+            return SceneTransition.none()  # Let the game loop handle start_game flag
         # Return NONE - navigation and parameter adjustments handled in handle_input above
         # The state (selected_category, selected_shader, selected_param_index) was updated in handle_input
         return SceneTransition.none()
@@ -465,6 +467,13 @@ class ShaderSettingsScreen:
         
         # Draw parameters (bottom)
         self._render_parameters(screen, 0, height - param_height, width, param_height, render_ctx)
+        
+        # Draw "Start Game" option at bottom right
+        start_game_y = height - 40
+        start_game_x = width - 200
+        font = render_ctx.font
+        start_text = font.render("F1: Start Game", True, (150, 200, 255))
+        screen.blit(start_text, (start_game_x, start_game_y))
         
         # Draw debug overlay if enabled
         if self.debug_overlay_enabled:
@@ -586,13 +595,19 @@ class ShaderSettingsScreen:
             self._update_param_keys()
         
         uniforms = self.shader_uniforms.get(self.selected_shader, {})
-        param_items = list(uniforms.items())
+        
+        # Use _param_keys to ensure consistent ordering with selection index
+        if not self._param_keys:
+            text = render_ctx.font.render("No parameters available", True, (150, 150, 150))
+            screen.blit(text, (x + 10, y + 10))
+            return
         
         # Render parameter controls
         font = render_ctx.small_font
         start_y = y + 10
         
-        for idx, (key, value) in enumerate(param_items):
+        for idx, key in enumerate(self._param_keys):
+            value = uniforms.get(key)
             is_selected = (idx == self.selected_param_index)
             
             # Highlight selected parameter
@@ -649,8 +664,90 @@ class ShaderSettingsScreen:
             with open(config_path, "w") as f:
                 json.dump(settings, f, indent=2)
             print(f"[ShaderSettings] Saved settings to {config_path}")
+            # Apply settings to global shader pipeline after saving
+            self._apply_settings_to_pipeline()
         except Exception as e:
             print(f"[ShaderSettings] Failed to save: {e}")
+    
+    def _apply_settings_to_pipeline(self) -> None:
+        """Apply current shader settings to the global gameplay shader pipeline."""
+        try:
+            from shader_effects.registry import get_shader_spec
+            from shader_effects.pipeline import pipeline_category_for_registry_category
+            
+            # Try to get the global gameplay pipeline manager
+            # The game may use a module-level pipeline or pass it through context
+            # For now, we'll create a helper function that can be called from the game loop
+            enabled_shaders = []
+            for shader_name, enabled in self.shader_enabled.items():
+                if enabled:
+                    spec = get_shader_spec(shader_name)
+                    if spec:
+                        uniforms = self.shader_uniforms.get(shader_name, spec.default_uniforms.copy())
+                        pipeline_cat = pipeline_category_for_registry_category(spec.category)
+                        enabled_shaders.append({
+                            "name": shader_name,
+                            "category": pipeline_cat,
+                            "uniforms": uniforms,
+                            "spec": spec
+                        })
+            
+            # Store the enabled shaders list for the game to use
+            # This will be loaded when the game starts or when settings are applied
+            _store_applied_shader_settings(enabled_shaders)
+            
+            print(f"[ShaderSettings] Prepared {len(enabled_shaders)} shaders for gameplay pipeline")
+        except Exception as e:
+            print(f"[ShaderSettings] Failed to prepare settings: {e}")
+            import traceback
+            traceback.print_exc()
+
+# Global storage for applied shader settings
+_applied_shader_settings: list[dict] = []
+
+def _store_applied_shader_settings(shaders: list[dict]) -> None:
+    """Store shader settings to be applied to the gameplay pipeline."""
+    global _applied_shader_settings
+    _applied_shader_settings = shaders
+
+def get_applied_shader_settings() -> list[dict]:
+    """Get the shader settings that should be applied to gameplay."""
+    return _applied_shader_settings.copy()
+
+def load_and_apply_shader_settings_from_file() -> None:
+    """Load shader settings from config/shaders.json and prepare them for application."""
+    config_path = Path("config/shaders.json")
+    if not config_path.exists():
+        return
+    
+    try:
+        with open(config_path, "r") as f:
+            settings = json.load(f)
+        
+        from shader_effects.registry import get_shader_spec
+        from shader_effects.pipeline import pipeline_category_for_registry_category
+        
+        enabled_shaders = []
+        saved_enabled = settings.get("enabled", {})
+        saved_uniforms = settings.get("uniforms", {})
+        
+        for shader_name, enabled in saved_enabled.items():
+            if enabled:
+                spec = get_shader_spec(shader_name)
+                if spec:
+                    uniforms = saved_uniforms.get(shader_name, spec.default_uniforms.copy())
+                    pipeline_cat = pipeline_category_for_registry_category(spec.category)
+                    enabled_shaders.append({
+                        "name": shader_name,
+                        "category": pipeline_cat,
+                        "uniforms": uniforms,
+                        "spec": spec
+                    })
+        
+        _store_applied_shader_settings(enabled_shaders)
+        print(f"[ShaderSettings] Loaded {len(enabled_shaders)} shaders from {config_path}")
+    except Exception as e:
+        print(f"[ShaderSettings] Failed to load settings from file: {e}")
     
     def _load_settings(self) -> None:
         """Load shader settings from config file."""
@@ -706,4 +803,7 @@ class ShaderSettingsScreen:
     
     def on_exit(self, game_state: "GameState", ctx: dict) -> None:
         """Called when scene is exited."""
+        # Save settings and apply them to the game pipeline
         self._save_settings()
+        # Settings are automatically applied in _save_settings via _apply_settings_to_pipeline
+        # The game can call get_applied_shader_settings() to get the enabled shaders and apply them

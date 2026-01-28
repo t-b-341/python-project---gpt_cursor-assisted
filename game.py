@@ -752,9 +752,17 @@ def _handle_events(
             return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
     
     # Try scene-driven input handling first
+    scene_result = None  # Store result from scene's handle_input for start_game check
     if current_scene is not None:
         try:
             transition = current_scene.handle_input_transition(events, game_state, screen_ctx)
+            # Get the result from handle_input to check for start_game flag
+            # handle_input_transition calls handle_input internally, but we need the result
+            # So we call handle_input again to get the result (it's idempotent for input processing)
+            current_state = _get_current_state(scene_stack) or game_state.current_screen
+            if current_state == "SHADER_SETTINGS":
+                scene_result = current_scene.handle_input(events, game_state, screen_ctx)
+            
             if transition.kind != KIND_NONE:
                 should_quit = _apply_scene_transition(transition, scene_stack, ctx, game_state)
                 if should_quit:
@@ -763,10 +771,15 @@ def _handle_events(
             else:
                 # Transition is NONE, but handle_input was called (config changes applied)
                 # For PAUSED and SHADER_SETTINGS, the input was handled, so mark as handled
-                current_state = _get_current_state(scene_stack) or game_state.current_screen
                 if current_state == STATE_MENU:
                     handled_by_screen = False  # Let fallback process start_game
-                elif current_state in (STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", "SHADER_SETTINGS", STATE_TITLE, STATE_PAUSED):
+                elif current_state == "SHADER_SETTINGS":
+                    # Check if start_game was requested from shader settings
+                    if scene_result and scene_result.get("start_game"):
+                        handled_by_screen = False  # Let fallback process start_game
+                    else:
+                        handled_by_screen = True  # Scene handled its own input
+                elif current_state in (STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE, STATE_PAUSED):
                     handled_by_screen = True  # Scene handled its own input
         except AttributeError as e:
             # Scene doesn't have handle_input_transition, fall through to fallback
@@ -780,7 +793,10 @@ def _handle_events(
     # Fallback to old input handling if scene path didn't handle it
     current_state = _get_current_state(scene_stack) or game_state.current_screen
     if not handled_by_screen and current_state in (STATE_PAUSED, STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", "SHADER_SETTINGS", STATE_TITLE, STATE_MENU):
-        if current_scene:
+        # Use scene_result if we already got it, otherwise get it now
+        if scene_result is not None:
+            result = scene_result
+        elif current_scene:
             result = current_scene.handle_input(events, game_state, screen_ctx)
         else:
             h = SCREEN_HANDLERS.get(current_state)

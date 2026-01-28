@@ -35,6 +35,9 @@ class PauseScene:
                 return SceneTransition.pop()
             elif screen == STATE_MENU:
                 return SceneTransition.replace(STATE_MENU)
+            elif screen == "SHADER_SETTINGS":
+                # Open shader settings screen
+                return SceneTransition.push("SHADER_SETTINGS")
         # Return NONE - pause menu navigation and shader submenu handled in handle_input
         # The state (pause_selected, pause_shader_options_row) was updated in handle_input above
         return SceneTransition.none()

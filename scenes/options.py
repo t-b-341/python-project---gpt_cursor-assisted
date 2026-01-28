@@ -150,60 +150,11 @@ class OptionsScene:
                 elif event.key in (pygame.K_RIGHT, pygame.K_d, pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                     game_state.ui.menu_section = 5
             elif game_state.ui.menu_section == 3.6:
-                _menu_profiles = ["none", "menu_crt", "menu_neon"]
-                _pause_profiles = ["none", "pause_dim_vignette"]
-                _gameplay_profiles = ["none", "gameplay_subtle_vignette", "gameplay_retro"]
-                row = game_state.ui.shader_options_selected_row
-                nrows = 7
-                if event.key in (pygame.K_UP, pygame.K_w):
-                    game_state.ui.shader_options_selected_row = (row - 1) % nrows
-                elif event.key in (pygame.K_DOWN, pygame.K_s):
-                    game_state.ui.shader_options_selected_row = (row + 1) % nrows
-                elif event.key in (pygame.K_LEFT, pygame.K_a):
-                    if row == 6:
-                        game_state.ui.menu_section = 3.5
-                    elif row == 0:
-                        cfg.enable_menu_shaders = not cfg.enable_menu_shaders
-                    elif row == 1:
-                        cfg.enable_pause_shaders = not cfg.enable_pause_shaders
-                    elif row == 2:
-                        cfg.enable_gameplay_shaders = not cfg.enable_gameplay_shaders
-                    elif row == 3:
-                        cur = getattr(cfg, "menu_shader_profile", "none")
-                        i = (_menu_profiles.index(cur) if cur in _menu_profiles else 0) - 1
-                        cfg.menu_shader_profile = _menu_profiles[i % len(_menu_profiles)]
-                    elif row == 4:
-                        cur = getattr(cfg, "pause_shader_profile", "none")
-                        i = (_pause_profiles.index(cur) if cur in _pause_profiles else 0) - 1
-                        cfg.pause_shader_profile = _pause_profiles[i % len(_pause_profiles)]
-                    elif row == 5:
-                        cur = getattr(cfg, "gameplay_shader_profile", "none")
-                        i = (_gameplay_profiles.index(cur) if cur in _gameplay_profiles else 0) - 1
-                        cfg.gameplay_shader_profile = _gameplay_profiles[i % len(_gameplay_profiles)]
-                elif event.key in (pygame.K_RIGHT, pygame.K_d):
-                    if row == 0:
-                        cfg.enable_menu_shaders = not cfg.enable_menu_shaders
-                    elif row == 1:
-                        cfg.enable_pause_shaders = not cfg.enable_pause_shaders
-                    elif row == 2:
-                        cfg.enable_gameplay_shaders = not cfg.enable_gameplay_shaders
-                    elif row == 3:
-                        cur = getattr(cfg, "menu_shader_profile", "none")
-                        i = (_menu_profiles.index(cur) if cur in _menu_profiles else 0) + 1
-                        cfg.menu_shader_profile = _menu_profiles[i % len(_menu_profiles)]
-                    elif row == 4:
-                        cur = getattr(cfg, "pause_shader_profile", "none")
-                        i = (_pause_profiles.index(cur) if cur in _pause_profiles else 0) + 1
-                        cfg.pause_shader_profile = _pause_profiles[i % len(_pause_profiles)]
-                    elif row == 5:
-                        cur = getattr(cfg, "gameplay_shader_profile", "none")
-                        i = (_gameplay_profiles.index(cur) if cur in _gameplay_profiles else 0) + 1
-                        cfg.gameplay_shader_profile = _gameplay_profiles[i % len(_gameplay_profiles)]
-                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
-                    if row == 6:
-                        game_state.ui.menu_section = 3.5
-                    else:
-                        game_state.ui.menu_section = 4 if cfg.testing_mode else 5
+                # Open full shader settings screen instead of simple menu
+                if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_RIGHT, pygame.K_d):
+                    out["screen"] = "SHADER_SETTINGS"
+                elif event.key in (pygame.K_LEFT, pygame.K_a, pygame.K_ESCAPE):
+                    game_state.ui.menu_section = 3.5
             elif game_state.ui.menu_section == 5:
                 if event.key in (pygame.K_LEFT, pygame.K_a):
                     game_state.ui.menu_section = 3.6
@@ -231,6 +182,9 @@ class OptionsScene:
                 return SceneTransition.replace(STATE_TITLE)
             elif screen == STATE_MENU:
                 return SceneTransition.replace(STATE_MENU)
+            elif screen == "SHADER_SETTINGS":
+                # Open shader settings screen
+                return SceneTransition.push("SHADER_SETTINGS")
             elif screen == STATE_PLAYING:
                 # Start game - handled separately via start_game flag in result
                 # Return NONE so the old path can handle start_game
