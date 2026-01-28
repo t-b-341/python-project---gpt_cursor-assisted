@@ -4,6 +4,8 @@ game.py remains the thin entrypoint that creates GameApp() and calls app.run().
 """
 from __future__ import annotations
 
+import pygame
+
 
 class GameApp:
     """Owns game state, context/config, scene stack, and the Pygame main loop."""
@@ -20,8 +22,222 @@ class GameApp:
         self.max_sim_steps = r.max_sim_steps
         self.update_simulation = r.update_simulation
         self.simulation_accumulator = r.simulation_accumulator
+        
+        # Create reusable screen_ctx once (only update mutable values per frame)
+        self.screen_ctx = {
+            "WIDTH": self.ctx.width,
+            "HEIGHT": self.ctx.height,
+            "font": self.ctx.font,
+            "big_font": self.ctx.big_font,
+            "small_font": self.ctx.small_font,
+            "get_high_scores": game_module.get_high_scores,
+            "save_high_score": game_module.save_high_score,
+            "difficulty": self.ctx.config.difficulty,
+            "app_ctx": self.ctx,
+        }
+        
+        # Pre-check telemetry/shader flags to avoid repeated attribute lookups
+        self.telemetry_enabled = self.ctx.config.enable_telemetry
+        self.pause_shaders_enabled = getattr(self.ctx.config, "enable_pause_shaders", False)
+        self.menu_shaders_enabled = getattr(self.ctx.config, "enable_menu_shaders", False)
+        
+        # Local state for loop (written back to game_state at end of frame)
+        # Initialize from game_state
+        self._previous_game_state = self.game_state.previous_screen
+        self._pause_selected = self.game_state.ui.pause_selected
+        self._controls_selected = self.game_state.ui.controls_selected
+        self._controls_rebinding = getattr(self.game_state, "controls_rebinding", False)
+        self._continue_blink_t = self.game_state.ui.continue_blink_t
+        
+        # Store events from process_events() for use in update()
+        self._current_events: list = []
+
+    def process_events(self) -> bool:
+        """Process all input events. Returns False if the game should stop running."""
+        import game as game_module
+        
+        # Read current state from game_state at start of frame (single source of truth)
+        self._previous_game_state = self.game_state.previous_screen
+        self._pause_selected = self.game_state.ui.pause_selected
+        self._controls_selected = self.game_state.ui.controls_selected
+        self._controls_rebinding = getattr(self.game_state, "controls_rebinding", False)
+        self._continue_blink_t = self.game_state.ui.continue_blink_t
+        
+        # Update screen_ctx mutable values (width/height shouldn't change, but difficulty might)
+        self.screen_ctx["difficulty"] = self.ctx.config.difficulty
+        
+        # Event handling
+        events = game_module._poll_events()
+        # Store events for use in update() for gameplay input
+        self._current_events = events
+        running, self._previous_game_state, self._pause_selected, self._controls_selected, self._controls_rebinding = game_module._handle_events(
+            events, self.ctx, self.game_state, self.scene_stack, self.screen_ctx,
+            self._previous_game_state, self._pause_selected, self._controls_selected, self._controls_rebinding
+        )
+        
+        return running
+
+    def update(self, dt: float) -> bool:
+        """Run simulation updates. Returns False if the game should stop running."""
+        import game as game_module
+        from constants import STATE_PLAYING, STATE_ENDURANCE
+        
+        # Update run time
+        self.game_state.run_time += dt
+        self.game_state.survival_time += dt
+        
+        # Game state updates (only when playing)
+        current_state = game_module._get_current_state(self.scene_stack) or self.game_state.current_screen
+        if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
+            # Get key state once per frame (used by multiple systems)
+            keys_pressed = pygame.key.get_pressed()
+            
+            # Gameplay input: movement, fire, weapons, abilities (handled in input_system)
+            def _try_spawn_bullet():
+                if not getattr(self.game_state, "fire_pressed", False):
+                    return
+                from constants import fire_rate_mult, fire_rate_buff_duration
+                eff = self.game_state.player_shoot_cooldown * (
+                    fire_rate_mult if self.game_state.fire_rate_buff_t < fire_rate_buff_duration else 1.0
+                )
+                if self.game_state.player_time_since_shot >= eff:
+                    game_module.spawn_player_bullet_and_log(self.game_state, self.ctx)
+                    self.game_state.player_time_since_shot = 0.0
+
+            def _try_laser():
+                from constants import laser_cooldown, AIM_ARROWS, laser_length, laser_damage, UNLOCKED_WEAPON_DAMAGE_MULT
+                from geometry_utils import vec_toward
+                if self.game_state.current_weapon_mode != "laser" or self.game_state.laser_time_since_shot < laser_cooldown:
+                    return
+                pl = self.game_state.player_rect
+                if not pl:
+                    return
+                if self.ctx.config.aim_mode == AIM_ARROWS:
+                    # Use pre-fetched keys_pressed instead of calling get_pressed() again
+                    dx = (1 if keys_pressed[pygame.K_RIGHT] else 0) - (1 if keys_pressed[pygame.K_LEFT] else 0)
+                    dy = (1 if keys_pressed[pygame.K_DOWN] else 0) - (1 if keys_pressed[pygame.K_UP] else 0)
+                    if dx == 0 and dy == 0:
+                        direction = (
+                            self.game_state.last_move_velocity.normalize()
+                            if self.game_state.last_move_velocity.length_squared() > 0
+                            else pygame.Vector2(1, 0)
+                        )
+                    else:
+                        direction = pygame.Vector2(dx, dy).normalize()
+                else:
+                    mx, my = pygame.mouse.get_pos()
+                    direction = vec_toward(pl.centerx, pl.centery, mx, my)
+                end_pos = pygame.Vector2(pl.center) + direction * laser_length
+                laser_dmg = int(laser_damage * UNLOCKED_WEAPON_DAMAGE_MULT) if "laser" in self.game_state.unlocked_weapons else laser_damage
+                self.game_state.laser_beams.append({
+                    "start": pygame.Vector2(pl.center), "end": end_pos,
+                    "color": (255, 50, 50), "width": 5, "damage": laser_dmg, "timer": 0.1,
+                })
+                self.game_state.laser_time_since_shot = 0.0
+
+            # Get events for gameplay input (movement, abilities, etc.)
+            # Use events from process_events() (stored in self._current_events)
+            # Note: handle_gameplay_input will call _try_spawn_bullet and _try_laser via callbacks
+            events = self._current_events
+            from systems.input_system import handle_gameplay_input
+            from constants import (
+                overshield_recharge_cooldown, shield_duration, grenade_cooldown,
+                missile_cooldown, ally_drop_cooldown, boost_meter_max,
+                boost_drain_per_s, boost_regen_per_s, boost_speed_mult, slow_speed_mult
+            )
+            gameplay_input_ctx = {
+                "controls": self.ctx.controls,
+                "aiming_mode": self.ctx.config.aim_mode,
+                "width": self.ctx.width,
+                "height": self.ctx.height,
+                "dt": dt,
+                "spawn_player_bullet": _try_spawn_bullet,
+                "spawn_laser_beam": _try_laser,
+                "overshield_recharge_cooldown": overshield_recharge_cooldown,
+                "shield_duration": shield_duration,
+                "grenade_cooldown": grenade_cooldown,
+                "missile_cooldown": missile_cooldown,
+                "ally_drop_cooldown": ally_drop_cooldown,
+                "boost_meter_max": boost_meter_max,
+                "boost_drain_per_s": boost_drain_per_s,
+                "boost_regen_per_s": boost_regen_per_s,
+                "boost_speed_mult": boost_speed_mult,
+                "slow_speed_mult": slow_speed_mult,
+            }
+            handle_gameplay_input(events, self.game_state, gameplay_input_ctx)
+
+            # Fixed-step simulation: run one or more steps with FIXED_DT
+            self.simulation_accumulator, should_quit = game_module._step_simulation(
+                self.simulation_accumulator, dt, self.fixed_dt, self.max_sim_steps,
+                self.update_simulation, self.ctx, self.game_state, self.scene_stack, self.screen_ctx
+            )
+            if should_quit:
+                return False
+            # Optional: for future render interpolation (smooth between steps)
+            setattr(self.game_state, "simulation_interpolation", self.simulation_accumulator / self.fixed_dt if self.fixed_dt else 0.0)
+            # Only update telemetry if enabled (function already has guard, but avoid call overhead)
+            if self.telemetry_enabled:
+                game_module.update_telemetry(self.game_state, dt, self.ctx)
+            self._continue_blink_t = self.game_state.ui.continue_blink_t
+        
+        return True
+
+    def render(self) -> None:
+        """Render the current scene."""
+        import game as game_module
+        
+        game_module._render_current_scene(
+            self.ctx, self.game_state, self.scene_stack, self.screen_ctx,
+            self.pause_shaders_enabled, self.menu_shaders_enabled
+        )
+        pygame.display.flip()
+        
+        # Write flow state back to GameState after this iteration
+        # Update current_screen from scene stack if it changed
+        scene_state = game_module._get_current_state(self.scene_stack)
+        if scene_state:
+            self.game_state.current_screen = scene_state
+        self.game_state.previous_screen = self._previous_game_state
+        # pause_selected is updated directly by pause handler, so don't overwrite it
+        # game_state.ui.pause_selected = pause_selected  # Removed - handler updates directly
+        self.game_state.ui.continue_blink_t = self._continue_blink_t
+        self.game_state.ui.controls_selected = self._controls_selected
+        self.game_state.controls_rebinding = self._controls_rebinding
 
     def run(self) -> None:
         """Run the main loop (event handling, update, render)."""
         import game as game_module
-        game_module._run_loop(self)
+        
+        running = True
+        
+        try:
+            while running:
+                dt = self.ctx.clock.tick(self.fps) / 1000.0  # Wall-clock delta for this frame
+                game_module._perf_record_frame(dt)  # no-op unless GAME_DEBUG_PERF=1
+                
+                # Process events
+                running = self.process_events()
+                if not running:
+                    break
+                
+                # Update simulation
+                running = self.update(dt)
+                if not running:
+                    break
+                
+                # Render
+                self.render()
+                
+                # Store simulation accumulator back to app
+                # (This is needed because _step_simulation modifies it)
+                # Actually, it's already stored in self.simulation_accumulator, so we're good
+
+        except KeyboardInterrupt:
+            print("Interrupted by user (Ctrl+C). Saving run...")
+        
+        except Exception as e:
+            print("Unhandled exception:", repr(e))
+            raise
+        
+        finally:
+            game_module._handle_exit(self.ctx, self.game_state)

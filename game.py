@@ -71,7 +71,7 @@ warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
 
 # Optional GPU acceleration (numba/CUDA). Single capability flag; CPU fallback when disabled.
 try:
-    from gpu_physics import update_bullets_batch, check_collisions_batch, CUDA_AVAILABLE
+    from gpu_physics import update_bullets_batch, check_collisions_batch, CUDA_AVAILABLE  # pyright: ignore[reportMissingImports]
     USE_GPU = CUDA_AVAILABLE
     if not USE_GPU:
         pass  # gpu_physics logs or stays quiet; game uses CPU path when USE_GPU is False
@@ -206,7 +206,8 @@ from allies import (
 from state import GameState
 from context import AppContext
 from config import GameConfig
-from screens import SCREEN_HANDLERS
+# TODO: Remove SCREEN_HANDLERS import once all screens are fully migrated to scenes
+# from screens import SCREEN_HANDLERS  # Deprecated - use scenes instead
 from screens.gameplay import render as gameplay_render
 from rendering_shaders import render_gameplay_with_optional_shaders, render_gameplay_frame_to_surface
 from scenes import SceneStack, GameplayScene, PauseScene, HighScoreScene, NameInputScene, ShaderTestScene, TitleScene, OptionsScene
@@ -331,83 +332,6 @@ def _build_initial_game_state(ctx: AppContext) -> GameState:
     game_state.level = level
     game_state.teleporter_pads = _place_teleporter_pads(level, ctx.width, ctx.height)
     
-    # Level context for movement_system and collision_system (callables and data; avoids circular imports)
-    def _make_level_context():
-        w, h = ctx.width, ctx.height
-        lv = game_state.level
-
-        def _log_player_death(t, px, py, lives_left, wave_num):
-            if ctx.config.enable_telemetry and ctx.telemetry_client:
-                ctx.telemetry_client.log_player_death(
-                    PlayerDeathEvent(t=t, player_x=px, player_y=py, lives_left=lives_left, wave_number=wave_num)
-                )
-
-        return {
-            "move_player": lambda p, dx, dy: move_player_with_push(p, dx, dy, lv, w, h),
-            "move_enemy": lambda s, rect, mx, my: move_enemy_with_push(rect, mx, my, lv, s, w, h),
-            "clamp": lambda r: clamp_rect_to_screen(r, w, h),
-            "blocks": lv.static_blocks,
-            "width": w,
-            "height": h,
-            "main_area_rect": pygame.Rect(int(w * 0.25), int(h * 0.25), int(w * 0.5), int(h * 0.5)),
-            "rect_offscreen": lambda r: r.right < 0 or r.left > w or r.bottom < 0 or r.top > h,
-            "vec_toward": vec_toward,
-            "update_friendly_ai": lambda s, dt: update_friendly_ai(
-                s.friendly_ai, s.enemies, lv.static_blocks, dt,
-                find_nearest_enemy, vec_toward,
-                lambda rect, mx, my, bl: move_enemy_with_push(rect, mx, my, lv, s, w, h),
-                lambda f, t: spawn_friendly_projectile(f, t, s.friendly_projectiles, vec_toward, ctx.telemetry_client, s.run_time),
-                state=s,
-                player_rect=getattr(s, "player_rect", None),
-                spawn_ally_missile_func=lambda f, t, st: spawn_ally_missile(f, t, st),
-            ),
-            "kill_enemy": lambda e, s: kill_enemy(e, s, w, h),
-            "destructible_blocks": lv.destructible_blocks,
-            "moveable_destructible_blocks": lv.moveable_blocks,
-            "giant_blocks": lv.giant_blocks,
-            "super_giant_blocks": lv.super_giant_blocks,
-            "trapezoid_blocks": lv.trapezoid_blocks,
-            "triangle_blocks": lv.triangle_blocks,
-            "hazard_obstacles": lv.hazard_obstacles,
-            "moving_health_zone": lv.moving_health_zone,
-            "teleporter_pads": game_state.teleporter_pads,
-            "check_point_in_hazard": check_point_in_hazard,
-            "line_rect_intersection": line_rect_intersection,
-            "testing_mode": ctx.config.testing_mode,
-            "invulnerability_mode": ctx.config.invulnerability_mode,
-            "reset_after_death": lambda s: reset_after_death(s, w, h),
-            "create_pickup_collection_effect": create_pickup_collection_effect,
-            "apply_pickup_effect": lambda pt, s: apply_pickup_effect(pt, s, ctx),
-            "enemy_projectile_size": enemy_projectile_size,
-            "enemy_projectiles_color": enemy_projectiles_color,
-            "missile_damage": missile_damage,
-            "find_nearest_threat": find_nearest_threat,
-            "spawn_enemy_projectile": lambda e, s: spawn_enemy_projectile(e, s, ctx.telemetry_client, ctx.config.enable_telemetry),
-            "spawn_enemy_projectile_predictive": spawn_enemy_projectile_predictive,
-            "difficulty": ctx.config.difficulty,
-            "random_spawn_position": random_spawn_position,
-            "telemetry": ctx.telemetry_client,
-            "telemetry_enabled": ctx.config.enable_telemetry,
-            "overshield_recharge_cooldown": overshield_recharge_cooldown,
-            "ally_drop_cooldown": ally_drop_cooldown,
-            "play_sfx": play_sfx,
-            "damage_flash_duration": getattr(ctx.config, "damage_flash_duration", 0.12),
-            "screen_flash_duration": getattr(ctx.config, "screen_flash_duration", 0.25),
-            "screen_flash_max_alpha": getattr(ctx.config, "screen_flash_max_alpha", 100),
-            "enable_damage_flash": getattr(ctx.config, "enable_damage_flash", True),
-            "enable_screen_flash": getattr(ctx.config, "enable_screen_flash", True),
-            "enable_damage_wobble": getattr(ctx.config, "enable_damage_wobble", False),
-            "enable_wave_banner": getattr(ctx.config, "enable_wave_banner", True),
-            "wave_banner_duration": getattr(ctx.config, "wave_banner_duration", 1.5),
-            "base_enemies_per_wave": getattr(ctx.config, "base_enemies_per_wave", 12),
-            "enemy_spawn_multiplier": getattr(ctx.config, "enemy_spawn_multiplier", 3.5),
-            "log_player_death": _log_player_death,
-            "config": ctx.config,
-        }
-    game_state.level_context = _make_level_context()
-    game_state.run_id = None  # Will be set when game starts
-    return game_state
-
     # Level context for movement_system and collision_system (callables and data; avoids circular imports)
     def _make_level_context():
         w, h = ctx.width, ctx.height
@@ -826,6 +750,7 @@ def handle_legacy_state_events(events: list, ctx: AppContext, game_state: GameSt
                     previous_game_state = current_state
                     game_state.previous_screen = previous_game_state
                     game_state.ui.pause_selected = 0
+                    # TODO: Remove current_screen assignment - scene stack handles state
                     game_state.current_screen = STATE_PAUSED
                     scene_stack.push(PauseScene())
                 elif current_state == STATE_PAUSED:
@@ -836,6 +761,7 @@ def handle_legacy_state_events(events: list, ctx: AppContext, game_state: GameSt
                     return False, previous_game_state, pause_selected, controls_selected, controls_rebinding, result
                 elif current_state == STATE_CONTROLS:
                     game_state.ui.pause_selected = 0
+                    # TODO: Remove current_screen assignment - scene stack handles state
                     game_state.current_screen = STATE_PAUSED
                     scene_stack.push(PauseScene())
                 elif current_state == STATE_VICTORY or current_state == STATE_GAME_OVER or current_state == STATE_HIGH_SCORES:
@@ -860,6 +786,7 @@ def handle_legacy_state_events(events: list, ctx: AppContext, game_state: GameSt
                     previous_game_state = current_state
                     game_state.previous_screen = previous_game_state
                     game_state.ui.pause_selected = 0
+                    # TODO: Remove current_screen assignment - scene stack handles state
                     game_state.current_screen = STATE_PAUSED
                     scene_stack.push(PauseScene())
                 elif current_state == STATE_PAUSED:
@@ -951,8 +878,9 @@ def _handle_events(
         elif current_scene:
             result = current_scene.handle_input(events, game_state, screen_ctx)
         else:
-            h = SCREEN_HANDLERS.get(current_state)
-            result = h["handle_events"](events, game_state, screen_ctx) if h and h.get("handle_events") else {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False, "replay": False, "pop": False}
+            # No scene on stack - this shouldn't happen for these states, but provide empty result for safety
+            # TODO: All states should have scenes on the stack. Remove this fallback once migration is complete.
+            result = {"screen": None, "quit": False, "restart": False, "restart_to_wave1": False, "replay": False, "pop": False, "start_game": False}
         
         if result.get("quit"):
             return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
@@ -1192,8 +1120,8 @@ def _render_current_scene(
         current_scene = scene_stack.current()
         if current_scene:
             current_scene.render(render_ctx, game_state, screen_ctx)
-        elif current_state in SCREEN_HANDLERS and SCREEN_HANDLERS[current_state].get("render"):
-            SCREEN_HANDLERS[current_state]["render"](render_ctx, game_state, screen_ctx)
+        # Note: All states should have scenes on the stack. If no scene exists, we skip rendering.
+        # This is a safety fallback - scenes should always be present for PAUSED, HIGH_SCORES, NAME_INPUT, etc.
         # Config-based shader stacks and legacy lightweight effects
         if current_state == STATE_PAUSED and not pause_shaders_enabled:
             apply_pause_effects(render_ctx.screen, ctx)
@@ -1255,171 +1183,13 @@ def _handle_exit(ctx: AppContext, game_state: GameState) -> None:
 
 
 def _run_loop(app):
-    """Run the main loop. app holds .ctx, .game_state, .scene_stack and loop params."""
-    ctx = app.ctx
-    game_state = app.game_state
-    scene_stack = app.scene_stack
-    FPS = app.fps
-    FIXED_DT = app.fixed_dt
-    MAX_SIMULATION_STEPS = app.max_sim_steps
-    _update_simulation = app.update_simulation
-    simulation_accumulator = app.simulation_accumulator
-    running = True
-    
-    # Create reusable screen_ctx once (only update mutable values per frame)
-    screen_ctx = {
-        "WIDTH": ctx.width,
-        "HEIGHT": ctx.height,
-        "font": ctx.font,
-        "big_font": ctx.big_font,
-        "small_font": ctx.small_font,
-        "get_high_scores": get_high_scores,
-        "save_high_score": save_high_score,
-        "difficulty": ctx.config.difficulty,
-        "app_ctx": ctx,
-    }
-    
-    # Pre-check telemetry/shader flags to avoid repeated attribute lookups
-    telemetry_enabled = ctx.config.enable_telemetry
-    pause_shaders_enabled = getattr(ctx.config, "enable_pause_shaders", False)
-    menu_shaders_enabled = getattr(ctx.config, "enable_menu_shaders", False)
-    
-    try:
-        while running:
-            dt = ctx.clock.tick(FPS) / 1000.0  # Wall-clock delta for this frame
-            _perf_record_frame(dt)  # no-op unless GAME_DEBUG_PERF=1
-            game_state.run_time += dt
-            game_state.survival_time += dt
-
-            # Get current state from scene stack (single source of truth)
-            state = _get_current_state(scene_stack) or game_state.current_screen
-            previous_game_state = game_state.previous_screen
-            menu_section = game_state.ui.menu_section
-            pause_selected = game_state.ui.pause_selected
-            continue_blink_t = game_state.ui.continue_blink_t
-            controls_selected = game_state.ui.controls_selected
-            controls_rebinding = game_state.controls_rebinding
-            
-            # Update screen_ctx mutable values (width/height shouldn't change, but difficulty might)
-            screen_ctx["difficulty"] = ctx.config.difficulty
-
-            # Event handling
-            events = _poll_events()
-            running, previous_game_state, pause_selected, controls_selected, controls_rebinding = _handle_events(
-                events, ctx, game_state, scene_stack, screen_ctx,
-                previous_game_state, pause_selected, controls_selected, controls_rebinding
-            )
-
-            # Game state updates (only when playing)
-            current_state = _get_current_state(scene_stack) or game_state.current_screen
-            if current_state == STATE_PLAYING or current_state == STATE_ENDURANCE:
-                # Get key state once per frame (used by multiple systems)
-                keys_pressed = pygame.key.get_pressed()
-                
-                # Gameplay input: movement, fire, weapons, abilities (handled in input_system)
-                def _try_spawn_bullet():
-                    if not getattr(game_state, "fire_pressed", False):
-                        return
-                    eff = game_state.player_shoot_cooldown * (
-                        fire_rate_mult if game_state.fire_rate_buff_t < fire_rate_buff_duration else 1.0
-                    )
-                    if game_state.player_time_since_shot >= eff:
-                        spawn_player_bullet_and_log(game_state, ctx)
-                        game_state.player_time_since_shot = 0.0
-
-                def _try_laser():
-                    if game_state.current_weapon_mode != "laser" or game_state.laser_time_since_shot < laser_cooldown:
-                        return
-                    pl = game_state.player_rect
-                    if not pl:
-                        return
-                    if ctx.config.aim_mode == AIM_ARROWS:
-                        # Use pre-fetched keys_pressed instead of calling get_pressed() again
-                        dx = (1 if keys_pressed[pygame.K_RIGHT] else 0) - (1 if keys_pressed[pygame.K_LEFT] else 0)
-                        dy = (1 if keys_pressed[pygame.K_DOWN] else 0) - (1 if keys_pressed[pygame.K_UP] else 0)
-                        if dx == 0 and dy == 0:
-                            direction = (
-                                game_state.last_move_velocity.normalize()
-                                if game_state.last_move_velocity.length_squared() > 0
-                                else pygame.Vector2(1, 0)
-                            )
-                        else:
-                            direction = pygame.Vector2(dx, dy).normalize()
-                    else:
-                        mx, my = pygame.mouse.get_pos()
-                        direction = vec_toward(pl.centerx, pl.centery, mx, my)
-                    end_pos = pygame.Vector2(pl.center) + direction * laser_length
-                    laser_dmg = int(laser_damage * UNLOCKED_WEAPON_DAMAGE_MULT) if "laser" in game_state.unlocked_weapons else laser_damage
-                    game_state.laser_beams.append({
-                        "start": pygame.Vector2(pl.center), "end": end_pos,
-                        "color": (255, 50, 50), "width": 5, "damage": laser_dmg, "timer": 0.1,
-                    })
-                    game_state.laser_time_since_shot = 0.0
-
-                gameplay_input_ctx = {
-                    "controls": ctx.controls,
-                    "aiming_mode": ctx.config.aim_mode,
-                    "width": ctx.width,
-                    "height": ctx.height,
-                    "dt": dt,
-                    "spawn_player_bullet": _try_spawn_bullet,
-                    "spawn_laser_beam": _try_laser,
-                    "overshield_recharge_cooldown": overshield_recharge_cooldown,
-                    "shield_duration": shield_duration,
-                    "grenade_cooldown": grenade_cooldown,
-                    "missile_cooldown": missile_cooldown,
-                    "ally_drop_cooldown": ally_drop_cooldown,
-                    "boost_meter_max": boost_meter_max,
-                    "boost_drain_per_s": boost_drain_per_s,
-                    "boost_regen_per_s": boost_regen_per_s,
-                    "boost_speed_mult": boost_speed_mult,
-                    "slow_speed_mult": slow_speed_mult,
-                }
-                handle_gameplay_input(events, game_state, gameplay_input_ctx)
-
-                # Fixed-step simulation: run one or more steps with FIXED_DT
-                simulation_accumulator, should_quit = _step_simulation(
-                    simulation_accumulator, dt, FIXED_DT, MAX_SIMULATION_STEPS,
-                    _update_simulation, ctx, game_state, scene_stack, screen_ctx
-                )
-                if should_quit:
-                    running = False
-                # Optional: for future render interpolation (smooth between steps)
-                setattr(game_state, "simulation_interpolation", simulation_accumulator / FIXED_DT if FIXED_DT else 0.0)
-                # Only update telemetry if enabled (function already has guard, but avoid call overhead)
-                if telemetry_enabled:
-                    update_telemetry(game_state, dt, ctx)
-                continue_blink_t = game_state.ui.continue_blink_t
-                current_state = _get_current_state(scene_stack) or game_state.current_screen
-
-            # Rendering
-            _render_current_scene(ctx, game_state, scene_stack, screen_ctx, pause_shaders_enabled, menu_shaders_enabled)
-            pygame.display.flip()
-
-            # Write flow state back to GameState after this iteration
-            # Update current_screen from scene stack if it changed
-            scene_state = _get_current_state(scene_stack)
-            if scene_state:
-                game_state.current_screen = scene_state
-            game_state.previous_screen = previous_game_state
-            # menu_section is already updated directly in game_state by scenes, so don't overwrite it
-            # game_state.menu_section = menu_section  # Removed - scenes update it directly
-            # pause_selected is updated directly by pause handler, so don't overwrite it
-            # game_state.ui.pause_selected = pause_selected  # Removed - handler updates directly
-            game_state.ui.continue_blink_t = continue_blink_t
-            game_state.ui.controls_selected = controls_selected
-            game_state.controls_rebinding = controls_rebinding
-            app.simulation_accumulator = simulation_accumulator
-
-    except KeyboardInterrupt:
-        print("Interrupted by user (Ctrl+C). Saving run...")
-    
-    except Exception as e:
-        print("Unhandled exception:", repr(e))
-        raise
-    
-    finally:
-        _handle_exit(ctx, game_state)
+    """
+    DEPRECATED: This function is now a thin wrapper around GameApp.run().
+    The main loop logic has been moved into GameApp methods (process_events, update, render, run).
+    This wrapper is kept for backward compatibility but will be removed in the future.
+    """
+    # GameApp.run() now contains the full loop logic
+    app.run()
 
 
 def main():
