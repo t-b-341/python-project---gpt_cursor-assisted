@@ -1,6 +1,7 @@
 """ShaderTestScene: Fullscreen quad with test texture and shader pipeline testing."""
 from __future__ import annotations
 
+import logging
 import math
 import time
 from typing import TYPE_CHECKING
@@ -9,9 +10,11 @@ import pygame
 
 from rendering import draw_centered_text
 from scenes.transitions import SceneTransition, KIND_POP
-from shader_effects.pipeline import ShaderPipelineManager, ShaderCategory
+from shader_effects.pipeline import ShaderPipelineManager, ShaderCategory, pipeline_category_for_registry_category
 from shader_effects.registry import SHADER_SPECS, ShaderCategory as RegistryCategory
 from shader_effects.context import ShaderContext
+
+logger = logging.getLogger(__name__)
 
 try:
     from gpu_gl_utils import get_gl_context, get_fullscreen_quad, HAS_MODERNGL
@@ -22,13 +25,6 @@ except ImportError:
 
 if TYPE_CHECKING:
     from state import GameState
-
-try:
-    from gpu_gl_utils import get_gl_context, get_fullscreen_quad, HAS_MODERNGL
-except ImportError:
-    HAS_MODERNGL = False
-    get_gl_context = None  # type: ignore[assignment]
-    get_fullscreen_quad = None  # type: ignore[assignment]
 
 # State id used when this scene is active
 SHADER_TEST_STATE_ID = "SHADER_TEST"
@@ -106,18 +102,9 @@ class ShaderTestScene:
             spec.name for spec in SHADER_SPECS.values()
             if spec.category != RegistryCategory.DEBUG
         ]
-        # Map to pipeline categories (simplified mapping)
-        category_map = {
-            RegistryCategory.CORE: ShaderCategory.EARLY,
-            RegistryCategory.RETRO: ShaderCategory.EARLY,
-            RegistryCategory.COMBAT: ShaderCategory.MID,
-            RegistryCategory.WATER: ShaderCategory.MID,
-            RegistryCategory.ATMOSPHERE: ShaderCategory.LATE,
-            RegistryCategory.OUTLINES: ShaderCategory.MID,
-            RegistryCategory.LIGHTING: ShaderCategory.LATE,
-        }
+        # Use centralized category mapping
         self.shader_list = [
-            (name, category_map.get(SHADER_SPECS[name].category, ShaderCategory.MID), None)
+            (name, pipeline_category_for_registry_category(SHADER_SPECS[name].category), None)
             for name in test_shader_names
         ]
     
@@ -160,7 +147,7 @@ class ShaderTestScene:
             )
             self._log_shader_change(f"Added shader: {name}")
         else:
-            print(f"[ShaderTest] Shader {name} not found in registry")
+            logger.warning("[ShaderTest] Shader %s not found in registry", name)
     
     def _remove_current_shader(self) -> None:
         """Remove the current shader from the pipeline."""
@@ -185,16 +172,16 @@ class ShaderTestScene:
                 self.pipeline.set_uniform(name, key, value)
             self._log_shader_change(f"Updated shader: {name} (intensity={self.intensity:.2f})")
         else:
-            print(f"[ShaderTest] Shader {name} not found in registry")
+            logger.warning("[ShaderTest] Shader %s not found in registry", name)
     
     def _log_shader_change(self, message: str) -> None:
         """Log shader and uniform changes."""
-        print(f"[ShaderTest] {message}")
+        logger.info("[ShaderTest] %s", message)
         enabled = self.pipeline.get_enabled_shaders()
         if enabled:
-            print(f"[ShaderTest] Active shaders: {', '.join(enabled)}")
+            logger.info("[ShaderTest] Active shaders: %s", ", ".join(enabled))
         else:
-            print(f"[ShaderTest] No active shaders")
+            logger.info("[ShaderTest] No active shaders")
     
     def state_id(self) -> str:
         return SHADER_TEST_STATE_ID
@@ -418,11 +405,11 @@ class ShaderTestScene:
             logger.info("Shader test unavailable: moderngl not installed")
             return
         
-        print("[ShaderTest] Entered shader test scene")
+        logger.info("[ShaderTest] Entered shader test scene")
         if self.shader_list:
             name = self.shader_list[self.current_shader_index][0]
-            print(f"[ShaderTest] Current shader: {name}")
+            logger.info("[ShaderTest] Current shader: %s", name)
 
     def on_exit(self, game_state: "GameState", ctx: dict) -> None:
         """Called when scene is exited."""
-        print("[ShaderTest] Exited shader test scene")
+        logger.info("[ShaderTest] Exited shader test scene")

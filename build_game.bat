@@ -10,7 +10,11 @@ rmdir /s /q dist   2>nul
 del /q MyGame.spec 2>nul
 
 echo Building new executable with PyInstaller...
-pyinstaller --onefile --name MyGame --noconfirm game.py
+REM Bundle assets folder into the EXE for use with get_resource_path.
+pyinstaller --onefile --name MyGame --noconfirm ^
+    --add-data "assets;assets" ^
+    --add-data "config;config" ^
+    game.py
 
 echo.
 echo Build complete. New EXE is in dist\MyGame.exe

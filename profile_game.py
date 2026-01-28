@@ -1,241 +1,219 @@
 """
-Profile game.py using cProfile.
-This script executes game.py in a controlled way and profiles it for ~10 seconds.
+Profile game.py execution using cProfile.
+
+This script executes game.py in a controlled way using runpy, wraps it in cProfile,
+and automatically stops profiling after ~10 seconds to avoid infinite loops.
+Results are saved to profiling_results.txt (human-readable) and profiling_results.prof (for SnakeViz).
 """
-
 import cProfile
-import pstats
-import subprocess
-import sys
-import time
 import os
-
-
-def profile_game():
-    """Profile game.py execution using subprocess."""
-    
-    print("[Profiling] Starting game profiling (will stop after ~10 seconds)...")
-    print("[Profiling] Note: The game window may open. It will close automatically.")
-    
-    # Create a wrapper script that will be profiled
-    wrapper_script = """
-import cProfile
+import pstats
 import runpy
 import sys
-import atexit
+import threading
+import time
+from io import StringIO
 
-profiler = cProfile.Profile()
 
-def save_stats():
+def detect_startup_mechanism():
+    """Detect how game.py starts."""
     try:
-        profiler.disable()
-        profiler.dump_stats("profiling_results.prof")
+        with open("game.py", "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        if 'if __name__ == "__main__":' in content:
+            if "main()" in content:
+                return "if __name__ == '__main__': main()"
+            else:
+                return "if __name__ == '__main__': (direct execution)"
+        elif "pygame.init()" in content:
+            return "pygame.init() on import (runs immediately)"
+        else:
+            return "Unknown (likely runs on import)"
+    except Exception as e:
+        return f"Error detecting: {e}"
+
+
+def timeout_handler():
+    """Stop profiling after ~10 seconds by quitting pygame."""
+    time.sleep(10.0)
+    print("\n[Profiler] 10 seconds elapsed, stopping profiling...")
+    try:
+        import pygame
+        pygame.event.post(pygame.event.Event(pygame.QUIT))
     except:
         pass
 
-# Register cleanup function
-atexit.register(save_stats)
 
-profiler.enable()
-
-try:
-    runpy.run_module("game", run_name="__main__")
-except SystemExit:
-    pass
-except KeyboardInterrupt:
-    pass
-except Exception as e:
-    print(f"Error: {e}", file=sys.stderr)
-finally:
-    save_stats()
-"""
+def run_profiling():
+    """Run the profiling session."""
+    print("[Profiler] Starting profiling session...")
+    print("[Profiler] Detected startup mechanism:", detect_startup_mechanism())
+    print("[Profiler] Will profile for ~10 seconds...")
     
-    # Write wrapper script
-    wrapper_path = "profile_wrapper.py"
-    with open(wrapper_path, "w", encoding="utf-8") as f:
-        f.write(wrapper_script)
+    # Start timeout thread
+    timeout_thread = threading.Thread(target=timeout_handler, daemon=True)
+    timeout_thread.start()
     
-    try:
-        # Run the wrapper script in a subprocess
-        process = subprocess.Popen(
-            [sys.executable, wrapper_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        
-        # Wait for 10 seconds, then terminate
-        try:
-            process.wait(timeout=10.0)
-        except subprocess.TimeoutExpired:
-            print("[Profiling] 10 seconds elapsed, terminating game process...")
-            process.terminate()
-            # Give it a moment to clean up
-            try:
-                process.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
-                print("[Profiling] Force killing process...")
-                process.kill()
-                process.wait()
-        
-        # Small delay to ensure file is written
-        time.sleep(0.5)
-        
-        # Check if profiling file was created
-        if not os.path.exists("profiling_results.prof"):
-            # If not, we need to profile differently - use runpy directly with timeout
-            print("[Profiling] Profiling file not found, using direct profiling approach...")
-            return profile_game_direct()
-        
-    finally:
-        # Clean up wrapper script
-        if os.path.exists(wrapper_path):
-            try:
-                os.remove(wrapper_path)
-            except:
-                pass
-    
-    # Load and process the stats
-    if os.path.exists("profiling_results.prof"):
-        stats = pstats.Stats("profiling_results.prof")
-        stats.sort_stats('cumulative')
-        
-        # Save human-readable results using subprocess to ensure proper output capture
-        result = subprocess.run(
-            [sys.executable, "-c", 
-             "import pstats; s = pstats.Stats('profiling_results.prof'); "
-             "s.sort_stats('cumulative'); s.print_stats(150)"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8"
-        )
-        
-        with open("profiling_results.txt", "w", encoding="utf-8") as f:
-            f.write(result.stdout)
-        
-        print("[Profiling] Saved human-readable stats to profiling_results.txt")
-        return None, stats
-    else:
-        raise RuntimeError("Profiling file was not created")
-
-
-def profile_game_direct():
-    """Alternative: Profile directly using runpy with signal-based timeout."""
-    import signal
-    import runpy
-    
+    # Create profiler
     profiler = cProfile.Profile()
-    
-    def timeout_handler(signum, frame):
-        raise TimeoutError("Profiling timeout")
-    
-    # Set up signal handler for timeout (Unix only)
-    if hasattr(signal, 'SIGALRM'):
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(10)
-    
-    print("[Profiling] Using direct profiling (10 second timeout)...")
+    profiler.enable()
     
     try:
-        profiler.enable()
-        try:
-            runpy.run_module("game", run_name="__main__")
-        except (SystemExit, KeyboardInterrupt, TimeoutError):
-            pass
-        except Exception as e:
-            print(f"[Profiling] Error during execution: {e}")
-        finally:
-            profiler.disable()
-            if hasattr(signal, 'SIGALRM'):
-                signal.alarm(0)  # Cancel alarm
+        # Execute game.py as __main__ using runpy
+        # This simulates: python game.py
+        print("[Profiler] Executing game.py...")
+        runpy.run_module("game", run_name="__main__")
+    except KeyboardInterrupt:
+        print("\n[Profiler] Interrupted by user")
+    except SystemExit:
+        print("\n[Profiler] Game exited")
     except Exception as e:
-        profiler.disable()
-        if hasattr(signal, 'SIGALRM'):
-            signal.alarm(0)
-        raise
-    
-    # Save results
-    profiler.dump_stats("profiling_results.prof")
-    print("[Profiling] Saved raw stats to profiling_results.prof")
-    
-    stats = pstats.Stats(profiler)
-    stats.sort_stats('cumulative')
-    
-    # Save human-readable results directly to file
-    f = open("profiling_results.txt", "w", encoding="utf-8")
-    try:
-        # Redirect stdout to file
-        old_stdout = sys.stdout
-        sys.stdout = f
-        try:
-            stats.print_stats(150)
-        finally:
-            sys.stdout = old_stdout
-            f.flush()
+        print(f"\n[Profiler] Error during execution: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
-        f.close()
+        profiler.disable()
+        print("[Profiler] Profiling stopped, saving results...")
     
-    print("[Profiling] Saved human-readable stats to profiling_results.txt")
-    return profiler, stats
+    return profiler
 
 
-if __name__ == "__main__":
+def save_results(profiler_instance):
+    """Save profiling results to files."""
+    # Save raw stats for SnakeViz
+    profiler_instance.dump_stats("profiling_results.prof")
+    print("[Profiler] Saved raw stats to profiling_results.prof")
+    
+    # Generate human-readable stats
+    stats_stream = StringIO()
+    stats = pstats.Stats(profiler_instance, stream=stats_stream)
+    stats.sort_stats("cumulative")
+    stats.print_stats()
+    
+    # Get all lines and limit to top 150
+    all_lines = stats_stream.getvalue().splitlines()
+    top_lines = all_lines[:150]
+    
+    # Save to file
+    with open("profiling_results.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(top_lines))
+    
+    print("[Profiler] Saved human-readable stats to profiling_results.txt (top 150 lines)")
+    
+    return top_lines
+
+
+def summarize_slowest_functions(stats_lines):
+    """Extract top ~10 slowest functions from stats."""
+    slowest = []
+    for line in stats_lines:
+        # Skip header lines
+        if not line.strip() or line.startswith("ncalls") or line.startswith("---"):
+            continue
+        
+        # Parse pstats format: ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        parts = line.split()
+        if len(parts) >= 5:
+            try:
+                # Try to extract cumulative time (usually 4th column)
+                cumtime = float(parts[3])
+                # Extract function name (last part after colon)
+                func_part = parts[-1] if parts else ""
+                if ":" in func_part:
+                    func_name = func_part.split(":")[-1].strip("()")
+                else:
+                    func_name = func_part.strip("()")
+                
+                if func_name and cumtime > 0:
+                    slowest.append((cumtime, func_name, line))
+            except (ValueError, IndexError):
+                continue
+        
+        # Stop after collecting ~10 meaningful entries
+        if len(slowest) >= 10:
+            break
+    
+    return slowest
+
+
+def main():
+    """Main profiling entry point."""
     max_retries = 3
     retry_count = 0
     
     while retry_count < max_retries:
         try:
-            profiler, stats = profile_game()
-            break
+            # Run profiling
+            profiler_instance = run_profiling()
+            
+            # Check if we got any stats
+            try:
+                stats = pstats.Stats(profiler_instance)
+                total_calls = stats.total_calls
+                if total_calls == 0:
+                    raise ValueError("No profiling data collected")
+            except Exception as e:
+                if retry_count < max_retries - 1:
+                    print(f"[Profiler] No profiling data collected: {e}")
+                    retry_count += 1
+                    print("[Profiler] Retrying...")
+                    time.sleep(2)
+                    continue
+                else:
+                    print(f"[Profiler] Failed to collect profiling data after {max_retries} attempts")
+                    return 1
+            
+            # Save results
+            stats_lines = save_results(profiler_instance)
+            
+            # Verify files exist
+            if os.path.exists("profiling_results.txt") and os.path.exists("profiling_results.prof"):
+                print("[Profiler] ✓ Both profiling files created successfully")
+            else:
+                print("[Profiler] ✗ Warning: Some profiling files are missing")
+            
+            # Output results
+            print("\n" + "="*80)
+            print("PROFILING RESULTS - First 60 lines:")
+            print("="*80)
+            for i, line in enumerate(stats_lines[:60], 1):
+                print(line)
+            
+            print("\n" + "="*80)
+            print("DETECTED STARTUP MECHANISM:")
+            print("="*80)
+            print(detect_startup_mechanism())
+            
+            print("\n" + "="*80)
+            print("TOP ~10 SLOWEST FUNCTIONS (by cumulative time):")
+            print("="*80)
+            slowest = summarize_slowest_functions(stats_lines)
+            if slowest:
+                for cumtime, func_name, full_line in slowest:
+                    print(f"  {cumtime:.4f}s - {func_name}")
+                    print(f"    {full_line[:100]}...")
+            else:
+                print("  (No function data available)")
+            
+            print("\n[Profiler] Profiling complete!")
+            return 0
+            
         except Exception as e:
             retry_count += 1
+            print(f"\n[Profiler] Error occurred (attempt {retry_count}/{max_retries}): {e}")
+            import traceback
+            traceback.print_exc()
+            
             if retry_count < max_retries:
-                print(f"[Profiling] Attempt {retry_count} failed: {e}")
-                print(f"[Profiling] Retrying ({retry_count}/{max_retries})...")
-                time.sleep(1)
+                print("[Profiler] Retrying...")
+                time.sleep(2)
             else:
-                print(f"[Profiling] All {max_retries} attempts failed.")
-                print(f"[Profiling] Last error: {e}")
-                sys.exit(1)
+                print("[Profiler] Max retries reached. Exiting.")
+                return 1
     
-    # Verify files exist
-    import os
-    if os.path.exists("profiling_results.txt"):
-        print("[Profiling] OK: profiling_results.txt exists")
-    else:
-        print("[Profiling] ERROR: profiling_results.txt missing!")
-    
-    if os.path.exists("profiling_results.prof"):
-        print("[Profiling] OK: profiling_results.prof exists")
-    else:
-        print("[Profiling] ERROR: profiling_results.prof missing!")
-    
-    # Output first 60 lines of results
-    print("\n" + "="*80)
-    print("First 60 lines of profiling_results.txt:")
-    print("="*80)
-    try:
-        with open("profiling_results.txt", "r", encoding="utf-8") as f:
-            lines = f.readlines()
-            for i, line in enumerate(lines[:60], 1):
-                print(line.rstrip())
-    except Exception as e:
-        print(f"Error reading profiling_results.txt: {e}")
-    
-    # Detect startup mechanism
-    print("\n" + "="*80)
-    print("Detected startup mechanism:")
-    print("="*80)
-    print("The game runs at module level (no 'if __name__ == \"__main__\"' block).")
-    print("When game.py is imported or executed, it immediately:")
-    print("  1. Initializes pygame (pygame.init())")
-    print("  2. Sets up the display in fullscreen mode")
-    print("  3. Enters the main game loop (while running:)")
-    print("  4. The loop is wrapped in a try-except-finally block for cleanup")
-    print("  5. Game execution starts immediately upon module import/execution")
-    
-    # Top 10 slowest functions
-    print("\n" + "="*80)
-    print("Top ~10 slowest functions (by cumulative time):")
-    print("="*80)
-    stats.sort_stats('cumulative')
-    stats.print_stats(10)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

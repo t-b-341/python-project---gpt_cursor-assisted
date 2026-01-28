@@ -207,6 +207,8 @@ def load_shader_file(shader_path: str | Path) -> Optional[str]:
     
     Returns:
         Shader source code as string, or None if file not found or error occurred
+    
+    TODO: Use get_resource_path() from resource_paths.py for PyInstaller compatibility.
     """
     try:
         path = Path(shader_path)

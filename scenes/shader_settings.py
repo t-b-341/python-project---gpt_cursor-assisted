@@ -49,6 +49,10 @@ class ShaderSettingsScreen:
         self.shader_scroll = 0
         self.param_scroll = 0
         
+        # Parameter selection state
+        self.selected_param_index: int = 0
+        self._param_keys: list[str] = []
+        
         # Preview pipeline (isolated from main game)
         self.preview_pipeline = ShaderPipelineManager()
         self.preview_surface: Optional[pygame.Surface] = None
@@ -95,9 +99,17 @@ class ShaderSettingsScreen:
                     # Ctrl+L to load
                     self._load_settings()
                 elif key == pygame.K_UP:
-                    self._navigate_up()
+                    # Navigate parameter list if shader selected, otherwise navigate categories/shaders
+                    if self.selected_shader and self._param_keys:
+                        self.selected_param_index = max(0, self.selected_param_index - 1)
+                    else:
+                        self._navigate_up()
                 elif key == pygame.K_DOWN:
-                    self._navigate_down()
+                    # Navigate parameter list if shader selected, otherwise navigate categories/shaders
+                    if self.selected_shader and self._param_keys:
+                        self.selected_param_index = min(len(self._param_keys) - 1, self.selected_param_index + 1)
+                    else:
+                        self._navigate_down()
                 elif key == pygame.K_LEFT:
                     self._navigate_left()
                 elif key == pygame.K_RIGHT:
@@ -124,6 +136,9 @@ class ShaderSettingsScreen:
                 idx = shaders.index(self.selected_shader) if self.selected_shader in shaders else 0
                 idx = max(0, idx - 1)
                 self.selected_shader = shaders[idx]
+                # Reset parameter selection when changing shader
+                self.selected_param_index = 0
+                self._param_keys = []
         elif self.selected_category:
             # Navigate category list
             categories = list(RegistryCategory)
@@ -138,6 +153,9 @@ class ShaderSettingsScreen:
                 # Select first shader in new category
                 shaders = shaders_by_category.get(categories[idx], [])
                 self.selected_shader = shaders[0] if shaders else None
+                # Reset parameter selection when changing shader
+                self.selected_param_index = 0
+                self._param_keys = []
     
     def _navigate_down(self) -> None:
         """Navigate down in current selection."""
@@ -151,6 +169,9 @@ class ShaderSettingsScreen:
                 idx = shaders.index(self.selected_shader) if self.selected_shader in shaders else 0
                 idx = min(len(shaders) - 1, idx + 1)
                 self.selected_shader = shaders[idx]
+                # Reset parameter selection when changing shader
+                self.selected_param_index = 0
+                self._param_keys = []
         elif self.selected_category:
             categories = list(RegistryCategory)
             if categories:
@@ -163,11 +184,17 @@ class ShaderSettingsScreen:
                 self.selected_category = categories[idx].value.upper()
                 shaders = shaders_by_category.get(categories[idx], [])
                 self.selected_shader = shaders[0] if shaders else None
+                # Reset parameter selection when changing shader
+                self.selected_param_index = 0
+                self._param_keys = []
     
     def _navigate_left(self) -> None:
         """Navigate to category selection."""
         if self.selected_shader:
             self.selected_shader = None
+            # Reset parameter selection when leaving shader
+            self.selected_param_index = 0
+            self._param_keys = []
     
     def _navigate_right(self) -> None:
         """Navigate to shader selection."""
@@ -186,17 +213,30 @@ class ShaderSettingsScreen:
             self._update_preview_pipeline()
     
     def _adjust_parameter(self, delta: float) -> None:
-        """Adjust current shader parameter."""
+        """Adjust the selected parameter of the selected shader."""
         if not self.selected_shader:
             return
         
-        # Get first float parameter to adjust
         uniforms = self.shader_uniforms.get(self.selected_shader, {})
-        for key, value in uniforms.items():
-            if isinstance(value, (int, float)):
-                uniforms[key] = max(0.0, min(10.0, value + delta))
-                self._update_preview_pipeline()
-                break
+        if not uniforms or not self._param_keys:
+            return
+        
+        # Clamp index
+        if self.selected_param_index < 0:
+            self.selected_param_index = 0
+        if self.selected_param_index >= len(self._param_keys):
+            self.selected_param_index = len(self._param_keys) - 1
+        
+        key = self._param_keys[self.selected_param_index]
+        value = uniforms.get(key)
+        
+        if isinstance(value, (int, float)):
+            # Simple clamp; adjust if you want per-uniform ranges later
+            new_value = value + delta
+            new_value = max(0.0, min(10.0, new_value))
+            uniforms[key] = new_value
+            self._update_preview_pipeline()
+        # If it's a tuple (e.g. vec3), you can later extend this to adjust a specific component.
     
     def _update_preview_pipeline(self) -> None:
         """Update preview pipeline with enabled shaders."""
@@ -397,6 +437,7 @@ class ShaderSettingsScreen:
         # Render demo scene
         self._render_demo_scene(self.preview_surface)
         
+        # TODO: Wire this preview to the actual GPU shader pipeline so selected shader + uniforms are applied.
         # Apply shader pipeline (placeholder - would use actual GPU shaders)
         # For now, just blit the demo scene
         screen.blit(pygame.transform.scale(self.preview_surface, (w - 20, h - 40)), (x + 10, y + 30))
@@ -404,6 +445,10 @@ class ShaderSettingsScreen:
         # Draw title
         title = render_ctx.font.render("Preview", True, (200, 200, 200))
         screen.blit(title, (x + 10, y + 5))
+        
+        # Draw "visual demo" label indicating shaders are not yet applied
+        demo_label = render_ctx.small_font.render("Preview (no shaders applied yet)", True, (150, 150, 150))
+        screen.blit(demo_label, (x + 10, y + 20))
     
     def _render_demo_scene(self, surface: pygame.Surface) -> None:
         """Render a simple demo scene for preview."""
@@ -538,6 +583,9 @@ class ShaderSettingsScreen:
                 self.selected_category = categories[0].value.upper()
                 shaders = shaders_by_category.get(categories[0], [])
                 self.selected_shader = shaders[0] if shaders else None
+                # Reset parameter selection when entering scene
+                self.selected_param_index = 0
+                self._param_keys = []
     
     def on_exit(self, game_state: "GameState", ctx: dict) -> None:
         """Called when scene is exited."""

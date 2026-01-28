@@ -4207,10 +4207,1693 @@ When done, show base.py, color_effects.py, distort_effects.py, and __init__.py.
 
 
 PROMPT 5:
+Refactor rendering.py into a rendering/ package containing world.py, hud.py, and overlays.py.
+
+Step 1:
+Create rendering/ with an __init__.py file.
+
+Step 2:
+Move world rendering functions into rendering/world.py.
+Move HUD-related drawing into rendering/hud.py.
+Move overlays (flash, warnings, banners, etc.) into rendering/overlays.py.
+
+Step 3:
+Preserve behavior and signatures exactly. Only move functions.
+
+Step 4:
+Update rendering.py to become a thin facade that imports from the new modules OR remove rendering.py entirely if the codebase imports rendering.* directly.
+
+Step 5:
+Fix imports elsewhere so nothing breaks. Prefer to re-export from __init__.py.
+
+When done, show:
+- rendering/world.py
+- rendering/hud.py
+- rendering/overlays.py
+- rendering/__init__.py
+- final rendering.py (if still used as a facade).
 
 
 
 PROMPT 6:
+Add developer documentation and a minimal CI pipeline for tests.
+
+Step 1:
+Create dev.md (or CONTRIBUTING.md). Document:
+- Setup instructions
+- How to run the game
+- How to run tests
+- How to run profiling or telemetry tools
+- A short architectural overview of GameState, AppContext, systems/, scenes/, config/, rendering/, shader_effects/, telemetry/
+
+Step 2:
+Create .github/workflows/python-ci.yml with a basic GitHub Actions workflow that:
+- runs on pushes and pull requests
+- installs Python and dependencies
+- runs the test suite
+
+Step 3:
+Optionally include lint/format steps if applicable.
+
+When done, show dev.md and python-ci.yml.
+
+PROMPT 1: MAP ALL SCREEN/STATE LOGIC VS SCENES:
+You are refactoring this codebase.
+
+Goal: create a clear map of how "what screen are we on?" is currently handled, across:
+- global state variables in game.py (STATE_*, state, previous_state, etc.)
+- any fields on GameState related to current screen
+- SceneStack and the individual scene classes in scenes/
+
+Task:
+1. In game.py, find all global variables, enums/constants, and logic related to:
+   - STATE_MENU / STATE_PLAYING / STATE_PAUSED / STATE_NAME_INPUT / shader test / game over / high scores etc.
+   - any "current_screen" or similar fields on GameState.
+2. In scenes/, list out each scene class (e.g. GameplayScene, PauseScene, TitleScene, NameInputScene, ShaderTestScene, etc.) and note:
+   - what conditions cause them to be pushed/popped now,
+   - how they are referenced from game.py.
+3. At the top of game.py, add a short comment block clearly summarizing this mapping, for example:
+
+# Screen/state mapping (temporary documentation during refactor)
+# - Global state constants: ...
+# - GameState.current_screen: ...
+# - SceneStack scenes: ...
+# - Sync function: _sync_scene_stack(...) currently does ...
+
+Do NOT change any behavior yet. This prompt is only for documentation and mapping so that future prompts can safely refactor.
+
+PROMPT 2: ADD A SIMPLE SCENETRANSITION TYPE
+You are refactoring toward a scene-driven main loop.
+
+Goal: introduce a simple, explicit "SceneTransition" type that scenes can return from handle_input/update, without changing behavior yet.
+
+Task:
+1. Create a new module, e.g. scenes/transitions.py, containing:
+   - a small Enum or Literal-like class for transition kinds:
+     - NONE
+     - PUSH(scene_name: str)
+     - POP
+     - REPLACE(scene_name: str)
+     - QUIT_GAME
+   - You can implement this as:
+     - a dataclass `SceneTransition(kind: str, scene_name: Optional[str] = None)`
+     - or a small NamedTuple / simple class; keep it lightweight and easy to use.
+2. In each scene class in scenes/ (GameplayScene, PauseScene, TitleScene, NameInputScene, ShaderTestScene, etc.), add stubs:
+   - `def handle_input(self, events, ctx, game_state) -> SceneTransition:`
+   - `def update(self, dt, ctx, game_state) -> SceneTransition:`
+   For now, these methods should:
+   - call through to whatever existing logic they already use (if any),
+   - or simply return SceneTransition(kind="NONE") so behavior is unchanged.
+3. Ensure nothing in game.py uses SceneTransition yet. That will happen in a later prompt.
+
+Keep tests passing and keep existing behavior identical.
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////END1-26-26
+
+PROMPT 3: REFACTOR (not run yet)
+You are refactoring the main loop to be scene-driven.
+
+Goal: make game.py::_run_loop delegate input and update to the current scene via SceneStack + SceneTransition, while preserving existing behavior as much as possible.
+
+Task:
+1. In game.py, locate _run_loop.
+2. Introduce a helper function, e.g. `_get_current_scene(scene_stack)`, that returns the top scene or None.
+3. For the main loop:
+   - After reading events from pygame (pygame.event.get()), but before the fixed-step simulation:
+     - If there is a current scene, call `transition = scene.handle_input(events, ctx, game_state)`.
+     - Apply the transition via a new helper `_apply_scene_transition(transition, scene_stack, ctx, game_state)`.
+     - For now, the transition helper should mimic existing push/pop logic where possible, and fall back to old state/state-machine code if needed.
+4. Inside the fixed-step simulation loop:
+   - If there is a current scene, call:
+     - `transition = scene.update(FIXED_DT, ctx, game_state)`
+     - Again, apply via `_apply_scene_transition`.
+   - If no scene, fall back to existing update logic so tests still pass.
+5. Keep the existing global state variables and `_sync_scene_stack` function for now, but try to prefer the scene-based path whenever possible.
+6. Make sure QUIT_GAME transition sets the loop to exit cleanly.
+
+Do not remove any old state logic yet; just add the scene-driven path and keep behavior equivalent. Run tests and fix any breakages.
+
+
+
+PROMPT 4: REMOVE DUPLICATE
+You are completing the migration to a scene-driven main loop.
+
+Goal: remove duplicate global screen/state variables so that SceneStack is the single source of truth for what screen we are on.
+
+Task:
+1. In game.py, identify:
+   - global `state` and `previous_state` (or similar),
+   - any screen enums/constants used only to decide which scene should be active.
+2. Replace usage of these variables with queries on SceneStack, for example:
+   - check whether the top scene is GameplayScene/PauseScene/etc.,
+   - or implement a small helper on SceneStack like `is_top_scene(name_or_type)`.
+3. Remove `_sync_scene_stack` if it becomes redundant:
+   - Any logic that used to live in `_sync_scene_stack` should now be handled by `_apply_scene_transition` and the scenes themselves.
+4. Remove `game_state.current_screen` if it’s now unused or redundant with scenes.
+5. Clean up any remaining `if state == STATE_...:` branches that now duplicate scene responsibilities.
+6. Ensure all tests still pass, and that basic flows work:
+   - start game
+   - enter gameplay
+   - pause/unpause
+   - game over / restart
+   - shader test / title screen / options as applicable.
+
+Do not remove any global that is still genuinely needed for non-scene purposes; only remove those that duplicate scene stack behavior.
+
+
+//////////////////////
+PROMPT 5: INTRODUCE UISTATE DATACLASS 
+You are cleaning up remaining globals in game.py by introducing a UiState dataclass.
+
+Goal: move UI-related global flags and menu selections into a dedicated UiState stored in GameState or AppContext.
+
+Task:
+1. Create a new module, e.g. ui_state.py, with:
+
+   @dataclass
+   class UiState:
+       # include all purely UI/menu related flags and selections, for example:
+       show_health_bars: bool = True
+       show_stats: bool = False
+       pause_menu_selection: int = 0
+       options_menu_selection: int = 0
+       shader_menu_selection: int = 0
+       # include any other UI-only flags currently global in game.py
+
+2. In GameState (or AppContext if you think it fits better), add a field:
+   - `ui: UiState = field(default_factory=UiState)`
+
+3. In game.py, find all UI-related globals, for example:
+   - pause_selected, controls_selected, ui_show_health_bars, ui_show_stats, etc.
+   Replace them with fields on game_state.ui, e.g.:
+   - game_state.ui.show_health_bars
+   - game_state.ui.pause_menu_selection
+
+4. Update scenes and rendering code (HUD, menu rendering, shader test UI, etc.) to use game_state.ui instead of the old globals.
+
+5. Remove the old global UI variables from game.py once all uses are updated.
+
+Ensure all tests still pass and no behavior is changed, just where UI state is stored.
+
+
+
+PROMPT 6: MOVE GAMEPLAY/CONFIG
+You are further reducing globals by moving gameplay and config flags into structured containers.
+
+Goal: ensure that gameplay flags live in GameState, and long-lived options live in GameConfig (or AppContext.config), instead of as top-level globals.
+
+Task:
+1. In game.py, identify remaining global flags such as:
+   - testing_mode
+   - aiming_mechanic (mouse vs keyboard, etc.)
+   - difficulty-related flags that are not already in GameConfig
+   - any other booleans/strings that affect gameplay or options but are not UI-only.
+
+2. For each:
+   - If it is a user-facing option that should persist for the session (like aiming_mechanic, difficulty, shader usage), move it into GameConfig (or a nested config class).
+   - If it is per-run gameplay state (like testing_mode, some debug toggles that affect simulation), move it into GameState.
+
+3. Update all references to these globals in:
+   - game.py
+   - scenes
+   - rendering/HUD
+   - any helpers that use them
+
+4. Remove the old global variable definitions once all references are updated.
+
+Run tests to confirm everything still works. The behavior should not change; only the storage location of these flags.
+
+
+
+PROMPT 7: SPLIT _create_app INTO SMALLER HELPER FUNCTIONS
+You are simplifying game.py::_create_app to make it easier to read and maintain.
+
+Goal: refactor _create_app into several smaller helpers while keeping behavior identical.
+
+Task:
+1. In game.py, locate _create_app.
+2. Extract logically separate sections into private helper functions within game.py, for example:
+   - `_init_pygame_and_mixer(config) -> None`
+   - `_create_window_and_clock(config) -> tuple[pygame.Surface, pygame.time.Clock, int, int]`
+   - `_build_app_context(screen, clock, width, height, config) -> AppContext`
+   - `_build_initial_game_state(ctx) -> GameState`
+   - `_build_scene_stack(ctx, game_state) -> SceneStack`
+   - `_build_loop_params(ctx) -> tuple[int, float, int]`  # FPS, FIXED_DT, MAX_SIM_STEPS
+
+3. Make _create_app a thin coordinator that calls these helpers and returns the same structure as before (ctx, game_state, scene_stack, loop params, update_simulation, etc.).
+
+4. Do not introduce new behavior or config at this stage; just reorganize the code for clarity.
+
+5. Run tests to ensure that nothing broke and behavior is unchanged.
+
+
+
+PROMPT 8: Split _run_loop into helpers for events, simulation, rendering
+You are simplifying game.py::_run_loop by extracting helper functions.
+
+Goal: keep _run_loop small and readable by moving chunks of logic into helpers.
+
+Task:
+1. In game.py, identify distinct phases in _run_loop:
+   - event handling
+   - scene transitions
+   - fixed-step simulation
+   - rendering
+   - telemetry/cleanup when exiting
+
+2. Extract them into private helpers, for example:
+   - `_poll_events() -> list[pygame.event.Event]`
+   - `_handle_events(events, ctx, game_state, scene_stack) -> SceneTransition | None`
+   - `_step_simulation(sim_accumulator, fixed_dt, max_steps, update_simulation, ctx, game_state, scene_stack) -> float`
+   - `_render_current_scene(ctx, game_state, scene_stack) -> None`
+   - `_handle_exit(ctx, game_state) -> None`
+
+3. Rewrite _run_loop to be a high-level orchestrator that:
+   - polls events,
+   - delegates to helpers,
+   - processes transitions,
+   - steps simulation,
+   - renders,
+   - handles exit.
+
+4. Make sure the helpers reuse existing code; do not invent new behavior. This refactor should be mostly cut-and-paste plus adjustments to parameters.
+
+5. Run tests to confirm no behavior changes.
+
+
+
+PROMPT 9: Refactor apply_pickup_effect into targeted helpers/registry
+You are cleaning up a large, branching function related to pickups.
+
+Goal: make apply_pickup_effect easier to extend and test by splitting it into smaller helpers or a registry of pickup handlers.
+
+Task:
+1. In game.py (or whichever module defines it), locate apply_pickup_effect and identify:
+   - the different types of pickups it handles (health, ammo, shield, score, powerups, etc.).
+2. Create a dedicated module, e.g. pickups.py, and move apply_pickup_effect there.
+3. Refactor apply_pickup_effect so that it:
+   - uses a dictionary mapping pickup_type -> handler function, e.g.:
+
+     PICKUP_HANDLERS = {
+         "health": _apply_health_pickup,
+         "ammo": _apply_ammo_pickup,
+         ...
+     }
+
+   - each handler function has a small, clear signature, e.g.:
+     - `_apply_health_pickup(game_state, ctx, pickup) -> None`
+
+4. Ensure apply_pickup_effect simply:
+   - looks up the handler based on pickup.type (or similar),
+   - calls it if present, and maybe logs a warning if unknown.
+
+5. Update all imports and call sites to use the moved/updated function.
+
+6. Run tests and verify that pickup behavior is unchanged.
+
+
+
+PROMPT 10: Refactor player/enemy movement with push into separate systems
+You are refactoring movement logic into clearer "systems".
+
+Goal: break large movement functions (player/enemy with push) into dedicated update systems with smaller internal helpers.
+
+Task:
+1. Locate `move_player_with_push` and `move_enemy_with_push` (or similarly named functions) in the project.
+2. Create a new module, e.g. movement_systems.py, and move these functions into it.
+3. Within that module, split each large function into smaller helpers, for example:
+   - `_compute_desired_player_velocity(input_state, ctx, game_state) -> Vector`
+   - `_apply_player_collision_and_push(player_rect, level_state, enemies, hazards, dt) -> None`
+   - `_apply_enemy_collision_and_push(enemy, level_state, player, dt) -> None`
+   - Use whatever breakdown makes the logic clearer, but avoid deeply nested ifs.
+
+4. Expose top-level functions like:
+   - `update_player_movement(dt, ctx, game_state)`
+   - `update_enemy_movement(dt, ctx, game_state)`
+
+5. In your main simulation update function, replace direct calls to the old move_* functions with calls to these new update_* functions.
+
+6. Run tests to ensure that movement behavior (including push mechanics and collisions) remains correct.
+
+///////////////////////
+
+PROMPT 11: 
+You are optimizing small performance details in the main loop.
+
+Goal: reduce unnecessary allocations and repeated work per frame in _run_loop.
+
+Task:
+1. In game.py::_run_loop, identify any objects created every frame that don’t need to be:
+   - e.g. a `screen_ctx` dict built fresh each frame.
+2. Refactor such cases so that:
+   - you create a reusable object once before the main loop (e.g. a small dataclass or simple namespace),
+   - per frame you only update a few attributes (like width/height/state), without recreating the whole object.
+3. Ensure `pygame.key.get_pressed()` is only called once per frame and passed into any functions that need key state, instead of calling it multiple times.
+4. Confirm that telemetry and shader-related logic does nothing (or as little as possible) when those features are disabled:
+   - guard any per-frame telemetry/shader work behind simple, cheap conditionals.
+
+5. Run tests and quickly sanity-check runtime behavior for:
+   - main menu
+   - gameplay
+   - pause menu
+   - shader test (if applicable)
+
+Make sure these changes are mechanical and do not change visible behavior, only runtime allocations.
+
+Create a ShaderPipelineManager with the following:
+
+1. Holds an ordered list of shaders:
+   - name
+   - enabled flag
+   - category
+   - render pass function
+   - default uniforms
+
+2. Functions:
+   - add_shader(name, category, pass_fn)
+   - remove_shader(name)
+   - enable_shader(name)
+   - disable_shader(name)
+   - set_uniform(name, uniform, value)
+   - execute_pipeline(screen_texture)
+
+3. Built-in pipeline order rules:
+   - Early: pixelation, blur
+   - Mid: distortion, shockwave, bloom
+   - Late: color grading, fog, CRT
+   - Last: vignette
+
+4. Safe mode:
+   - If a shader fails (compile or pass), skip it and log the error.
+
+
+Create a ShaderUniforms helper module with:
+
+1. set_float(shader, name, value)
+2. set_int(shader, name, value)
+3. set_vec2(shader, name, (x, y))
+4. set_vec3(shader, name, (r, g, b))
+5. set_sampler(shader, name, texture)
+
+Ensure all shaders use these helpers.
+
+////////////////////
+
+
+
+
+
+Add a ShaderTestMode scene/state:
+
+1. Fullscreen quad + simple test texture.
+2. Controls:
+   - LEFT/RIGHT: cycle shaders
+   - UP/DOWN: toggle current shader
+   - +/- : adjust primary intensity
+   - SPACE: trigger shader events (shockwave/ripple/time warp)
+   - ESC: exit back to main menu
+
+3. Use an isolated mini-pipeline separate from the main game.
+
+4. Log the current shader and uniform changes.
+
+
+
+
+
+Add blur.frag as a utility shader:
+
+1. Implements separable Gaussian blur.
+2. Uniform u_Direction = (1,0) for horizontal, (0,1) for vertical.
+3. Uniform u_BlurSize.
+4. Register shader as utility.
+
+
+
+
+Add vignette.frag:
+
+1. Computes radial distance from screen center.
+2. Darkens edges using u_Radius, u_Smoothness, u_Intensity.
+3. Register in pipeline as the LAST shader.
+4. Add enable/disable toggle.
+
+
+
+
+
+Add pixelate.frag:
+
+1. UV = floor(UV * u_PixelSize) / u_PixelSize.
+2. Register + add toggle and slider for u_PixelSize.
+3. Apply early in the pipeline.
+
+
+
+
+
+Add color_grade.vert/.frag:
+
+1. Uniforms: u_LUT, u_LUT_Size, u_Intensity.
+2. Sample LUT to recolor final output.
+3. Add identity LUT texture in assets/lut/.
+4. Register + toggle.
+5. Apply after bloom.
+
+
+
+
+
+Implement bloom:
+
+1. bloom_extract.frag to isolate bright pixels using u_Threshold.
+2. blur.frag (existing) for blur passes.
+3. bloom_combine.frag merges blurred bloom into main image.
+4. Register + toggles + threshold/intensity sliders.
+
+
+
+
+
+
+Add chromatic_aberration.frag:
+
+1. Offset R/G/B samples outward based on u_Intensity.
+2. Register shader.
+3. Add toggle + slider.
+4. Apply after color grading.
+
+
+
+
+
+Add distortion.frag:
+
+1. Sample noise texture.
+2. Offset UV by (noise * u_Strength).
+3. Add time-based scrolling.
+4. Register + toggle.
+5. Apply before bloom.
+
+
+
+
+
+
+Add shockwave.frag:
+
+1. Distort UV radially from u_Center.
+2. Uniforms: u_Time, u_Amplitude, u_Speed.
+3. Add ShockwaveManager with trigger().
+4. Debug key: F6 triggers shockwave.
+5. Register + toggle.
+
+
+
+
+
+Add screenshake.frag:
+
+1. Offset UV using a sine or noise-based shake pattern.
+2. Uniforms: u_ShakeIntensity, u_ShakeTime.
+3. Add ScreenShakeManager.
+4. F5 triggers shake event.
+5. Register + toggle.
+
+
+
+
+
+Add gradient_fog.frag:
+
+1. fogFactor = smoothstep(u_Start, u_End, UV.y).
+2. Mix(color, u_FogColor, fogFactor * u_Intensity).
+3. Register + toggle + sliders.
+4. Apply after color grading.
+
+
+
+
+
+Add film_grain.frag:
+
+1. Use noise texture or procedural noise.
+2. Mix noise into output using u_Intensity.
+3. Register + toggle + slider.
+
+
+
+
+Add crt_scanlines.frag:
+
+1. Add scanlines via sin(UV.y * frequency).
+2. Add R/G/B misalignment via channel offsets.
+3. Optional barrel distortion via UV remap.
+4. Register + toggle.
+
+
+
+
+
+Add radial_light_mask.frag:
+
+1. Compute distance from u_LightCenter.
+2. Bright center, dark edges using inner/outer radius.
+3. Add toggle: "Torch Mode".
+4. Debug F7 to reposition light center.
+
+
+
+
+Add additive_light.frag:
+
+1. Render sprite additively: color * u_Color * u_Intensity.
+2. Add draw_additive_sprite() helper.
+3. Debug spawn orb on F3.
+
+
+
+
+
+Add shockwave_sprite.frag:
+
+1. Distort underlying pixels using ring texture.
+2. Use ShockwaveManager for sprite-level waves.
+3. F8 triggers test wave.
+4. Register + toggle.
+
+
+
+
+
+
+Add water_ripple.frag:
+
+1. Use sine(distance * speed - time * frequency) for circular waves.
+2. Needs water normal map.
+3. Register + toggle.
+4. F9: test ripple.
+
+
+
+
+
+
+Add edge_detect.frag:
+
+1. Implement Sobel edge detection on screen texture.
+2. Uniforms: u_Threshold, u_Color, u_Intensity.
+3. Register + toggle: "Outline Mode".
+
+
+
+
+
+
+Add time_warp.frag:
+
+1. Radial distortion based on u_TimeScale.
+2. Optional chromatic aberration.
+3. Register + toggle.
+4. F10 toggles debug slow-mo.
+
+
+
+
+
+
+Add 2D dynamic lighting:
+
+1. Create lighting.frag that uses:
+   - base texture
+   - normal map
+   - light position, color, radius
+
+2. Add LightManager:
+   - list of lights with pos, color, radius, intensity
+
+3. Add toggle: "2D Lighting"
+4. Debug: L spawns a temporary moving light.
+
+
+
+
+
+
+Add shader categories to registry:
+
+CORE, ATMOSPHERE, RETRO, COMBAT, WATER, OUTLINES, LIGHTING, DEBUG.
+
+Add:
+- category field per shader
+- get_shaders_by_category()
+- get_all_categories()
+
+
+
+
+Create ShaderSettingsScreen:
+
+1. Left: category list
+2. Right: shader list inside category
+3. Bottom: shader parameters
+4. Add toggles + sliders
+5. Add to main menu: "Shader Settings"
+
+
+
+
+
+Create ShaderSettingsScreen:
+
+1. Left: category list
+2. Right: shader list inside category
+3. Bottom: shader parameters
+4. Add toggles + sliders
+5. Add to main menu: "Shader Settings"
+
+
+
+
+
+
+Add preview panel:
+
+1. Off-screen render target
+2. Render simple scene (background + sample sprite)
+3. Apply ONLY selected shader in preview pipeline
+4. Update preview on every change
+
+
+
+
+
+
+
+Bind sliders and toggles to preview uniforms:
+
+1. Sliders call set_float(), set_vec2(), etc.
+2. Preview updates in real time.
+3. Update global shader registry too if shader is enabled globally.
+
+
+
+
+
+
+Add demo animations inside preview:
+
+COMBAT:
+ - every few seconds trigger shockwave/time warp
+
+LIGHTING:
+ - rotating light source
+
+RETRO:
+ - scrolling background
+
+WATER:
+ - periodic ripple events
+
+
+
+
+
+
+Add ability to save all shader settings:
+
+1. Save enabled flags + uniforms into config/shaders.json.
+2. Load on game startup.
+3. Add "Reset to Defaults" button per shader.
+
+
+
+
+
+Add debug overlay:
+
+1. Show all active shaders.
+2. Show key uniform values.
+3. Toggle overlay with F12.
+
+
+
+
+
+Cleanup pass:
+
+1. Remove unused uniforms.
+2. Ensure all shaders have categories.
+3. Verify pipeline order is correct.
+4. Add error messages for missing textures.
+5. Confirm Shader Test Mode covers all shaders.
+
+/////////////////////////////////////////////
+
+You are modifying my existing Python game project to apply ALL of the shader- and build-related changes we’ve discussed in one big, coherent refactor.
+
+Project assumptions (adapt as needed to my actual repo):
+- There is a `game.py` at the root.
+- There is a `shader_effects/` package (pipeline, uniforms, etc.).
+- There are `scenes/` like `shader_test.py` and `shader_settings.py`.
+- There is a `rendering_shaders.py` or similar GPU/GL integration.
+- There is an `assets/shaders/` folder with .frag shader files.
+- There is already some moderngl / HAS_MODERNGL detection in a GL utils module.
+
+Make all changes below as one logical change-set.
+
+================================================================================
+1) ADD CENTRAL SHADER REGISTRY (shader_effects/registry.py)
+================================================================================
+
+Create a new file: `shader_effects/registry.py`
+
+Implement:
+
+- Imports:
+
+    from dataclasses import dataclass
+    from enum import Enum
+    from typing import Any, Dict, Optional
+
+- Define ShaderCategory enum:
+
+    class ShaderCategory(Enum):
+        CORE = "core"
+        ATMOSPHERE = "atmosphere"
+        RETRO = "retro"
+        COMBAT = "combat"
+        WATER = "water"
+        OUTLINES = "outlines"
+        LIGHTING = "lighting"
+        DEBUG = "debug"
+
+- Define ShaderSpec dataclass:
+
+    @dataclass(frozen=True)
+    class ShaderSpec:
+        name: str
+        category: ShaderCategory
+        default_uniforms: Dict[str, Any]
+
+- Define a dict `SHADER_SPECS: Dict[str, ShaderSpec]` that includes entries for *all* shaders we currently have or intend to use in the pipeline. Use the default values we already rely on (e.g. from `ShaderSettingsScreen.DEFAULT_UNIFORMS`):
+
+Examples (fill out the full set based on existing shaders):
+
+    SHADER_SPECS: Dict[str, ShaderSpec] = {
+        "vignette": ShaderSpec(
+            name="vignette",
+            category=ShaderCategory.CORE,
+            default_uniforms={
+                "u_Radius": 0.78,
+                "u_Smoothness": 0.22,
+                "u_Intensity": 0.4,
+            },
+        ),
+        "pixelate": ShaderSpec(
+            name="pixelate",
+            category=ShaderCategory.CORE,
+            default_uniforms={
+                "u_PixelSize": 1.0,
+            },
+        ),
+        "color_grade": ShaderSpec(
+            name="color_grade",
+            category=ShaderCategory.CORE,
+            default_uniforms={
+                # fill with whatever we use: u_Intensity, etc.
+            },
+        ),
+        "bloom_extract": ShaderSpec(
+            name="bloom_extract",
+            category=ShaderCategory.CORE,
+            default_uniforms={
+                # e.g. u_Threshold, u_Intensity
+            },
+        ),
+        "bloom_combine": ShaderSpec(
+            name="bloom_combine",
+            category=ShaderCategory.CORE,
+            default_uniforms={},
+        ),
+        "chromatic_aberration": ShaderSpec(
+            name="chromatic_aberration",
+            category=ShaderCategory.CORE,
+            default_uniforms={
+                "u_Intensity": 0.0,
+            },
+        ),
+        "gradient_fog": ShaderSpec(
+            name="gradient_fog",
+            category=ShaderCategory.ATMOSPHERE,
+            default_uniforms={
+                "u_FogColor": (0.7, 0.75, 0.8),
+                "u_Start": 0.3,
+                "u_End": 1.0,
+                "u_Intensity": 0.5,
+            },
+        ),
+        "film_grain": ShaderSpec(
+            name="film_grain",
+            category=ShaderCategory.ATMOSPHERE,
+            default_uniforms={
+                "u_Intensity": 0.15,
+                "u_GrainScale": 1.0,
+            },
+        ),
+        "radial_light_mask": ShaderSpec(
+            name="radial_light_mask",
+            category=ShaderCategory.ATMOSPHERE,
+            default_uniforms={
+                "u_LightCenter": (0.5, 0.5),
+                "u_InnerRadius": 0.2,
+                "u_OuterRadius": 0.8,
+                "u_Intensity": 0.8,
+            },
+        ),
+        "crt_scanlines": ShaderSpec(
+            name="crt_scanlines",
+            category=ShaderCategory.RETRO,
+            default_uniforms={
+                "u_ScanlineIntensity": 0.5,
+                "u_ChannelOffset": 0.003,
+                "u_Curvature": 0.05,
+            },
+        ),
+        "distortion": ShaderSpec(
+            name="distortion",
+            category=ShaderCategory.COMBAT,
+            default_uniforms={
+                "u_Strength": 0.0,
+            },
+        ),
+        "shockwave": ShaderSpec(
+            name="shockwave",
+            category=ShaderCategory.COMBAT,
+            default_uniforms={
+                "u_Amplitude": 0.03,
+                "u_Speed": 3.0,
+            },
+        ),
+        "screenshake": ShaderSpec(
+            name="screenshake",
+            category=ShaderCategory.COMBAT,
+            default_uniforms={
+                "u_ShakeIntensity": 0.0,
+            },
+        ),
+        "time_warp": ShaderSpec(
+            name="time_warp",
+            category=ShaderCategory.COMBAT,
+            default_uniforms={
+                "u_TimeScale": 1.0,
+                "u_WarpIntensity": 0.0,
+            },
+        ),
+        "additive_light": ShaderSpec(
+            name="additive_light",
+            category=ShaderCategory.LIGHTING,
+            default_uniforms={
+                "u_Color": (1.0, 1.0, 1.0, 1.0),
+                "u_Intensity": 1.0,
+            },
+        ),
+        "shockwave_sprite": ShaderSpec(
+            name="shockwave_sprite",
+            category=ShaderCategory.COMBAT,
+            default_uniforms={
+                "u_Amplitude": 0.05,
+                "u_Speed": 3.0,
+            },
+        ),
+        "water_ripple": ShaderSpec(
+            name="water_ripple",
+            category=ShaderCategory.WATER,
+            default_uniforms={
+                "u_Amplitude": 0.02,
+                "u_Speed": 2.0,
+                "u_Frequency": 6.0,
+            },
+        ),
+        "edge_detect": ShaderSpec(
+            name="edge_detect",
+            category=ShaderCategory.OUTLINES,
+            default_uniforms={
+                "u_Threshold": 0.2,
+                "u_Intensity": 1.0,
+                "u_Color": (0.0, 0.0, 0.0),
+            },
+        ),
+        "lighting_2d": ShaderSpec(
+            name="lighting_2d",
+            category=ShaderCategory.LIGHTING,
+            default_uniforms={
+                # e.g. u_LightColor, u_Ambient, etc.
+            },
+        ),
+        # Add any remaining shaders we use here
+    }
+
+- Helper:
+
+    def get_shader_spec(name: str) -> Optional[ShaderSpec]:
+        return SHADER_SPECS.get(name)
+
+
+================================================================================
+2) ADD TYPED SHADER CONTEXT (shader_effects/context.py)
+================================================================================
+
+Create a new file: `shader_effects/context.py`
+
+Add:
+
+    from typing import TypedDict
+
+    class ShaderContext(TypedDict, total=False):
+        time: float
+        delta_time: float
+        health: float
+        damage_wobble: float
+        # Add any other shared context keys we already pass to shaders
+
+We’ll use this as a type hint where we previously used dicts for shader context.
+
+
+================================================================================
+3) UPDATE UNIFORM HELPERS TO LOG FAILURES ONCE (shader_effects/uniforms.py)
+================================================================================
+
+Open `shader_effects/uniforms.py` and:
+
+- At the top, add:
+
+    import logging
+    from typing import Any
+
+    logger = logging.getLogger(__name__)
+    _FAILED_UNIFORMS: set[tuple[int, str]] = set()
+
+- In each helper (set_float, set_vec2, set_vec3, set_int, set_sampler, etc.), update the exception handling:
+
+    - Replace any bare `except (...) as e: pass` with:
+
+        except (AttributeError, KeyError, TypeError, IndexError) as e:
+            key = (id(shader), name)
+            if key not in _FAILED_UNIFORMS:
+                _FAILED_UNIFORMS.add(key)
+                logger.debug(
+                    "Failed to set uniform '%s' on shader %r: %s",
+                    name, shader, e,
+                )
+            return
+
+- Ensure these helpers remain non-fatal (no raising), but now provide debug visibility the first time a uniform fails per shader.
+
+
+================================================================================
+4) HOOK PIPELINE INTO REGISTRY + BETTER ERROR HANDLING (shader_effects/pipeline.py)
+================================================================================
+
+Open `shader_effects/pipeline.py` and:
+
+- Import from the registry and context modules:
+
+    from shader_effects.registry import get_shader_spec, ShaderCategory
+    from shader_effects.context import ShaderContext
+
+- In the ShaderEntry (or equivalent) dataclass/structure, add:
+
+    fail_count: int = 0
+    max_failures: int = 5
+
+- Where we construct ShaderEntry in `add_shader(...)` (or similar):
+
+    - After creating the entry, look up registry defaults:
+
+        spec = get_shader_spec(name)
+        if spec is not None:
+            # Optionally set category if Entry has a category field
+            if hasattr(entry, "category"):
+                entry.category = spec.category
+
+            # Only populate uniforms if they’re not already provided
+            if not entry.uniforms:
+                entry.uniforms.update(spec.default_uniforms)
+
+- In `execute_pipeline(surface, dt, context)`:
+
+    - Update the signature to use ShaderContext as a hint if not already:
+
+        def execute_pipeline(self, screen_texture, dt: float, context: ShaderContext) -> Any:
+
+    - In the exception handler around each shader pass:
+
+        except Exception as e:
+            entry.fail_count += 1
+            cat = getattr(entry, "category", None)
+            cat_name = getattr(cat, "name", str(cat))
+            logger.error(
+                "Shader '%s' (category %s) failed (%d): %s",
+                entry.name, cat_name, entry.fail_count, e,
+                exc_info=True,
+            )
+            if self._safe_mode and entry.fail_count >= entry.max_failures:
+                entry.enabled = False
+                logger.error(
+                    "Disabling shader '%s' after repeated failures", entry.name
+                )
+            if not self._safe_mode:
+                raise
+
+    - After building the pipeline initially, log the order once (e.g., in `__init__` or after setup):
+
+        logger.info("Shader pipeline order: %s", [e.name for e in self._shaders])
+
+
+================================================================================
+5) MAKE pixelate.frag RESOLUTION-AWARE (assets/shaders/pixelate.frag)
+================================================================================
+
+Open `assets/shaders/pixelate.frag` and update `main()` so that:
+
+- It uses the texture size to compute the pixel block size:
+
+    #version 330 core
+    // Pixelation shader; u_PixelSize is block size in screen pixels.
+
+    in vec2 v_uv;
+    out vec4 fragColor;
+
+    uniform sampler2D u_frame_texture;
+    uniform float u_PixelSize;
+
+    void main()
+    {
+        vec2 texSize = vec2(textureSize(u_frame_texture, 0));
+        vec2 pixelSize = vec2(u_PixelSize) / texSize;
+        vec2 uvQuantized = floor(v_uv / pixelSize) * pixelSize;
+        fragColor = texture(u_frame_texture, uvQuantized);
+    }
+
+- Ensure uniform and varying names match the rest of our pipeline (u_frame_texture, v_uv, fragColor).
+
+
+================================================================================
+6) REFIT ShaderSettingsScreen TO USE REGISTRY (scenes/shader_settings.py)
+================================================================================
+
+Open `scenes/shader_settings.py` and:
+
+- Import the registry:
+
+    from shader_effects.registry import SHADER_SPECS, ShaderCategory, get_shader_spec
+
+- Remove the local `DEFAULT_UNIFORMS` dict (or leave a comment but stop using it). Anywhere we were doing:
+
+    DEFAULT_UNIFORMS[shader_name]["u_Intensity"]
+
+  replace with:
+
+    SHADER_SPECS[shader_name].default_uniforms["u_Intensity"]
+
+- Where we define category tabs / lists, stop hard-coding shader names by category. Instead:
+
+    - Build a dictionary from ShaderCategory to list of spec names:
+
+        from collections import defaultdict
+
+        shaders_by_category: dict[ShaderCategory, list[str]] = defaultdict(list)
+        for spec in SHADER_SPECS.values():
+            shaders_by_category[spec.category].append(spec.name)
+
+    - Use this to populate the UI category list and per-category shader list.
+
+- When resetting a shader to defaults from the UI, use:
+
+    spec = get_shader_spec(current_shader_name)
+    if spec is not None:
+        uniforms = spec.default_uniforms.copy()
+        # apply to pipeline + UI
+
+- Ensure the UI still works: selecting a category shows the correct shaders, selecting a shader shows its enabled state and uniforms based on SHADER_SPECS.
+
+
+================================================================================
+7) MAKE ShaderTestScene USE REGISTRY (scenes/shader_test.py)
+================================================================================
+
+Open `scenes/shader_test.py` and:
+
+- Import:
+
+    from shader_effects.registry import SHADER_SPECS, ShaderCategory
+    from shader_effects.context import ShaderContext
+
+- Instead of a hard-coded list of shaders to test, derive it from the registry:
+
+    test_shader_names = [spec.name for spec in SHADER_SPECS.values()]
+    # Optionally filter categories if needed (e.g. skip DEBUG, LIGHTING, etc.)
+
+- Wherever the scene cycles between shaders (e.g., left/right arrows), use `test_shader_names[index]` and enable/disable the pipeline entries by name, rather than manually managing a separate list.
+
+- Build the context passed into `execute_pipeline` as a `ShaderContext`:
+
+    ctx: ShaderContext = {
+        "time": current_time,
+        "delta_time": dt,
+        # add any extra common values we already use
+    }
+
+- Ensure the on-screen text shows the current shader’s name pulled from `test_shader_names[current_index]`.
+
+The result: adding a new shader to `SHADER_SPECS` automatically makes it show up in the test scene.
+
+
+================================================================================
+8) CONFIG-BASED GPU VS CPU PATH (rendering_shaders.py)
+================================================================================
+
+Open `rendering_shaders.py` (or equivalent module where final screen post-processing happens) and:
+
+- Import a config flag (create one if necessary):
+
+    # Example: in config/settings.py define:
+    # use_gpu_shaders = True
+
+    from config import settings
+    from shader_effects.pipeline import ShaderPipelineManager
+    # and any other needed imports
+
+- In the main render function that takes the final game surface and applies effects:
+
+    - If `settings.use_gpu_shaders` is True AND moderngl / GPU context is available, route through the shader pipeline:
+
+        if settings.use_gpu_shaders and HAS_MODERNGL:
+            final_surface = shader_pipeline.execute_pipeline(surface, dt, ctx)
+        else:
+            final_surface = visual_effects.apply_gameplay_effects(surface, dt, ...)  # or your current CPU path
+
+    - Ensure we do NOT double-process (don’t apply both GPU and CPU effects in one frame).
+
+- Add a startup log somewhere (e.g. at engine init):
+
+    if settings.use_gpu_shaders and HAS_MODERNGL:
+        logger.info("Using GPU shader pipeline")
+    else:
+        logger.info("Using CPU visual effects pipeline")
+
+
+================================================================================
+9) GRACEFUL HANDLING WHEN moderngl IS MISSING
+================================================================================
+
+Find where `HAS_MODERNGL` (or equivalent) is defined, likely in a GL utilities file such as `gpu_gl_utils.py`. Ensure:
+
+- `HAS_MODERNGL` is a public constant:
+
+    try:
+        import moderngl
+        HAS_MODERNGL = True
+    except ImportError:
+        moderngl = None
+        HAS_MODERNGL = False
+
+Then:
+
+- In `scenes/shader_test.py` and `scenes/shader_settings.py`, import HAS_MODERNGL:
+
+    from gpu_gl_utils import HAS_MODERNGL
+
+- At the beginning of each scene’s initialization or `enter` method, guard their functionality:
+
+    if not HAS_MODERNGL:
+        logger.info("Shader test/settings unavailable: moderngl not installed")
+        # Either immediately return to main menu or show a short message then exit.
+        # For now, just bail out:
+        self.app.pop_scene()
+        return
+
+- In the main menu / options menu, when adding buttons for “Shader Test Mode” and “Shader Settings”, only show or enable them if `HAS_MODERNGL` is True. Otherwise, hide or grey them out and prevent activation.
+
+
+================================================================================
+10) ADD run_game.bat FOR EASY DEV LAUNCH
+================================================================================
+
+At the project root, create a file named `run_game.bat` with:
+
+    @echo off
+    REM Launch the latest version of the game using Python
+
+    cd /d "%~dp0"
+
+    REM Optional: activate virtualenv if you use one
+    REM call venv\Scripts\activate
+
+    python game.py
+
+    pause
+
+This lets you (or other devs with Python + deps installed) double-click `run_game.bat` to run the current game code.
+
+
+================================================================================
+11) ADD build_game.bat TO BUILD A SELF-CONTAINED .EXE (PyInstaller)
+================================================================================
+
+At the project root, create `build_game.bat`:
+
+    @echo off
+    REM Build a self-contained Windows .exe using PyInstaller.
+    REM Requires Python and PyInstaller installed on the build machine.
+
+    cd /d "%~dp0"
+
+    echo Cleaning previous build artifacts...
+    rmdir /s /q build  2>nul
+    rmdir /s /q dist   2>nul
+    del /q MyGame.spec 2>nul
+
+    echo Building new executable with PyInstaller...
+    pyinstaller --onefile --name MyGame --noconfirm game.py
+
+    echo.
+    echo Build complete. New EXE is in dist\MyGame.exe
+    echo You can share this EXE with other Windows users who do not have Python installed.
+    echo.
+
+    pause
+
+Notes:
+- This script is for the BUILD machine (your dev machine). The resulting `dist\MyGame.exe` can be distributed to other Windows users.
+- Ensure PyInstaller is installed: `pip install pyinstaller`.
+
+
+================================================================================
+12) (OPTIONAL BUT NICE) ADD A SIMPLE BUILD README
+================================================================================
+
+Optionally, create `README_build.md` at the root:
+
+- Document:
+
+    - `run_game.bat` for local dev (requires Python + deps).
+    - `build_game.bat` to generate `dist\MyGame.exe` using PyInstaller.
+    - Note about moderngl / GPU shaders vs CPU fallback.
+
+(Keep this short; just enough for another person to understand the workflow.)
+
+
+================================================================================
+END OF CHANGESET
+================================================================================
+
+Make all of these changes in one coherent refactor. Keep existing functionality intact where possible, and ensure the game still runs in CPU-only mode (no moderngl) and GPU shader mode (when available). After modifications, fix any small import or name errors that appear so the project runs cleanly.
+
+
+
+
+
+
+
+
+
+
+You are modifying my existing Python game project to bring the shader pipeline, registry, settings UI, test scene, and build tooling into a clean, consistent state.
+
+Project structure (DO NOT change these high-level files unless explicitly told):
+- game.py at the repo root
+- shader_effects/ (base, pipeline, registry, uniforms, context, managers, etc.)
+- scenes/ (shader_settings.py, shader_test.py, gameplay.py, etc.)
+- gpu_gl_utils.py (moderngl helpers + HAS_MODERNGL)
+- rendering_shaders.py (optional GPU/CPU render wrapper)
+- assets/shaders/*.frag (GLSL shaders)
+- run_game.bat, build_game.bat, README_build.md
+
+Make the following changes as ONE coherent refactor. Do not remove working functionality; focus on alignment, completeness, and fixing placeholders.
+
+===============================================================================
+1) Ensure CENTRAL SHADER REGISTRY is complete and consistent (shader_effects/registry.py)
+===============================================================================
+
+Open shader_effects/registry.py and:
+
+1. Confirm it defines:
+
+   - ShaderCategory(Enum) with:
+        CORE, ATMOSPHERE, RETRO, COMBAT, WATER, OUTLINES, LIGHTING, DEBUG
+
+   - @dataclass ShaderSpec:
+        name: str
+        category: ShaderCategory
+        default_uniforms: Dict[str, Any]
+
+   - SHADER_SPECS: Dict[str, ShaderSpec]
+   - get_shader_spec(name: str) -> Optional[ShaderSpec]
+
+2. Make SHADER_SPECS contain entries for ALL shaders we actually use in the project, including but not limited to:
+
+   - "vignette"
+   - "pixelate"
+   - "color_grade"
+   - "bloom_extract"
+   - "bloom_combine"
+   - "chromatic_aberration"
+   - "gradient_fog"
+   - "film_grain"
+   - "radial_light_mask"
+   - "crt_scanlines"
+   - "distortion"
+   - "shockwave"
+   - "screenshake"
+   - "time_warp"
+   - "additive_light"
+   - "shockwave_sprite"
+   - "water_ripple"
+   - "edge_detect"
+   - "lighting_2d"
+   - "blur" (utility blur)
+
+   Use the same default uniform values we already rely on in the codebase (e.g. from ShaderSettingsScreen). Any missing defaults should be filled in with reasonable values (0.0–1.0 ranges, sane intensities).
+
+3. For clarity, add a short docstring or comment at the top of the file:
+
+   - Explaining that SHADER_SPECS is the single source of truth for shader metadata (name, category, defaults).
+   - Explaining that UI and pipeline code should use this instead of hardcoding shader uniforms and categories.
+
+===============================================================================
+2) Keep SHADER CONTEXT typed and in use (shader_effects/context.py)
+===============================================================================
+
+Open shader_effects/context.py:
+
+1. Ensure there is a TypedDict:
+
+   from typing import TypedDict
+
+   class ShaderContext(TypedDict, total=False):
+       time: float
+       delta_time: float
+       health: float
+       damage_wobble: float
+       # add keys if we already use others (e.g. "player_hp", etc.)
+
+2. In shader_effects/pipeline.py and rendering_shaders.py:
+   - Wherever the context is conceptually a shader context, make sure type hints use ShaderContext.
+   - When constructing contexts, build them as ShaderContext rather than raw dicts, e.g.:
+
+     shader_ctx: ShaderContext = {
+         "time": t,
+         "delta_time": 0.016,
+     }
+
+===============================================================================
+3) Uniform helpers: log failures once (shader_effects/uniforms.py)
+===============================================================================
+
+Open shader_effects/uniforms.py and verify:
+
+1. There is:
+
+   import logging
+   logger = logging.getLogger(__name__)
+   _FAILED_UNIFORMS: set[tuple[int, str]] = set()
+
+2. Each setter (set_float, set_vec2, set_vec3, set_int, set_sampler) behaves like this:
+
+   - Tries multiple backends (shader.uniforms[name].value, setattr, shader.set_uniform).
+   - On (AttributeError, KeyError, TypeError, IndexError), it:
+       - Builds a key = (id(shader), name)
+       - If key not in _FAILED_UNIFORMS:
+           - adds it
+           - logger.debug("Failed to set uniform '%s' on shader %r: %s", name, shader, e)
+       - Returns silently (no exception)
+
+3. No uniform helper raises exceptions for missing uniforms. Failures are non-fatal but visible in debug logs.
+
+===============================================================================
+4) Pipeline <-> registry integration and error handling (shader_effects/pipeline.py)
+===============================================================================
+
+Open shader_effects/pipeline.py:
+
+1. Confirm imports:
+
+   from shader_effects.registry import get_shader_spec, ShaderCategory as RegistryCategory
+   from shader_effects.context import ShaderContext
+
+2. ShaderEntry dataclass must contain:
+
+   @dataclass
+   class ShaderEntry:
+       name: str
+       category: ShaderCategory  # pipeline ordering enum (EARLY/MID/LATE/LAST)
+       enabled: bool = True
+       render_pass: Optional[Callable[[Any, float, dict], Any]] = None
+       default_uniforms: dict[str, Any] = field(default_factory=dict)
+       custom_uniforms: dict[str, Any] = field(default_factory=dict)
+       fail_count: int = 0
+       max_failures: int = 5
+
+3. In add_shader(...):
+
+   - After creating the ShaderEntry, call get_shader_spec(name).
+   - If a spec exists:
+        - Optionally store spec.category somewhere if useful.
+        - If entry.default_uniforms is empty, set it to spec.default_uniforms.copy().
+
+4. In execute_pipeline(screen_texture, dt, context):
+
+   - Ensure context is a ShaderContext (or convert dict to ShaderContext if needed).
+   - On each shader failure:
+        - Increment entry.fail_count
+        - Log with category information and count:
+          logger.error(
+              "Shader '%s' (category %s) failed (%d): %s",
+              entry.name, getattr(entry.category, "name", entry.category),
+              entry.fail_count, e, exc_info=True
+          )
+        - If self._safe_mode and entry.fail_count >= entry.max_failures:
+            - entry.enabled = False
+            - logger.error("Disabling shader '%s' after repeated failures", entry.name)
+        - If not self._safe_mode, re-raise the exception.
+
+5. When the pipeline is built or initialized, log the shader order once:
+
+   logger.info("Shader pipeline order: %s", [e.name for e in self._shaders])
+
+===============================================================================
+5) Pixelate shader: resolution-aware implementation (assets/shaders/pixelate.frag)
+===============================================================================
+
+Open assets/shaders/pixelate.frag and ensure:
+
+1. It uses textureSize and a pixel size in screen pixels, like:
+
+   #version 330 core
+   // Pixelation shader; u_PixelSize is block size in screen pixels.
+
+   uniform sampler2D u_frame_texture;
+   uniform float u_PixelSize;
+
+   in vec2 v_uv;
+   out vec4 fragColor;
+
+   void main() {
+       vec2 texSize = vec2(textureSize(u_frame_texture, 0));
+       vec2 pixelSize = vec2(u_PixelSize) / texSize;
+       vec2 uvQuantized = floor(v_uv / pixelSize) * pixelSize;
+       fragColor = texture(u_frame_texture, uvQuantized);
+   }
+
+2. Names (u_frame_texture, v_uv, fragColor) are consistent with the rest of the pipeline.
+
+===============================================================================
+6) ShaderSettingsScreen: registry-driven, not hardcoded (scenes/shader_settings.py)
+===============================================================================
+
+Open scenes/shader_settings.py and:
+
+1. Confirm imports:
+
+   from shader_effects.registry import SHADER_SPECS, ShaderCategory as RegistryCategory, get_shader_spec
+
+2. Remove any old, local DEFAULT_UNIFORMS dict. Anywhere it was used, replace with:
+
+   spec = get_shader_spec(shader_name)
+   if spec is not None:
+       uniforms = spec.default_uniforms.copy()
+
+3. When building the list of shaders and categories:
+
+   - Derive them from SHADER_SPECS, e.g.:
+
+     from collections import defaultdict
+     shaders_by_category: dict[RegistryCategory, list[str]] = defaultdict(list)
+     for spec in SHADER_SPECS.values():
+         shaders_by_category[spec.category].append(spec.name)
+
+   - Use this to drive:
+       - Category tabs.
+       - Per-category shader list.
+       - Default uniforms for reset actions.
+
+4. For reset-to-default behavior in the UI:
+
+   - Use spec.default_uniforms from SHADER_SPECS, not a local hardcoded dict.
+
+5. Ensure HAS_MODERNGL is checked:
+
+   - If moderngl is not available, ShaderSettingsScreen should either:
+       - Not be enterable from the menu, OR
+       - Immediately show a brief message and pop back to the previous scene.
+
+===============================================================================
+7) ShaderTestScene: registry-driven shader list (scenes/shader_test.py)
+===============================================================================
+
+Open scenes/shader_test.py and:
+
+1. Confirm imports:
+
+   from shader_effects.pipeline import ShaderPipelineManager, ShaderCategory
+   from shader_effects.registry import SHADER_SPECS, ShaderCategory as RegistryCategory
+   from shader_effects.context import ShaderContext
+
+2. Build the list of test shaders from SHADER_SPECS:
+
+   - Filter out DEBUG:
+     self.shader_list = [
+         (spec.name, spec.category)
+         for spec in SHADER_SPECS.values()
+         if spec.category != RegistryCategory.DEBUG
+     ]
+
+3. Replace any hardcoded shader name lists with references to self.shader_list.
+
+4. For now, it is acceptable that _initialize_shaders is a placeholder and that GPU shader passes are not fully wired; however:
+
+   - Add a clear TODO comment there stating that this is where actual moderngl shader programs and render_pass functions will be attached to the pipeline for each shader.
+   - Ensure that placeholder behavior does not crash; the scene should still render a test texture, show the current shader name, and allow cycling through names even if no GPU effects are applied yet.
+
+5. Build ShaderContext in this scene as:
+
+   ctx: ShaderContext = {"time": t, "delta_time": dt}
+
+===============================================================================
+8) GPU vs CPU rendering: config-based toggle (rendering_shaders.py)
+===============================================================================
+
+Open rendering_shaders.py and:
+
+1. Confirm that:
+
+   - It imports something like:
+     from config import settings  # or config module with attributes
+
+   - It checks a config flag for GPU pipeline:
+     use_gpu_pipeline = (
+         config is not None
+         and getattr(config, "use_gpu_shader_pipeline", False)
+         and HAS_MODERNGL
+     )
+
+   - It logs the selected path exactly once:
+     if use_gpu_pipeline and HAS_MODERNGL:
+         logger.info("Using GPU shader pipeline")
+     else:
+         logger.info("Using CPU visual effects pipeline")
+
+2. Ensure the main gameplay render path:
+
+   - Renders gameplay into an offscreen surface.
+   - If use_gpu_pipeline is True:
+       - Initializes a ShaderPipelineManager once.
+       - Builds a ShaderContext with time + delta_time and optional health info.
+       - Calls pipeline.execute_pipeline(offscreen_surface, dt, shader_ctx).
+   - If use_gpu_pipeline is False:
+       - Uses the existing CPU effects:
+         apply_gameplay_effects(offscreen_surface, ctx, game_state)
+
+   - CPU effect stack (get_gameplay_shader_stack) should only run when NOT using the GPU pipeline, to avoid double-processing.
+
+3. After any GPU/CPU post-processing, final blit should go through apply_gameplay_final_blit, with scaling taken into account.
+
+===============================================================================
+9) moderngl availability gates shader scenes (gpu_gl_utils.py + scenes)
+===============================================================================
+
+Open gpu_gl_utils.py and verify:
+
+1. HAS_MODERNGL is defined and exported:
+
+   try:
+       import moderngl
+       HAS_MODERNGL = True
+   except ImportError:
+       moderngl = None
+       HAS_MODERNGL = False
+
+2. In scenes/shader_test.py and scenes/shader_settings.py:
+
+   - Import HAS_MODERNGL from gpu_gl_utils.
+   - If HAS_MODERNGL is False, these scenes should:
+       - Either not be accessible from the menu, or
+       - Immediately pop themselves and log a message like:
+         logger.info("Shader test/settings unavailable: moderngl not installed")
+
+3. In any menu code that adds “Shader Test” / “Shader Settings” items, only show or enable those entries when HAS_MODERNGL is True.
+
+===============================================================================
+10) Dev and build scripts (run_game.bat, build_game.bat, README_build.md)
+===============================================================================
+
+At the repo root:
+
+1. run_game.bat should:
+
+   @echo off
+   REM Launch the latest version of the game using Python
+
+   cd /d "%~dp0"
+
+   REM Optional: activate virtualenv if you use one
+   REM call venv\Scripts\activate
+
+   python game.py
+
+   pause
+
+2. build_game.bat should:
+
+   - Clean build/, dist/, and MyGame.spec if they exist.
+   - Run:
+       pyinstaller --onefile --name MyGame --noconfirm game.py
+   - Print that the new EXE is in dist\MyGame.exe and pause.
+
+3. README_build.md should briefly describe:
+
+   - Using run_game.bat for development (requires Python + requirements.txt).
+   - Using build_game.bat to produce dist\MyGame.exe that can be run on another Windows machine without Python installed (subject to OS/OpenGL/driver support).
+   - The GPU/CPU rendering paths and how moderngl availability and config flags affect behavior.
+
+===============================================================================
+END OF CHANGESET
+===============================================================================
+
+Make all these changes in a way that keeps the project running:
+- No syntax errors
+- No broken imports
+- Scenes still enter/exit cleanly
+- CPU fallback path still works when moderngl is absent
+- GPU paths fail gracefully and log helpful errors instead of crashing
+
+
+
+
+
+
 
 
 

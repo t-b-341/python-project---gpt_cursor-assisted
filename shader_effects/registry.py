@@ -18,7 +18,14 @@ from typing import Any, Dict, Optional
 
 
 class ShaderCategory(Enum):
-    """Shader effect categories for organization."""
+    """
+    Shader effect categories for organization.
+    
+    This enum describes semantic shader groups (CORE, ATMOSPHERE, etc.).
+    It is used for UI grouping and metadata, not pipeline ordering.
+    For pipeline ordering, see shader_effects.pipeline.ShaderCategory and
+    pipeline_category_for_registry_category().
+    """
     CORE = "core"
     ATMOSPHERE = "atmosphere"
     RETRO = "retro"

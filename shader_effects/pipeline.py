@@ -20,11 +20,39 @@ logger = logging.getLogger(__name__)
 
 
 class ShaderCategory(Enum):
-    """Shader execution categories in pipeline order."""
+    """
+    Shader execution categories in pipeline order (EARLY, MID, LATE, LAST).
+    
+    This enum describes pipeline ordering, not semantic grouping.
+    See pipeline_category_for_registry_category() for mapping from semantic categories.
+    """
     EARLY = 1  # pixelation, blur
     MID = 2    # distortion, shockwave, bloom
     LATE = 3   # color grading, fog, CRT
     LAST = 4   # vignette
+
+
+def pipeline_category_for_registry_category(cat: RegistryCategory) -> ShaderCategory:
+    """
+    Map registry ShaderCategory (semantic categories) to pipeline ShaderCategory (ordering).
+    
+    Args:
+        cat: Registry category (CORE, ATMOSPHERE, RETRO, etc.)
+    
+    Returns:
+        Pipeline category (EARLY, MID, LATE, LAST) for execution ordering
+    """
+    mapping = {
+        RegistryCategory.CORE: ShaderCategory.EARLY,
+        RegistryCategory.RETRO: ShaderCategory.EARLY,
+        RegistryCategory.COMBAT: ShaderCategory.MID,
+        RegistryCategory.WATER: ShaderCategory.MID,
+        RegistryCategory.ATMOSPHERE: ShaderCategory.LATE,
+        RegistryCategory.OUTLINES: ShaderCategory.MID,
+        RegistryCategory.LIGHTING: ShaderCategory.LATE,
+        RegistryCategory.DEBUG: ShaderCategory.LAST,
+    }
+    return mapping.get(cat, ShaderCategory.MID)
 
 
 @dataclass

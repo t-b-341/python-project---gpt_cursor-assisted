@@ -8,6 +8,15 @@ Use `run_game.bat` to launch the game during development. This requires:
 
 Simply double-click `run_game.bat` or run it from the command line.
 
+### Optional Dependencies
+
+If you want to use the GPU shader pipeline, Shader Test Mode, or Shader Settings GPU preview, install moderngl:
+```
+pip install moderngl
+```
+
+When moderngl is NOT installed, the game will fall back to CPU effects and hide/disable GPU-specific scenes.
+
 ## Building a Standalone Executable
 
 Use `build_game.bat` to create a self-contained Windows `.exe` file using PyInstaller.
