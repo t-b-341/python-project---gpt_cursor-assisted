@@ -40,7 +40,9 @@ class ShaderSettingsScreen:
     """Screen for configuring shader effects with live preview."""
     
     def __init__(self) -> None:
-        self.selected_category: Optional[str] = None
+        # Initialize with first category selected
+        categories = list(RegistryCategory)
+        self.selected_category: Optional[str] = categories[0].value.upper() if categories else None
         self.selected_shader: Optional[str] = None
         self.time = 0.0
         
@@ -68,6 +70,16 @@ class ShaderSettingsScreen:
         # Load saved settings (will merge with defaults)
         self._load_settings()
         
+        # Select first shader in initial category if available
+        if self.selected_category:
+            try:
+                cat_enum = RegistryCategory[self.selected_category]
+                shaders = shaders_by_category.get(cat_enum, [])
+                if shaders:
+                    self.selected_shader = shaders[0]
+            except KeyError:
+                pass
+        
         # Demo animation state
         self.demo_time = 0.0
         self.last_shockwave_trigger = 0.0
@@ -85,8 +97,13 @@ class ShaderSettingsScreen:
         keys_pressed = pygame.key.get_pressed()
         
         for e in events:
-            if getattr(e, "type", None) == pygame.KEYDOWN:
-                key = getattr(e, "key", None)
+            if not hasattr(e, "type") or e.type != pygame.KEYDOWN:
+                continue
+            key = getattr(e, "key", None)
+            if key is None:
+                continue
+            
+            try:
                 if key == pygame.K_ESCAPE:
                     out["pop"] = True
                     break
@@ -101,110 +118,162 @@ class ShaderSettingsScreen:
                 elif key == pygame.K_UP:
                     # Navigate parameter list if shader selected, otherwise navigate categories/shaders
                     if self.selected_shader and self._param_keys:
+                        old_idx = self.selected_param_index
                         self.selected_param_index = max(0, self.selected_param_index - 1)
+                        if old_idx == self.selected_param_index and old_idx > 0:
+                            print(f"[ShaderSettings] UP: param index unchanged at {self.selected_param_index}")
                     else:
+                        old_cat = self.selected_category
+                        old_shader = self.selected_shader
                         self._navigate_up()
+                        if old_cat == self.selected_category and old_shader == self.selected_shader:
+                            print(f"[ShaderSettings] UP: navigation didn't change selection")
                 elif key == pygame.K_DOWN:
                     # Navigate parameter list if shader selected, otherwise navigate categories/shaders
                     if self.selected_shader and self._param_keys:
+                        old_idx = self.selected_param_index
                         self.selected_param_index = min(len(self._param_keys) - 1, self.selected_param_index + 1)
+                        if old_idx == self.selected_param_index and old_idx < len(self._param_keys) - 1:
+                            print(f"[ShaderSettings] DOWN: param index unchanged at {self.selected_param_index}")
                     else:
+                        old_cat = self.selected_category
+                        old_shader = self.selected_shader
                         self._navigate_down()
+                        if old_cat == self.selected_category and old_shader == self.selected_shader:
+                            print(f"[ShaderSettings] DOWN: navigation didn't change selection")
                 elif key == pygame.K_LEFT:
+                    old_shader = self.selected_shader
                     self._navigate_left()
+                    if old_shader == self.selected_shader and old_shader is not None:
+                        print(f"[ShaderSettings] LEFT: navigation didn't change selection")
                 elif key == pygame.K_RIGHT:
+                    old_shader = self.selected_shader
                     self._navigate_right()
+                    if old_shader == self.selected_shader and self.selected_category and not self.selected_shader:
+                        print(f"[ShaderSettings] RIGHT: navigation didn't select shader")
                 elif key == pygame.K_RETURN or key == pygame.K_SPACE:
                     self._toggle_selected_shader()
                 elif key in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
                     self._adjust_parameter(0.1)
                 elif key in (pygame.K_MINUS, pygame.K_KP_MINUS):
                     self._adjust_parameter(-0.1)
+            except Exception as ex:
+                # Log error but don't crash - allow other keys to work
+                import traceback
+                print(f"[ShaderSettings] Error processing key {key}: {ex}")
+                traceback.print_exc()
         
         return out
     
     def _navigate_up(self) -> None:
         """Navigate up in current selection."""
-        if self.selected_shader:
-            # Navigate shader list
-            try:
-                cat_enum = RegistryCategory[self.selected_category] if self.selected_category else RegistryCategory.CORE
-                shaders = shaders_by_category.get(cat_enum, [])
-            except KeyError:
-                shaders = []
-            if shaders:
-                idx = shaders.index(self.selected_shader) if self.selected_shader in shaders else 0
-                idx = max(0, idx - 1)
-                self.selected_shader = shaders[idx]
-                # Reset parameter selection when changing shader
-                self.selected_param_index = 0
-                self._param_keys = []
-        elif self.selected_category:
-            # Navigate category list
-            categories = list(RegistryCategory)
-            if categories:
+        try:
+            if self.selected_shader:
+                # Navigate shader list
                 try:
-                    current_cat = RegistryCategory[self.selected_category]
-                    idx = categories.index(current_cat)
-                except (KeyError, ValueError):
-                    idx = 0
-                idx = max(0, idx - 1)
-                self.selected_category = categories[idx].value.upper()
-                # Select first shader in new category
-                shaders = shaders_by_category.get(categories[idx], [])
-                self.selected_shader = shaders[0] if shaders else None
-                # Reset parameter selection when changing shader
-                self.selected_param_index = 0
-                self._param_keys = []
+                    cat_enum = RegistryCategory[self.selected_category] if self.selected_category else RegistryCategory.CORE
+                    shaders = shaders_by_category.get(cat_enum, [])
+                except KeyError:
+                    shaders = []
+                if shaders and len(shaders) > 1:
+                    idx = shaders.index(self.selected_shader) if self.selected_shader in shaders else 0
+                    idx = max(0, idx - 1)
+                    self.selected_shader = shaders[idx]
+                    # Reset parameter selection when changing shader
+                    self._update_param_keys()
+            elif self.selected_category:
+                # Navigate category list
+                categories = list(RegistryCategory)
+                if categories and len(categories) > 1:
+                    try:
+                        current_cat = RegistryCategory[self.selected_category]
+                        idx = categories.index(current_cat)
+                    except (KeyError, ValueError):
+                        idx = 0
+                    idx = max(0, idx - 1)
+                    self.selected_category = categories[idx].value.upper()
+                    # Select first shader in new category
+                    shaders = shaders_by_category.get(categories[idx], [])
+                    self.selected_shader = shaders[0] if shaders else None
+                    # Reset parameter selection when changing shader
+                    if self.selected_shader:
+                        self._update_param_keys()
+                    else:
+                        self._param_keys = []
+                        self.selected_param_index = 0
+        except Exception as ex:
+            import traceback
+            print(f"[ShaderSettings] Error in _navigate_up: {ex}")
+            traceback.print_exc()
     
     def _navigate_down(self) -> None:
         """Navigate down in current selection."""
-        if self.selected_shader:
-            try:
-                cat_enum = RegistryCategory[self.selected_category] if self.selected_category else RegistryCategory.CORE
-                shaders = shaders_by_category.get(cat_enum, [])
-            except KeyError:
-                shaders = []
-            if shaders:
-                idx = shaders.index(self.selected_shader) if self.selected_shader in shaders else 0
-                idx = min(len(shaders) - 1, idx + 1)
-                self.selected_shader = shaders[idx]
-                # Reset parameter selection when changing shader
-                self.selected_param_index = 0
-                self._param_keys = []
-        elif self.selected_category:
-            categories = list(RegistryCategory)
-            if categories:
+        try:
+            if self.selected_shader:
                 try:
-                    current_cat = RegistryCategory[self.selected_category]
-                    idx = categories.index(current_cat)
-                except (KeyError, ValueError):
-                    idx = 0
-                idx = min(len(categories) - 1, idx + 1)
-                self.selected_category = categories[idx].value.upper()
-                shaders = shaders_by_category.get(categories[idx], [])
-                self.selected_shader = shaders[0] if shaders else None
-                # Reset parameter selection when changing shader
-                self.selected_param_index = 0
-                self._param_keys = []
+                    cat_enum = RegistryCategory[self.selected_category] if self.selected_category else RegistryCategory.CORE
+                    shaders = shaders_by_category.get(cat_enum, [])
+                except KeyError:
+                    shaders = []
+                if shaders and len(shaders) > 1:
+                    idx = shaders.index(self.selected_shader) if self.selected_shader in shaders else 0
+                    idx = min(len(shaders) - 1, idx + 1)
+                    self.selected_shader = shaders[idx]
+                    # Reset parameter selection when changing shader
+                    self._update_param_keys()
+            elif self.selected_category:
+                categories = list(RegistryCategory)
+                if categories and len(categories) > 1:
+                    try:
+                        current_cat = RegistryCategory[self.selected_category]
+                        idx = categories.index(current_cat)
+                    except (KeyError, ValueError):
+                        idx = 0
+                    idx = min(len(categories) - 1, idx + 1)
+                    self.selected_category = categories[idx].value.upper()
+                    shaders = shaders_by_category.get(categories[idx], [])
+                    self.selected_shader = shaders[0] if shaders else None
+                    # Reset parameter selection when changing shader
+                    if self.selected_shader:
+                        self._update_param_keys()
+                    else:
+                        self._param_keys = []
+                        self.selected_param_index = 0
+        except Exception as ex:
+            import traceback
+            print(f"[ShaderSettings] Error in _navigate_down: {ex}")
+            traceback.print_exc()
     
     def _navigate_left(self) -> None:
         """Navigate to category selection."""
-        if self.selected_shader:
-            self.selected_shader = None
-            # Reset parameter selection when leaving shader
-            self.selected_param_index = 0
-            self._param_keys = []
+        try:
+            if self.selected_shader:
+                self.selected_shader = None
+                # Reset parameter selection when leaving shader
+                self._param_keys = []
+                self.selected_param_index = 0
+        except Exception as ex:
+            import traceback
+            print(f"[ShaderSettings] Error in _navigate_left: {ex}")
+            traceback.print_exc()
     
     def _navigate_right(self) -> None:
         """Navigate to shader selection."""
-        if self.selected_category and not self.selected_shader:
-            try:
-                cat_enum = RegistryCategory[self.selected_category]
-                shaders = shaders_by_category.get(cat_enum, [])
-            except KeyError:
-                shaders = []
-            self.selected_shader = shaders[0] if shaders else None
+        try:
+            if self.selected_category and not self.selected_shader:
+                try:
+                    cat_enum = RegistryCategory[self.selected_category]
+                    shaders = shaders_by_category.get(cat_enum, [])
+                except KeyError:
+                    shaders = []
+                self.selected_shader = shaders[0] if shaders else None
+                # Build parameter keys when shader is selected
+                if self.selected_shader:
+                    self._update_param_keys()
+        except Exception as ex:
+            import traceback
+            print(f"[ShaderSettings] Error in _navigate_right: {ex}")
+            traceback.print_exc()
     
     def _toggle_selected_shader(self) -> None:
         """Toggle selected shader on/off."""
@@ -212,10 +281,27 @@ class ShaderSettingsScreen:
             self.shader_enabled[self.selected_shader] = not self.shader_enabled.get(self.selected_shader, False)
             self._update_preview_pipeline()
     
+    def _update_param_keys(self) -> None:
+        """Update parameter keys list for currently selected shader."""
+        if not self.selected_shader:
+            self._param_keys = []
+            return
+        
+        uniforms = self.shader_uniforms.get(self.selected_shader, {})
+        param_items = list(uniforms.items())
+        self._param_keys = [key for key, _ in param_items]
+        # Reset selection to first parameter
+        if self._param_keys:
+            self.selected_param_index = 0
+    
     def _adjust_parameter(self, delta: float) -> None:
         """Adjust the selected parameter of the selected shader."""
         if not self.selected_shader:
             return
+        
+        # Ensure param keys are built
+        if not self._param_keys:
+            self._update_param_keys()
         
         uniforms = self.shader_uniforms.get(self.selected_shader, {})
         if not uniforms or not self._param_keys:
@@ -280,33 +366,41 @@ class ShaderSettingsScreen:
                     uniforms["u_Time"] = self.demo_time
         
         # Category-specific animations
-        if self.selected_category == ShaderCategory.COMBAT:
-            # Trigger shockwave every few seconds
-            if self.demo_time - self.last_shockwave_trigger > 3.0:
-                get_shockwave_manager().trigger(0.5, 0.5, 1.0)
-                self.last_shockwave_trigger = self.demo_time
-        
-        elif self.selected_category == ShaderCategory.WATER:
-            # Trigger ripple every few seconds
-            if self.demo_time - self.last_ripple_trigger > 2.5:
-                self.last_ripple_trigger = self.demo_time
-                # Update water_ripple center if enabled
-                if "water_ripple" in self.shader_enabled and self.shader_enabled["water_ripple"]:
-                    uniforms = self.shader_uniforms.get("water_ripple", {})
-                    uniforms["u_Center"] = (0.3 + (self.demo_time * 0.1) % 0.4, 0.3 + (self.demo_time * 0.15) % 0.4)
-        
-        elif self.selected_category == ShaderCategory.LIGHTING:
-            # Rotate light source
-            light_mgr = get_light_manager()
-            if light_mgr.lights:
-                angle = self.demo_time * 0.5
-                light_mgr.lights[0].pos = (0.5 + math.cos(angle) * 0.3, 0.5 + math.sin(angle) * 0.3)
+        try:
+            cat_enum = RegistryCategory[self.selected_category]
+            
+            if cat_enum == RegistryCategory.COMBAT:
+                # Trigger shockwave every few seconds
+                if self.demo_time - self.last_shockwave_trigger > 3.0:
+                    get_shockwave_manager().trigger(0.5, 0.5, 1.0)
+                    self.last_shockwave_trigger = self.demo_time
+            
+            elif cat_enum == RegistryCategory.WATER:
+                # Trigger ripple every few seconds
+                if self.demo_time - self.last_ripple_trigger > 2.5:
+                    self.last_ripple_trigger = self.demo_time
+                    # Update water_ripple center if enabled
+                    if "water_ripple" in self.shader_enabled and self.shader_enabled["water_ripple"]:
+                        uniforms = self.shader_uniforms.get("water_ripple", {})
+                        uniforms["u_Center"] = (0.3 + (self.demo_time * 0.1) % 0.4, 0.3 + (self.demo_time * 0.15) % 0.4)
+            
+            elif cat_enum == RegistryCategory.LIGHTING:
+                # Rotate light source
+                light_mgr = get_light_manager()
+                if light_mgr.lights:
+                    angle = self.demo_time * 0.5
+                    light_mgr.lights[0].pos = (0.5 + math.cos(angle) * 0.3, 0.5 + math.sin(angle) * 0.3)
+        except (KeyError, TypeError):
+            pass
     
     def handle_input_transition(self, events, game_state: "GameState", ctx: dict) -> SceneTransition:
         """Handle input and return transition."""
+        # Always process input - this updates selected_category, selected_shader, etc.
         result = self.handle_input(events, game_state, ctx)
         if result.get("pop"):
             return SceneTransition.pop()
+        # Return NONE - navigation and parameter adjustments handled in handle_input above
+        # The state (selected_category, selected_shader, selected_param_index) was updated in handle_input
         return SceneTransition.none()
     
     def update_transition(self, dt: float, game_state: "GameState", ctx: dict) -> SceneTransition:
@@ -467,11 +561,15 @@ class ShaderSettingsScreen:
         pygame.draw.circle(surface, (255, 150, 50), (center_x, center_y), 20)
         
         # Draw moving elements based on category
-        if self.selected_category == ShaderCategory.RETRO:
-            # Scrolling background
-            offset = int(self.demo_time * 10) % 40
-            for i in range(-40, w + 40, 40):
-                pygame.draw.rect(surface, (100, 150, 200), (i + offset, h // 3, 20, 20))
+        try:
+            cat_enum = RegistryCategory[self.selected_category] if self.selected_category else None
+            if cat_enum == RegistryCategory.RETRO:
+                # Scrolling background
+                offset = int(self.demo_time * 10) % 40
+                for i in range(-40, w + 40, 40):
+                    pygame.draw.rect(surface, (100, 150, 200), (i + offset, h // 3, 20, 20))
+        except (KeyError, TypeError):
+            pass
     
     def _render_parameters(self, screen: pygame.Surface, x: int, y: int, w: int, h: int, render_ctx: RenderContext) -> None:
         """Render shader parameters."""
@@ -483,10 +581,12 @@ class ShaderSettingsScreen:
             screen.blit(text, (x + 10, y + 10))
             return
         
-        # Build stable list of parameter keys for the currently selected shader
+        # Ensure param keys are built (in case they weren't built yet)
+        if not self._param_keys:
+            self._update_param_keys()
+        
         uniforms = self.shader_uniforms.get(self.selected_shader, {})
         param_items = list(uniforms.items())
-        self._param_keys = [key for key, _ in param_items]
         
         # Render parameter controls
         font = render_ctx.small_font

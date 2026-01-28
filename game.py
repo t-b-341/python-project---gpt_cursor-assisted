@@ -762,15 +762,20 @@ def _handle_events(
                 handled_by_screen = True
             else:
                 # Transition is NONE, but handle_input was called (config changes applied)
+                # For PAUSED and SHADER_SETTINGS, the input was handled, so mark as handled
                 current_state = _get_current_state(scene_stack) or game_state.current_screen
                 if current_state == STATE_MENU:
                     handled_by_screen = False  # Let fallback process start_game
-                elif current_state in (STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", STATE_TITLE):
-                    handled_by_screen = True
-                elif current_state == STATE_PAUSED:
-                    handled_by_screen = False  # Let fallback process restart/quit
-        except AttributeError:
+                elif current_state in (STATE_HIGH_SCORES, STATE_NAME_INPUT, "SHADER_TEST", "SHADER_SETTINGS", STATE_TITLE, STATE_PAUSED):
+                    handled_by_screen = True  # Scene handled its own input
+        except AttributeError as e:
+            # Scene doesn't have handle_input_transition, fall through to fallback
             pass
+        except Exception as e:
+            # Log other errors but don't crash
+            import traceback
+            print(f"[_handle_events] Error in scene handle_input_transition: {e}")
+            traceback.print_exc()
     
     # Fallback to old input handling if scene path didn't handle it
     current_state = _get_current_state(scene_stack) or game_state.current_screen
@@ -833,6 +838,7 @@ def _handle_events(
             game_state.wave_start_reason = "menu_start"
             spawn_system_start_wave(game_state.wave_number, game_state)
         current_state = _get_current_state(scene_stack) or game_state.current_screen
+        # Sync pause_selected from game_state (handler may have updated it)
         if current_state == STATE_PAUSED:
             pause_selected = game_state.ui.pause_selected
         if result.get("screen") is not None and not result.get("start_game"):
@@ -947,33 +953,9 @@ def _handle_events(
             if event.key == pygame.K_F3:
                 _print_active_shader_profiles(ctx.config)
             
-            if current_state == STATE_PAUSED:
-                if event.key == pygame.K_UP or event.key == pygame.K_w:
-                    pause_selected = (pause_selected - 1) % len(pause_options)
-                    game_state.ui.pause_selected = pause_selected
-                elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                    pause_selected = (pause_selected + 1) % len(pause_options)
-                    game_state.ui.pause_selected = pause_selected
-                elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                    choice = pause_options[pause_selected]
-                    if choice == "Continue":
-                        scene_stack.pop()
-                        new_state = _get_current_state(scene_stack) or previous_game_state or STATE_PLAYING
-                        game_state.current_screen = new_state
-                    elif choice == "Restart (Wave 1)":
-                        game_state.reset_run(ctx, center_player=True)
-                        scene_stack.clear()
-                        scene_stack.push(GameplayScene(STATE_PLAYING))
-                        game_state.current_screen = STATE_PLAYING
-                        spawn_system_start_wave(1, game_state)
-                        play_music("in-game", loop=True)
-                    elif choice == "Exit to main menu":
-                        play_music("ambient2", loop=True)
-                        scene_stack.clear()
-                        scene_stack.push(OptionsScene())
-                        game_state.current_screen = STATE_MENU
-                    elif choice == "Quit":
-                        return False, previous_game_state, pause_selected, controls_selected, controls_rebinding
+            # Pause menu input is now handled by PauseScene.handle_input, so skip legacy handling
+            # if current_state == STATE_PAUSED:
+            #     ... (removed - handled by scene)
             
             if current_state == STATE_CONTROLS and controls_rebinding:
                 if event.key != pygame.K_ESCAPE:
@@ -1348,7 +1330,8 @@ def _run_loop(app):
             game_state.previous_screen = previous_game_state
             # menu_section is already updated directly in game_state by scenes, so don't overwrite it
             # game_state.menu_section = menu_section  # Removed - scenes update it directly
-            game_state.ui.pause_selected = pause_selected
+            # pause_selected is updated directly by pause handler, so don't overwrite it
+            # game_state.ui.pause_selected = pause_selected  # Removed - handler updates directly
             game_state.ui.continue_blink_t = continue_blink_t
             game_state.ui.controls_selected = controls_selected
             game_state.controls_rebinding = controls_rebinding

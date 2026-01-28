@@ -19,23 +19,48 @@ def handle_events(events, game_state, ctx):
     submenu = game_state.ui.pause_submenu
 
     for event in events:
-        if event.type != pygame.KEYDOWN:
+        if not hasattr(event, "type") or event.type != pygame.KEYDOWN:
             continue
         if submenu == "shaders":
-            row = game_state.ui.pause_shader_options_row
+            # Debug: verify we're in shader submenu
+            if event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_w, pygame.K_s):
+                print(f"[Pause Shader Submenu] Processing {event.key} in submenu='{submenu}'")
+            # Ensure row is initialized
+            if game_state is not None:
+                if not hasattr(game_state.ui, 'pause_shader_options_row'):
+                    game_state.ui.pause_shader_options_row = 0
+                row = game_state.ui.pause_shader_options_row
+            else:
+                row = 0
+            
             _pp = ["none", "pause_dim_vignette"]
             _gp = ["none", "gameplay_subtle_vignette", "gameplay_retro"]
+            
             if event.key == pygame.K_ESCAPE:
                 if game_state is not None:
                     game_state.ui.pause_submenu = None
                 break
-            if event.key in (pygame.K_UP, pygame.K_w):
+            elif event.key in (pygame.K_UP, pygame.K_w):
                 if game_state is not None:
-                    game_state.ui.pause_shader_options_row = (row - 1) % 4
+                    # Ensure row is initialized
+                    if not hasattr(game_state.ui, 'pause_shader_options_row'):
+                        game_state.ui.pause_shader_options_row = 0
+                    current = game_state.ui.pause_shader_options_row
+                    new = (current - 1) % 4
+                    game_state.ui.pause_shader_options_row = new
+                    print(f"[Pause Shader Submenu] UP: row {current} -> {new}")
             elif event.key in (pygame.K_DOWN, pygame.K_s):
                 if game_state is not None:
-                    game_state.ui.pause_shader_options_row = (row + 1) % 4
+                    # Ensure row is initialized
+                    if not hasattr(game_state.ui, 'pause_shader_options_row'):
+                        game_state.ui.pause_shader_options_row = 0
+                    current = game_state.ui.pause_shader_options_row
+                    new = (current + 1) % 4
+                    game_state.ui.pause_shader_options_row = new
+                    print(f"[Pause Shader Submenu] DOWN: row {current} -> {new}")
             elif event.key in (pygame.K_LEFT, pygame.K_a) and cfg is not None:
+                # Refresh row value in case it was just updated
+                row = game_state.ui.pause_shader_options_row if game_state is not None else 0
                 if row == 0:
                     cfg.enable_gameplay_shaders = not cfg.enable_gameplay_shaders
                 elif row == 1:
@@ -49,6 +74,8 @@ def handle_events(events, game_state, ctx):
                     i = (_pp.index(cur) if cur in _pp else 0) - 1
                     cfg.pause_shader_profile = _pp[i % len(_pp)]
             elif event.key in (pygame.K_RIGHT, pygame.K_d) and cfg is not None:
+                # Refresh row value in case it was just updated
+                row = game_state.ui.pause_shader_options_row if game_state is not None else 0
                 if row == 0:
                     cfg.enable_gameplay_shaders = not cfg.enable_gameplay_shaders
                 elif row == 1:
@@ -62,6 +89,8 @@ def handle_events(events, game_state, ctx):
                     i = (_pp.index(cur) if cur in _pp else 0) + 1
                     cfg.pause_shader_profile = _pp[i % len(_pp)]
             continue
+        
+        # Handle ESCAPE key
         if event.key == pygame.K_ESCAPE:
             if game_state is not None:
                 target = game_state.previous_screen or STATE_PLAYING
@@ -71,12 +100,24 @@ def handle_events(events, game_state, ctx):
                 target = STATE_PLAYING
             out["screen"] = target
             break
+        
+        # Handle navigation keys (only if not in submenu)
         if event.key == pygame.K_UP or event.key == pygame.K_w:
             if game_state is not None:
-                game_state.ui.pause_selected = (game_state.ui.pause_selected - 1) % len(pause_options)
+                current = game_state.ui.pause_selected
+                new = (current - 1) % len(pause_options)
+                game_state.ui.pause_selected = new
+                # Debug: verify update
+                if game_state.ui.pause_selected != new:
+                    print(f"[Pause] Warning: pause_selected not updated correctly: expected {new}, got {game_state.ui.pause_selected}")
         elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
             if game_state is not None:
-                game_state.ui.pause_selected = (game_state.ui.pause_selected + 1) % len(pause_options)
+                current = game_state.ui.pause_selected
+                new = (current + 1) % len(pause_options)
+                game_state.ui.pause_selected = new
+                # Debug: verify update
+                if game_state.ui.pause_selected != new:
+                    print(f"[Pause] Warning: pause_selected not updated correctly: expected {new}, got {game_state.ui.pause_selected}")
         elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
             if game_state is None:
                 continue
@@ -95,6 +136,11 @@ def handle_events(events, game_state, ctx):
             elif choice == "Shader options":
                 if game_state is not None:
                     game_state.ui.pause_submenu = "shaders"
+                    # Initialize shader options row when entering submenu
+                    if not hasattr(game_state.ui, 'pause_shader_options_row'):
+                        game_state.ui.pause_shader_options_row = 0
+                    else:
+                        game_state.ui.pause_shader_options_row = 0  # Reset to first option
             elif choice == "Exit to main menu":
                 out["screen"] = STATE_MENU
             elif choice == "Quit":
@@ -120,6 +166,9 @@ def render(render_ctx: RenderContext, game_state, screen_ctx) -> None:
     if submenu == "shaders":
         app_ctx = screen_ctx.get("app_ctx") if isinstance(screen_ctx, dict) else None
         cfg = getattr(app_ctx, "config", None) if app_ctx else None
+        # Ensure row is initialized
+        if not hasattr(game_state.ui, 'pause_shader_options_row'):
+            game_state.ui.pause_shader_options_row = 0
         row = game_state.ui.pause_shader_options_row
         if cfg is not None:
             lines = [

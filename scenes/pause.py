@@ -19,6 +19,7 @@ class PauseScene:
 
     def handle_input_transition(self, events, game_state, ctx: dict) -> SceneTransition:
         """Call existing handle_input logic and process the result. Return transition if needed."""
+        # Always process input - this updates pause_selected and handles shader submenu
         result = self.handle_input(events, game_state, ctx)
         # Process result to handle screen changes, quit, restart, etc.
         if result.get("quit"):
@@ -35,6 +36,7 @@ class PauseScene:
             elif screen == STATE_MENU:
                 return SceneTransition.replace(STATE_MENU)
         # Return NONE - pause menu navigation and shader submenu handled in handle_input
+        # The state (pause_selected, pause_shader_options_row) was updated in handle_input above
         return SceneTransition.none()
 
     def update_transition(self, dt: float, game_state, ctx: dict) -> SceneTransition:
