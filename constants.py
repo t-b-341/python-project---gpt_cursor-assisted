@@ -144,6 +144,8 @@ from config.balance import (
     laser_length,
     missile_cooldown,
     missile_damage,
+    rocket_cooldown,
+    rocket_damage,
     overshield_max,
     overshield_recharge_cooldown,
     player_bullet_damage,

@@ -49,9 +49,11 @@ overshield_recharge_cooldown = 45.0
 grenade_cooldown = 2.0
 grenade_damage = 1500
 
-# Missile
-missile_cooldown = 0.267  # Increased fire rate by 1.5x (0.4 / 1.5)
+# Missile / Rocket (same thing: player seeking missiles)
+missile_cooldown = 0.1335  # 2x rate of fire (0.267 / 2)
 missile_damage = 800
+rocket_cooldown = missile_cooldown  # alias: missile = rocket
+rocket_damage = missile_damage
 
 # Ally drop
 ally_drop_cooldown = 3.0
