@@ -205,6 +205,7 @@ from allies import (
 )
 from state import GameState
 from context import AppContext
+from event_bus import EventBus, GameEvent
 from config import GameConfig
 # TODO: Remove SCREEN_HANDLERS import once all screens are fully migrated to scenes
 # from screens import SCREEN_HANDLERS  # Deprecated - use scenes instead
@@ -276,6 +277,7 @@ def _create_window_and_clock() -> tuple[pygame.Surface, pygame.time.Clock, int, 
 
 def _build_app_context(screen: pygame.Surface, clock: pygame.time.Clock, width: int, height: int, using_c_physics: bool) -> AppContext:
     """Build AppContext with config, controls, and resources."""
+    from event_bus import EventBus
     controls = load_controls()
     
     cfg = GameConfig(
@@ -296,6 +298,7 @@ def _build_app_context(screen: pygame.Surface, clock: pygame.time.Clock, width: 
         mod_custom_waves_enabled=False,
     )
     
+    event_bus = EventBus()
     ctx = AppContext(
         screen=screen,
         clock=clock,
@@ -309,6 +312,7 @@ def _build_app_context(screen: pygame.Surface, clock: pygame.time.Clock, width: 
         controls=controls,
         config=cfg,
         using_c_physics=using_c_physics,
+        event_bus=event_bus,
     )
     sync_from_config(ctx.config)
     return ctx
@@ -362,7 +366,7 @@ def _build_initial_game_state(ctx: AppContext) -> GameState:
                 player_rect=getattr(s, "player_rect", None),
                 spawn_ally_missile_func=lambda f, t, st: spawn_ally_missile(f, t, st),
             ),
-            "kill_enemy": lambda e, s: kill_enemy(e, s, w, h),
+            "kill_enemy": lambda e, s: kill_enemy(e, s, w, h, getattr(ctx, "event_bus", None)),
             "destructible_blocks": lv.destructible_blocks,
             "moveable_destructible_blocks": lv.moveable_blocks,
             "giant_blocks": lv.giant_blocks,
@@ -2277,7 +2281,7 @@ def spawn_ally_missile(friendly: dict, target_enemy: dict, state: GameState) -> 
         })
 
 
-def kill_enemy(enemy: dict, state: GameState, width: int, height: int) -> None:
+def kill_enemy(enemy: dict, state: GameState, width: int, height: int, event_bus: object | None = None) -> None:
     """Handle enemy death: drop weapon, update score, remove from list, and clean up projectiles."""
     play_sfx("enemy_death")
     is_boss = enemy.get("is_boss", False)
@@ -2342,8 +2346,17 @@ def kill_enemy(enemy: dict, state: GameState, width: int, height: int) -> None:
         state.enemies.remove(enemy)
     except ValueError:
         pass  # Already removed
+    score_delta = calculate_kill_score(state.wave_number, state.run_time)
     state.enemies_killed += 1
-    state.score += calculate_kill_score(state.wave_number, state.run_time)
+    state.score += score_delta
+
+    if event_bus is not None and hasattr(event_bus, "publish"):
+        event_bus.publish(GameEvent("enemy_killed", {
+            "enemy_type": enemy_type,
+            "is_boss": is_boss,
+            "wave_number": state.wave_number,
+            "score_delta": score_delta,
+        }))
 
 
 # apply_pickup_effect is now imported from pickups.py

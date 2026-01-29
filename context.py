@@ -48,3 +48,6 @@ class AppContext:
 
     # Physics backend: True if C-accelerated game_physics is in use, False if Python fallback
     using_c_physics: bool = False
+
+    # Event bus for decoupling systems (optional; None or no-op when not set)
+    event_bus: Optional[Any] = None
