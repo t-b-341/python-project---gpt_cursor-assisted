@@ -7,6 +7,7 @@ from __future__ import annotations
 import pygame
 import pytest
 
+from constants import STATE_NAME_INPUT
 from level_state import LevelState
 from state import GameState
 from systems.collision_system import update as collision_update
@@ -201,6 +202,51 @@ class TestPickupCollection:
 
         assert pickup not in state.pickups
         assert applied == [("health", state)]
+
+
+class TestDeathWhenHealthReachesZero:
+    """When player HP reaches zero, death mechanic runs: respawn (if lives + reset) or game over."""
+
+    def test_health_reaches_zero_with_lives_triggers_respawn(self, state_for_collisions):
+        state = state_for_collisions
+        state.player_hp = 25
+        state.player_max_hp = 1000
+        state.lives = 1
+        reset_calls = []
+
+        def mock_reset(s):
+            reset_calls.append(s)
+            s.player_hp = s.player_max_hp
+
+        state.level_context["reset_after_death"] = mock_reset
+        state.level_context["log_player_death"] = None
+        proj = {"rect": pygame.Rect(100, 100, 12, 12), "damage": 25}
+        state.enemy_projectiles.append(proj)
+
+        collision_update(state, 0.016)
+
+        assert len(reset_calls) == 1
+        assert reset_calls[0] is state
+        assert state.player_hp == state.player_max_hp
+        assert state.lives == 0
+
+    def test_health_reaches_zero_no_lives_transitions_to_name_input(self, state_for_collisions):
+        state = state_for_collisions
+        state.player_hp = 25
+        state.player_max_hp = 1000
+        state.lives = 0
+        state.score = 5000
+        state.level_context["reset_after_death"] = None
+        state.level_context["log_player_death"] = None
+        proj = {"rect": pygame.Rect(100, 100, 12, 12), "damage": 25}
+        state.enemy_projectiles.append(proj)
+
+        collision_update(state, 0.016)
+
+        assert state.player_hp <= 0
+        assert state.current_screen == STATE_NAME_INPUT
+        assert state.final_score_for_high_score == 5000
+        assert state.name_input_active is True
 
 
 class TestModuleLevelPlayerBulletOffscreen:
