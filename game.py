@@ -81,6 +81,8 @@ except Exception as e:
     check_collisions_batch = None
     print("gpu_physics: could not load ({}). Using CPU physics.".format(e))
 
+from telemetry.event_bus_handlers import register_telemetry_event_handlers
+from telemetry.event_bus_handlers import register_telemetry_event_handlers
 from telemetry import (
     Telemetry,
     NoOpTelemetry,
@@ -501,7 +503,10 @@ def _create_app():
     game_state = _build_initial_game_state(ctx)
     _setup_initial_resources()
     _prompt_shader_mode(ctx)
-    
+
+    # Hook telemetry handlers into EventBus
+    register_telemetry_event_handlers(ctx.event_bus, ctx, game_state)
+
     FPS, FIXED_DT, MAX_SIMULATION_STEPS = _build_loop_params()
     
     def _update_simulation(sim_dt: float, gs: GameState, app_ctx: AppContext) -> None:
@@ -2351,12 +2356,16 @@ def kill_enemy(enemy: dict, state: GameState, width: int, height: int, event_bus
     state.score += score_delta
 
     if event_bus is not None and hasattr(event_bus, "publish"):
-        event_bus.publish(GameEvent("enemy_killed", {
-            "enemy_type": enemy_type,
-            "is_boss": is_boss,
-            "wave_number": state.wave_number,
-            "score_delta": score_delta,
-        }))
+        try:
+            event_bus.publish(GameEvent("enemy_killed", {
+                "enemy_type": enemy_type,
+                "is_boss": is_boss,
+                "wave_number": state.wave_number,
+                "score_delta": score_delta,
+            }))
+        except Exception:
+            import logging
+            logging.exception("Failed to publish enemy_killed")
 
 
 # apply_pickup_effect is now imported from pickups.py
