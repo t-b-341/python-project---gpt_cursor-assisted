@@ -53,6 +53,7 @@ SCREEN_HANDLERS and RenderContext.from_app_ctx(ctx).
 # -----------------------------------------------------------------------------
 """
 import json
+import logging
 import math
 import os
 import random
@@ -79,9 +80,8 @@ except Exception as e:
     USE_GPU = False
     update_bullets_batch = None
     check_collisions_batch = None
-    print("gpu_physics: could not load ({}). Using CPU physics.".format(e))
+    logging.getLogger(__name__).debug("gpu_physics unavailable (%s), using CPU physics.", e)
 
-from telemetry.event_bus_handlers import register_telemetry_event_handlers
 from telemetry.event_bus_handlers import register_telemetry_event_handlers
 from telemetry import (
     Telemetry,
@@ -1916,12 +1916,14 @@ def spawn_pickup(pickup_type: str, state: GameState):
                 (255, 255, 100),  # yellow
             ]
             color = random.choice(mystery_colors)
+            run_time = getattr(state, "run_time", 0.0)
             state.pickups.append({
                 "type": pickup_type,
                 "rect": r,
                 "color": color,
                 "timer": 15.0,
                 "age": 0.0,
+                "spawn_t": run_time,
             })
             return
 
@@ -1938,45 +1940,37 @@ def spawn_weapon_in_center(weapon_type: str, state: GameState, width: int, heigh
         weapon_pickup_size[0],
         weapon_pickup_size[1]
     )
+    run_time = getattr(state, "run_time", 0.0)
     state.pickups.append({
         "type": weapon_type,
         "rect": weapon_pickup_rect,
         "color": WEAPON_DISPLAY_COLORS.get(weapon_type, (180, 100, 255)),
         "timer": 30.0,  # Level completion weapons last longer
         "age": 0.0,
+        "spawn_t": run_time,
         "is_weapon_drop": True,
         "is_level_reward": True,  # Mark as level completion reward
     })
 
 
 def spawn_weapon_drop(enemy: dict, state: GameState):
-    """Spawn a drop from a killed enemy: giant (only weapon drop), health, armor, sprint, speed, or dash_recharge."""
-    # 15% chance to drop something (0.5x former 30% rate)
-    if random.random() >= 0.15:
-            return
-    drop_types = ["giant", "health", "armor", "sprint", "speed", "dash_recharge"]
-    pickup_type = random.choice(drop_types)
+    """Spawn a bonus-points drop from a killed enemy. 1/10th former rate; despawns after 7s."""
+    # 1.5% chance to drop (1/10th of former 15% rate)
+    if random.random() >= 0.015:
+        return
     size = (56, 56)
     r = pygame.Rect(
         enemy["rect"].centerx - size[0] // 2,
         enemy["rect"].centery - size[1] // 2,
         size[0], size[1]
     )
-    drop_colors = {
-        "giant": WEAPON_DISPLAY_COLORS.get("giant", (255, 200, 0)),
-        "health": (255, 80, 80),
-        "armor": (100, 150, 255),
-        "sprint": (100, 255, 150),
-        "speed": (255, 220, 100),
-        "dash_recharge": (200, 100, 255),
-    }
+    run_time = getattr(state, "run_time", 0.0)
     state.pickups.append({
-        "type": pickup_type,
+        "type": "bonus",
         "rect": r,
-        "color": drop_colors.get(pickup_type, (180, 100, 255)),
-        "timer": 10.0,
-            "age": 0.0,
-        "is_weapon_drop": pickup_type == "giant",
+        "color": (255, 215, 0),  # gold for bonus points
+        "spawn_t": run_time,
+        "age": 0.0,
     })
 
 

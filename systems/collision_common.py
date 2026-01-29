@@ -22,6 +22,7 @@ def apply_player_damage(state, damage: int, ctx: dict) -> None:
         damage = damage - damage_to_overshield
     if damage > 0:
         state.player_hp -= damage
+        state.player_hp = max(0, state.player_hp)
         if ctx.get("enable_screen_flash", True):
             state.screen_damage_flash_timer = ctx.get("screen_flash_duration", 0.25)
         if ctx.get("enable_damage_wobble", False):

@@ -17,6 +17,7 @@ from constants import (
     jump_cooldown,
     fire_rate_buff_duration,
     ally_drop_cooldown,
+    PICKUP_BONUS_POINTS,
 )
 from config_weapons import WEAPON_NAMES, WEAPON_DISPLAY_COLORS
 from telemetry import PlayerActionEvent
@@ -174,8 +175,14 @@ def _apply_basic_weapon_pickup(game_state: "GameState", ctx: "AppContext", picku
     })
 
 
+def _apply_bonus_pickup(game_state: "GameState", ctx: "AppContext", pickup_type: str) -> None:
+    """Apply bonus pickup effect: add points only."""
+    game_state.score += PICKUP_BONUS_POINTS
+
+
 # Registry mapping pickup types to their handler functions
 PICKUP_HANDLERS = {
+    "bonus": _apply_bonus_pickup,
     "boost": _apply_boost_pickup,
     "sprint": _apply_boost_pickup,
     "armor": _apply_overshield_pickup,

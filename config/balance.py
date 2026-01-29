@@ -65,7 +65,9 @@ SCORE_TIME_MULTIPLIER = 2
 
 # Game timing / tuning
 POS_SAMPLE_INTERVAL = 0.25
-PICKUP_SPAWN_INTERVAL = 7.5
+PICKUP_SPAWN_INTERVAL = 75.0  # 1/10th former rate (was 7.5)
+PICKUP_BONUS_POINTS = 5000  # Points per bonus pickup
+PICKUP_LIFETIME = 7.0  # Seconds before pickup despawns (encourages movement)
 MAX_ENEMIES_TARGETING_PLAYER = 18
 
 # Enemy appearance / projectiles

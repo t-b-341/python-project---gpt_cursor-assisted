@@ -1,6 +1,8 @@
 """Gameplay input parsing: movement, firing, weapons, abilities. Called only when state is PLAYING or ENDURANCE."""
 from __future__ import annotations
 
+import random
+
 import pygame
 
 from constants import (
@@ -101,13 +103,13 @@ def handle_gameplay_input(events, game_state, ctx) -> None:
 
             if event.key == controls.get("ally_drop", pygame.K_q) and player:
                 if game_state.ally_drop_timer >= ally_drop_cooldown_val:
-                    tank_template = next((t for t in FRIENDLY_AI_TEMPLATES if t.get("type") == "tank"), None)
-                    if tank_template:
+                    if FRIENDLY_AI_TEMPLATES:
+                        ally_template = random.choice(FRIENDLY_AI_TEMPLATES)
                         pc = pygame.Vector2(player.center)
                         d = (-game_state.last_move_velocity.normalize() if game_state.last_move_velocity.length_squared() > 0
                              else pygame.Vector2(0, 1))
                         pos = pc + d * 60
-                        friendly = make_friendly_from_template(tank_template, 1.0, 1.0)
+                        friendly = make_friendly_from_template(ally_template, 1.0, 1.0)
                         hp = max(1, game_state.player_max_hp // 2)
                         friendly["hp"] = friendly["max_hp"] = hp
                         friendly["rect"].center = (int(pos.x), int(pos.y))

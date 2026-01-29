@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from constants import (
     HIGH_SCORES_DB,
+    PICKUP_LIFETIME,
     SCORE_BASE_POINTS,
     SCORE_TIME_MULTIPLIER,
     SCORE_WAVE_MULTIPLIER,
@@ -18,7 +19,14 @@ from state import GameState
 
 
 def update_pickup_effects(dt: float, state: GameState) -> None:
-    """Update pickup particle effects."""
+    """Update pickup particle effects and despawn pickups older than PICKUP_LIFETIME."""
+    # Despawn pickups after 7 seconds to encourage movement
+    run_time = getattr(state, "run_time", 0.0)
+    for pickup in state.pickups[:]:
+        spawn_t = pickup.get("spawn_t")
+        if spawn_t is not None and (run_time - spawn_t) >= PICKUP_LIFETIME:
+            state.pickups.remove(pickup)
+
     # Update collection effects
     for effect in state.collection_effects[:]:
         effect["x"] += effect["vel_x"] * dt
